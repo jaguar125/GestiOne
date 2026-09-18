@@ -2756,8 +2756,20 @@ function EditSaleModal({ sale, products, onSave, onClose, pushToast }) {
   const fmt = useFmt();
   const [items, setItems] = useState(sale.items.map((i) => ({ ...i })));
   const [paymentMethod, setPaymentMethod] = useState(sale.paymentMethod);
+  // Ligne en cours de remplacement d'article ("swap") : soit l'id d'une
+  // ligne existante (on remplace son article), soit "new" (on ajoute une
+  // ligne). null = aucun sélecteur ouvert.
+  const [swapTarget, setSwapTarget] = useState(null);
+  const [productSearch, setProductSearch] = useState("");
   const total = items.reduce((s, i) => s + computeItemTotal(i.product, i.qty), 0);
 
+  // Stock disponible pour un article donné dans le contexte de CETTE
+  // modification : le stock actuel, plus la quantité déjà vendue de ce même
+  // article dans la vente ORIGINALE (puisque ce stock lui a déjà été
+  // décompté et peut donc lui être re-attribué). Un article qui ne faisait
+  // pas partie de la vente d'origine n'a droit qu'à son stock disponible tel
+  // quel — c'est ce qui rend le remplacement d'article sûr : on ne peut
+  // jamais fabriquer du stock qui n'existe pas.
   const maxQty = (item) => {
     const live = products.find((p) => p.id === item.id);
     const originalQty = sale.items.find((i) => i.id === item.id)?.qty || 0;
@@ -2775,10 +2787,58 @@ function EditSaleModal({ sale, products, onSave, onClose, pushToast }) {
 
   const removeLine = (id) => setItems((prev) => prev.filter((i) => i.id !== id));
 
+  // Remplace l'article d'une ligne existante par un autre, en conservant la
+  // quantité (ajustée si le nouvel article n'a pas assez de stock). Si
+  // l'article choisi est déjà présent sur une autre ligne, les deux lignes
+  // sont fusionnées plutôt que dupliquées. L'ancienne ligne restitue
+  // automatiquement son stock au moment de l'enregistrement (handleUpdateSale
+  // compare l'ancienne et la nouvelle liste article par article), et le
+  // nouvel article voit son stock décompté — le tout appliqué uniquement à la
+  // validation, pas pendant qu'on compose l'aperçu.
+  const swapLine = (lineId, newProduct) => {
+    const line = items.find((i) => i.id === lineId);
+    if (!line) return;
+    const cap = maxQty({ id: newProduct.id });
+    if (cap <= 0) { pushToast(`${newProduct.name} est en rupture de stock`, "error"); return; }
+    const qty = Math.min(line.qty, cap);
+    if (qty < line.qty) pushToast(`Quantité ajustée à ${qty} (stock disponible pour ${newProduct.name})`, "ok");
+    setItems((prev) => {
+      const withoutOldLine = prev.filter((i) => i.id !== lineId);
+      const existing = withoutOldLine.find((i) => i.id === newProduct.id);
+      if (existing) {
+        const mergedQty = Math.min(existing.qty + qty, maxQty(existing));
+        return withoutOldLine.map((i) => (i.id === newProduct.id ? { ...i, qty: mergedQty } : i));
+      }
+      return [...withoutOldLine, { id: newProduct.id, product: newProduct, qty }];
+    });
+    setSwapTarget(null);
+    setProductSearch("");
+  };
+
+  // Ajoute un article qui ne faisait pas partie de la vente d'origine.
+  const addLine = (product) => {
+    const cap = maxQty({ id: product.id });
+    if (cap <= 0) { pushToast(`${product.name} est en rupture de stock`, "error"); return; }
+    setItems((prev) => {
+      const existing = prev.find((i) => i.id === product.id);
+      if (existing) {
+        if (existing.qty >= cap) { pushToast("Stock insuffisant pour augmenter cette ligne", "error"); return prev; }
+        return prev.map((i) => (i.id === product.id ? { ...i, qty: i.qty + 1 } : i));
+      }
+      return [...prev, { id: product.id, product, qty: 1 }];
+    });
+    setSwapTarget(null);
+    setProductSearch("");
+  };
+
   const save = () => {
     if (items.length === 0) { pushToast("La vente doit contenir au moins un article", "error"); return; }
     onSave(sale.id, items, paymentMethod);
   };
+
+  const pickerResults = swapTarget
+    ? products.filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()))
+    : [];
 
   return (
     <div className="fixed inset-0 z-[90] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
@@ -2788,41 +2848,82 @@ function EditSaleModal({ sale, products, onSave, onClose, pushToast }) {
           <button onClick={onClose} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><X size={16} /></button>
         </div>
 
-        <div className="flex flex-col gap-1 mb-4">
-          {items.map((i) => (
-            <div key={i.id} className="flex items-center justify-between gap-2 py-2.5 border-b" style={{ borderColor: "var(--line)" }}>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold truncate">{i.product.name}</p>
-                <p className="text-xs opacity-50 font-mono">{fmt(computeItemTotal(i.product, i.qty))}</p>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button onClick={() => updateQty(i.id, -1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Minus size={13} /></button>
-                <span className="w-6 text-center text-sm font-mono">{i.qty}</span>
-                <button onClick={() => updateQty(i.id, 1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Plus size={13} /></button>
-                <button onClick={() => removeLine(i.id)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center ml-1" style={{ background: "var(--paper-dim)", color: "var(--danger)" }}><Trash2 size={13} /></button>
-              </div>
+        {swapTarget ? (
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-sm font-semibold">{swapTarget === "new" ? "Ajouter un article" : "Remplacer par"}</p>
+              <button onClick={() => { setSwapTarget(null); setProductSearch(""); }} className="gb-focus text-xs font-semibold opacity-60 underline">Annuler</button>
             </div>
-          ))}
-          {items.length === 0 && <p className="text-xs opacity-50 text-center py-4">Tous les articles ont été retirés.</p>}
-        </div>
+            <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 mb-3" style={{ background: "var(--paper-dim)" }}>
+              <Search size={15} className="opacity-50 shrink-0" />
+              <input autoFocus value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Rechercher un produit" className="gb-focus bg-transparent outline-none text-sm flex-1 min-w-0" />
+            </div>
+            <div className="flex flex-col gap-1 max-h-[45vh] overflow-y-auto gb-scroll">
+              {pickerResults.map((p) => {
+                const available = maxQty({ id: p.id });
+                const disabled = available <= 0;
+                return (
+                  <button
+                    key={p.id}
+                    disabled={disabled}
+                    onClick={() => (swapTarget === "new" ? addLine(p) : swapLine(swapTarget, p))}
+                    className="gb-focus flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left"
+                    style={{ background: "var(--paper-dim)", opacity: disabled ? 0.4 : 1 }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold truncate">{p.name}</p>
+                      <p className="text-xs opacity-50 font-mono">{fmt(p.price)} · {disabled ? "rupture de stock" : `${available} en stock`}</p>
+                    </div>
+                  </button>
+                );
+              })}
+              {pickerResults.length === 0 && <p className="text-xs opacity-50 text-center py-4">Aucun produit trouvé.</p>}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col gap-1 mb-3">
+              {items.map((i) => (
+                <div key={i.id} className="flex items-center justify-between gap-2 py-2.5 border-b" style={{ borderColor: "var(--line)" }}>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate">{i.product.name}</p>
+                    <p className="text-xs opacity-50 font-mono">{fmt(computeItemTotal(i.product, i.qty))}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => setSwapTarget(i.id)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label={`Changer l'article ${i.product.name}`}><RefreshCw size={13} /></button>
+                    <button onClick={() => updateQty(i.id, -1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Minus size={13} /></button>
+                    <span className="w-6 text-center text-sm font-mono">{i.qty}</span>
+                    <button onClick={() => updateQty(i.id, 1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Plus size={13} /></button>
+                    <button onClick={() => removeLine(i.id)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center ml-1" style={{ background: "var(--paper-dim)", color: "var(--danger)" }}><Trash2 size={13} /></button>
+                  </div>
+                </div>
+              ))}
+              {items.length === 0 && <p className="text-xs opacity-50 text-center py-4">Tous les articles ont été retirés.</p>}
+            </div>
 
-        <p className="text-xs font-semibold opacity-60 mb-2">Mode de paiement</p>
-        <div className="flex gap-2 mb-5">
-          {PAYMENT_METHODS.map((m) => (
-            <button key={m.id} onClick={() => setPaymentMethod(m.id)} className="gb-focus flex-1 rounded-xl py-2 text-xs font-semibold" style={{ background: paymentMethod === m.id ? "var(--glass)" : "var(--paper-dim)", color: paymentMethod === m.id ? "#fff" : "var(--ink)" }}>
-              {m.label}
+            <button onClick={() => setSwapTarget("new")} className="gb-focus w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold mb-4" style={{ background: "var(--paper-dim)" }}>
+              <PackagePlus size={14} /> Ajouter un article
             </button>
-          ))}
-        </div>
 
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-sm opacity-60">Nouveau total</span>
-          <span className="font-mono font-bold text-lg" style={{ color: "var(--glass)" }}>{fmt(total)}</span>
-        </div>
+            <p className="text-xs font-semibold opacity-60 mb-2">Mode de paiement</p>
+            <div className="flex gap-2 mb-5">
+              {PAYMENT_METHODS.map((m) => (
+                <button key={m.id} onClick={() => setPaymentMethod(m.id)} className="gb-focus flex-1 rounded-xl py-2 text-xs font-semibold" style={{ background: paymentMethod === m.id ? "var(--glass)" : "var(--paper-dim)", color: paymentMethod === m.id ? "#fff" : "var(--ink)" }}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
 
-        <button onClick={save} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}>
-          <Check size={16} /> Enregistrer les modifications
-        </button>
+            <div className="flex justify-between items-center mb-4">
+              <span className="text-sm opacity-60">Nouveau total</span>
+              <span className="font-mono font-bold text-lg" style={{ color: "var(--glass)" }}>{fmt(total)}</span>
+            </div>
+
+            <button onClick={save} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}>
+              <Check size={16} /> Enregistrer les modifications
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
