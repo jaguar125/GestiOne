@@ -5,3 +5,6 @@ android/app/build/
 android/.gradle/
 .idea/
 *.log
+
+android/key.properties
+android/app/*.jks

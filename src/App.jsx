@@ -1138,8 +1138,9 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
         type: meta.type || backend.type,
         currency: meta.currency || backend.currency,
         adminPinHash: meta.adminPinHash,
-        theme: meta.theme, darkMode: meta.darkMode, soundsEnabled: meta.soundsEnabled,
-        loyaltyThreshold: meta.loyaltyThreshold, language: meta.language,
+        adminDisplayName: meta.adminDisplayName,
+        theme: meta.theme, darkMode: meta.darkMode, soundsEnabled: meta.soundsEnabled, voiceNotificationsEnabled: meta.voiceNotificationsEnabled,
+        loyaltyThreshold: meta.loyaltyThreshold, language: meta.language, cashRegisterResetHour: meta.cashRegisterResetHour,
         joinCode: code,
         backendLinked: true,
       };
@@ -1179,8 +1180,9 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
         type: meta.type || backend.type,
         currency: meta.currency || backend.currency,
         adminPinHash: meta.adminPinHash,
-        theme: meta.theme, darkMode: meta.darkMode, soundsEnabled: meta.soundsEnabled,
-        loyaltyThreshold: meta.loyaltyThreshold, language: meta.language,
+        adminDisplayName: meta.adminDisplayName,
+        theme: meta.theme, darkMode: meta.darkMode, soundsEnabled: meta.soundsEnabled, voiceNotificationsEnabled: meta.voiceNotificationsEnabled,
+        loyaltyThreshold: meta.loyaltyThreshold, language: meta.language, cashRegisterResetHour: meta.cashRegisterResetHour,
         joinCode: backend.join_code,
         backendLinked: true,
       };
@@ -7430,6 +7432,14 @@ function AppInner() {
   // renseigné pour AUJOURD'HUI, et redéclenchée si on tente une vente sans
   // l'avoir fait.
   const [cashRegisterModalOpen, setCashRegisterModalOpen] = useState(false);
+  // Devient true dès que la première tentative de synchronisation du fond de
+  // caisse avec le serveur s'est terminée (succès ou échec) pour la boutique
+  // active — évite d'afficher la fenêtre de saisie à un vendeur (ou à
+  // l'administrateur) alors que le montant a peut-être déjà été renseigné par
+  // quelqu'un d'autre mais que la copie locale de cet appareil ne le sait pas
+  // encore. Vrai immédiatement pour une boutique non reliée au serveur
+  // (aucune synchronisation possible, donc rien à attendre).
+  const [cashSyncReady, setCashSyncReady] = useState(false);
   const [categories, setCategories] = useState(null);
   const [movements, setMovements] = useState(null);
   const [inventories, setInventories] = useState(null);
@@ -7626,7 +7636,8 @@ function AppInner() {
   // locale si elle diffère — sur TOUS les champs (nom, type, devise, thème...),
   // pas seulement le code administrateur.
   useEffect(() => {
-    if (!shop?.backendLinked || !activeShopId) return;
+    if (!shop?.backendLinked || !activeShopId) { setCashSyncReady(true); return; }
+    setCashSyncReady(false);
     let cancelled = false;
     const syncFromServer = async () => {
       try {
@@ -7790,7 +7801,11 @@ function AppInner() {
         /* silencieux, best-effort — hors-ligne ou erreur passagère, on retentera au prochain cycle */
       }
     };
-    syncFromServer();
+    // .finally (jamais de rejet ici : syncFromServer avale déjà ses propres
+    // erreurs) sert uniquement à savoir que CE premier passage est terminé,
+    // pour ne plus faire attendre l'ouverture de l'app à la fenêtre de fond
+    // de caisse au-delà de ce premier essai — succès ou non.
+    syncFromServer().finally(() => { if (!cancelled) setCashSyncReady(true); });
     const interval = setInterval(syncFromServer, 12000);
     return () => { cancelled = true; clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -7875,6 +7890,21 @@ function AppInner() {
     return () => { window.removeEventListener("online", onOnline); clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop?.backendLinked, activeShopId]);
+
+  // Auto-réparation silencieuse, une fois par ouverture de boutique côté
+  // administrateur : un ancien bug envoyait au serveur une version incomplète
+  // de shopMeta (il manquait notamment voiceNotificationsEnabled), ce qui
+  // laissait les vendeurs bloqués avec une configuration périmée même après
+  // correction du code, tant que personne ne renvoyait une version complète.
+  // On repousse donc une fois, silencieusement, la version locale complète
+  // (déjà correcte grâce à getLocalValue) pour écraser toute donnée
+  // incomplète restée sur le serveur depuis avant ce correctif — sans rien
+  // demander à l'administrateur.
+  useEffect(() => {
+    if (!shop?.backendLinked || !activeShopId || role !== "admin") return;
+    api.syncKeyNow("shopMeta", getLocalValueRef.current("shopMeta"), activeShopId).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop?.backendLinked, activeShopId, role]);
 
   // Alertes de stock par palier — déclenchées exactement quand le stock d'un
   // produit CROISE (en baissant) l'un des seuils 5, 4, 2, 1 ou 0, quelle que
@@ -7963,11 +7993,23 @@ function AppInner() {
   // (ou au chargement si on est déjà dessus) tant qu'aucun montant n'a été
   // renseigné pour aujourd'hui — pas seulement au moment de valider une vente.
   useEffect(() => {
-    if (view === "sell" && role && shop && !todayCashEntry) {
+    if (view === "sell" && role && shop && cashSyncReady && !todayCashEntry) {
       setCashRegisterModalOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, role, shop?.id, !!todayCashEntry]);
+  }, [view, role, shop?.id, cashSyncReady, !!todayCashEntry]);
+  // Filet de sécurité : si la fenêtre est déjà ouverte (l'utilisateur est en
+  // train de regarder le champ de saisie) et qu'un montant arrive entre-temps
+  // — synchronisation périodique qui rapporte l'entrée saisie ailleurs par un
+  // autre vendeur ou par l'administrateur — on referme automatiquement la
+  // fenêtre sans rien demander de plus à cette personne.
+  useEffect(() => {
+    if (cashRegisterModalOpen && todayCashEntry) {
+      setCashRegisterModalOpen(false);
+      pushToast("Fond de caisse déjà renseigné", "ok");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!todayCashEntry]);
   const saveClients = (next) => { setClients(next); window.storage.set(`clients:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("clients"); setPendingSync(api.getPendingCount()); api.syncKeyNow("clients", next).then(() => setPendingSync(api.getPendingCount())); } };
   const onCreateClient = (name) => {
     const newClient = { id: uid(), name, phone: "", notes: "", loyaltyRedeemed: 0 };
@@ -7989,7 +8031,13 @@ function AppInner() {
     if (next.backendLinked) {
       api.markDirty("shopMeta");
       setPendingSync(api.getPendingCount());
-      const metaPayload = { name: trimmedName, type: next.type, currency: next.currency, adminPinHash: next.adminPinHash, theme: next.theme, darkMode: next.darkMode, soundsEnabled: next.soundsEnabled, loyaltyThreshold: next.loyaltyThreshold, language: next.language };
+      // Doit rester aligné avec SHOP_META_FIELDS (utilisé côté lecture pour
+      // savoir quels champs re-synchroniser depuis le serveur) : tout champ
+      // oublié ici est modifiable localement par l'administrateur mais ne
+      // remonte jamais vers le serveur, donc jamais vu par les vendeurs —
+      // c'était le cas de adminDisplayName, voiceNotificationsEnabled et
+      // cashRegisterResetHour, ajoutés pour corriger ce trou.
+      const metaPayload = { name: trimmedName, type: next.type, currency: next.currency, adminPinHash: next.adminPinHash, adminDisplayName: next.adminDisplayName, theme: next.theme, darkMode: next.darkMode, soundsEnabled: next.soundsEnabled, voiceNotificationsEnabled: next.voiceNotificationsEnabled, loyaltyThreshold: next.loyaltyThreshold, language: next.language, cashRegisterResetHour: next.cashRegisterResetHour };
       api.syncKeyNow("shopMeta", metaPayload).then(() => setPendingSync(api.getPendingCount()));
     }
     pushToast("Entreprise mise à jour", "ok");
