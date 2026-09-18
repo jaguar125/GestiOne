@@ -1082,6 +1082,32 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
   const [loading, setLoading] = useState(false);
   const [customType, setCustomType] = useState("");
   const [legalDoc, setLegalDoc] = useState(null);
+  // Synchronise l'URL avec la page légale affichée, pour qu'elle ait sa
+  // propre adresse (nécessaire pour la déclarer telle quelle dans Google
+  // Play Console — "URL des règles de confidentialité") et reste partageable
+  // ou consultable directement, sans passer par l'app. Au montage, une visite
+  // directe sur /privacy ou /cgu ouvre tout de suite le bon document ; par la
+  // suite, ouvrir/fermer le document met à jour la barre d'adresse, et le
+  // bouton précédent du navigateur referme proprement le document.
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path === "/privacy" || path === "/politique-confidentialite" || path === "/confidentialite") setLegalDoc("privacy");
+    else if (path === "/cgu" || path === "/conditions-utilisation" || path === "/terms") setLegalDoc("terms");
+    const onPopState = () => {
+      const p = window.location.pathname;
+      if (p === "/privacy" || p === "/politique-confidentialite" || p === "/confidentialite") setLegalDoc("privacy");
+      else if (p === "/cgu" || p === "/conditions-utilisation" || p === "/terms") setLegalDoc("terms");
+      else setLegalDoc(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const path = legalDoc === "privacy" ? "/privacy" : legalDoc === "terms" ? "/cgu" : "/";
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+    document.title = legalDoc === "privacy" ? "Règles de confidentialité | GestiOne" : legalDoc === "terms" ? "Conditions d'utilisation | GestiOne" : "GestiOne";
+  }, [legalDoc]);
 
   const next = async () => {
     if (step === 1) {
