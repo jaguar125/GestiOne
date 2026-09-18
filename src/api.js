@@ -91,6 +91,15 @@ export async function getOwnerShops({ email, secret }) {
 export async function ownerDeleteShop({ email, secret, shopId }) {
   return callFunction("owner-shops", { email, secret, action: "delete-shop", shop_id: shopId });
 }
+export async function ownerActivateShop({ email, secret, shopId, code }) {
+  return callFunction("owner-shops", { email, secret, action: "activate-shop", shop_id: shopId, code });
+}
+export async function ownerResetAdminPin({ email, secret, shopId }) {
+  return callFunction("owner-shops", { email, secret, action: "reset-admin-pin", shop_id: shopId });
+}
+export async function ownerResetVendorPin({ email, secret, shopId, vendorId }) {
+  return callFunction("owner-shops", { email, secret, action: "reset-vendor-pin", shop_id: shopId, vendor_id: vendorId });
+}
 
 /* ---------- Liaison boutique <-> appareil (multi-boutique) ---------- */
 //
@@ -177,10 +186,13 @@ function shopAuthFields(shopId) {
 // Crée une boutique côté serveur (device + shop_id uniquement — le contenu
 // réel de la boutique, lui, est poussé ensuite via le moteur de synchro).
 // N'écrase pas la boutique active : c'est à l'appelant de basculer s'il le veut.
-export async function createShopBackend({ name, type, currency }) {
-  const data = await callFunction("create-shop", { name, type, currency, device_id: getDeviceId() });
+export async function createShopBackend({ name, type, currency, adminPin, vendorName, vendorPin }) {
+  const data = await callFunction("create-shop", {
+    name, type, currency, device_id: getDeviceId(),
+    admin_pin: adminPin, vendor_name: vendorName, vendor_pin: vendorPin,
+  });
   linkShop(data.shop_id, data.device_secret);
-  return data; // { shop_id, join_code, device_secret }
+  return data; // { shop_id, join_code, device_secret, shop_license, vendor }
 }
 
 export async function joinShopBackend({ joinCode }) {
@@ -213,9 +225,15 @@ export async function startTrialBackend() {
 
 /* ---------- Synchronisation générique (clé/valeur) ---------- */
 
+// "avoirs" ajouté : sans cette clé ici, `pullAll` (utilisé quand un appareil
+// rejoint ou se reconnecte à une boutique) ne rapatriait jamais l'historique
+// des avoirs — l'envoi vers le serveur fonctionnait (markDirty/syncKeyNow ne
+// dépendent pas de cette liste), mais un nouvel appareil ne le retrouvait
+// jamais au premier chargement.
 const ALL_SYNC_KEYS = [
   "shopMeta", "vendors", "products", "sales", "categories",
   "suppliers", "expenses", "movements", "inventories", "clients", "orders", "supplierProducts",
+  "avoirs", "cashRegisterEntries",
 ];
 
 // Une file par boutique : deux boutiques peuvent avoir la clé "products"
@@ -259,27 +277,38 @@ export async function pullKey(key, shopId) {
 // Tente d'envoyer toutes les clés en attente. Ne jette jamais d'erreur :
 // en cas d'échec (hors-ligne), les clés restent en attente pour la prochaine
 // tentative. `getLocalValue(key)` doit renvoyer la valeur locale actuelle.
+//
+// Envoi EN PARALLÈLE (pas séquentiel) : avant, un simple accroc réseau sur
+// une seule clé arrêtait immédiatement l'envoi de TOUTES les clés suivantes
+// (ex : "shopMeta" partait bien, puis "vendors" et tout le reste restaient
+// bloqués) — exactement le genre de coupure qu'un réseau mobile un peu
+// instable déclenche facilement, surtout juste après la création d'une
+// boutique où une dizaine de clés partent d'un coup. Chaque clé a maintenant
+// sa propre chance indépendante de réussir.
 export async function flushSyncQueue(getLocalValue, shopId) {
-  // La boutique est figée à l'entrée : un changement de boutique en cours de
-  // route ne doit pas rediriger les écritures vers la mauvaise cible.
   const id = resolveShop(shopId);
   if (!id || !isShopLinked(id)) return { synced: 0, remaining: 0, lastError: null };
   const queue = getSyncQueue(id);
   const keys = Object.keys(queue);
-  let synced = 0;
   let lastError = null;
-  for (const key of keys) {
-    try {
-      await pushOne(id, key, getLocalValue(key));
-      delete queue[key];
+
+  const results = await Promise.allSettled(
+    keys.map((key) => pushOne(id, key, getLocalValue(key)).then(() => key))
+  );
+
+  let synced = 0;
+  const freshQueue = getSyncQueue(id);
+  results.forEach((r, i) => {
+    const key = keys[i];
+    if (r.status === "fulfilled") {
+      delete freshQueue[key];
       synced += 1;
-      setSyncQueue(id, queue);
-    } catch (e) {
-      lastError = `${key} : ${e.message}`;
-      if (isNetworkError(e)) break; // réseau absent ou serveur muet : inutile d'essayer les autres clés
-      // sinon (erreur serveur sur CETTE clé) — on continue avec les autres clés
+    } else {
+      lastError = `${key} : ${r.reason?.message || "erreur inconnue"}`;
     }
-  }
+  });
+  setSyncQueue(id, freshQueue);
+
   return { synced, remaining: Object.keys(getSyncQueue(id)).length, lastError };
 }
 
