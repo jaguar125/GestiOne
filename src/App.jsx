@@ -1026,17 +1026,28 @@ const PRIVACY_SECTIONS = [
   { title: "8. Sécurité", body: "L'accès aux données passe systématiquement par une vérification d'appareil. Les communications avec le serveur sont chiffrées. Des mesures raisonnables sont mises en œuvre pour protéger les données contre tout accès non autorisé." },
 ];
 
-// `doc` = "terms" | "privacy". Un seul écran pour les deux documents,
-// accessible depuis le pied de page de l'accueil et depuis le menu latéral.
+const DELETION_SECTIONS = [
+  { title: "1. Qui peut demander une suppression", body: "Le propriétaire (administrateur) d'une entreprise GestiOne peut, à tout moment, demander la suppression définitive de son entreprise et de toutes les données associées (produits, ventes, stock, clients, vendeurs, historique)." },
+  { title: "2. Procédure depuis l'application", body: "Se connecter à GestiOne avec le code administrateur de l'entreprise concernée, puis se rendre dans Admin > Établissements (ou Boutiques), sélectionner l'entreprise à supprimer, puis confirmer la suppression. L'opération est immédiate et irréversible." },
+  { title: "3. Sans accès à l'application", body: "Si l'administrateur n'a plus accès à l'application (téléphone perdu, application désinstallée), il peut demander la suppression par e-mail à ayekoe83@gmail.com, en précisant le nom de l'entreprise. La demande est traitée après vérification de l'identité du demandeur." },
+  { title: "4. Données supprimées", body: "La suppression efface définitivement, côté serveur, l'ensemble des données de l'entreprise : catalogue de produits, historique des ventes, mouvements de stock, clients, comptes vendeurs, crédits et avoirs, ainsi que le code d'accès administrateur." },
+  { title: "5. Données conservées", body: "Aucune donnée de l'entreprise n'est conservée après suppression, à l'exception d'éventuelles sauvegardes techniques de courte durée conservées par notre hébergeur (Supabase) et automatiquement purgées selon leur cycle normal." },
+];
+
+// `doc` = "terms" | "privacy" | "deletion". Un seul écran pour les trois
+// documents, accessible depuis le pied de page de l'accueil et depuis le
+// menu latéral.
 function LegalScreen({ doc, onSwitch, onClose }) {
   const isTerms = doc === "terms";
-  const sections = isTerms ? TERMS_SECTIONS : PRIVACY_SECTIONS;
+  const isDeletion = doc === "deletion";
+  const sections = isDeletion ? DELETION_SECTIONS : isTerms ? TERMS_SECTIONS : PRIVACY_SECTIONS;
+  const title = isDeletion ? "Suppression de compte" : isTerms ? "Conditions d'utilisation" : "Politique de confidentialité";
   return (
     <div className="fixed inset-0 z-[97] flex flex-col no-print" style={{ background: "var(--paper)" }}>
       <div className="shrink-0" style={{ background: "var(--glass)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
         <div className="px-5 pb-5 flex items-center justify-between">
           <div>
-            <p className="text-white font-display font-bold text-lg">{isTerms ? "Conditions d'utilisation" : "Politique de confidentialité"}</p>
+            <p className="text-white font-display font-bold text-lg">{title}</p>
             <p className="text-white/45 text-[11px] mt-0.5">Dernière mise à jour : 7 septembre 2026</p>
           </div>
           <button onClick={onClose} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.12)" }}><X size={16} color="#fff" /></button>
@@ -1049,7 +1060,7 @@ function LegalScreen({ doc, onSwitch, onClose }) {
             <p className="text-[13px] leading-relaxed opacity-75">{s.body}</p>
           </div>
         ))}
-        {onSwitch && (
+        {onSwitch && !isDeletion && (
           <button onClick={onSwitch} className="gb-focus w-full rounded-xl py-3 text-sm font-semibold mt-2" style={{ background: "var(--paper-dim)" }}>
             Voir {isTerms ? "la politique de confidentialité" : "les conditions d'utilisation"}
           </button>
@@ -1058,6 +1069,7 @@ function LegalScreen({ doc, onSwitch, onClose }) {
     </div>
   );
 }
+
 
 
 function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMode, onCancel, hasSavedShop, savedShopName, onResume, trialUsed, onStartTrial }) {
@@ -1093,10 +1105,12 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
     const path = window.location.pathname;
     if (path === "/privacy" || path === "/politique-confidentialite" || path === "/confidentialite") setLegalDoc("privacy");
     else if (path === "/cgu" || path === "/conditions-utilisation" || path === "/terms") setLegalDoc("terms");
+    else if (path === "/delete-account" || path === "/suppression-compte") setLegalDoc("deletion");
     const onPopState = () => {
       const p = window.location.pathname;
       if (p === "/privacy" || p === "/politique-confidentialite" || p === "/confidentialite") setLegalDoc("privacy");
       else if (p === "/cgu" || p === "/conditions-utilisation" || p === "/terms") setLegalDoc("terms");
+      else if (p === "/delete-account" || p === "/suppression-compte") setLegalDoc("deletion");
       else setLegalDoc(null);
     };
     window.addEventListener("popstate", onPopState);
@@ -1104,9 +1118,9 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    const path = legalDoc === "privacy" ? "/privacy" : legalDoc === "terms" ? "/cgu" : "/";
+    const path = legalDoc === "privacy" ? "/privacy" : legalDoc === "terms" ? "/cgu" : legalDoc === "deletion" ? "/delete-account" : "/";
     if (window.location.pathname !== path) window.history.pushState(null, "", path);
-    document.title = legalDoc === "privacy" ? "Règles de confidentialité | GestiOne" : legalDoc === "terms" ? "Conditions d'utilisation | GestiOne" : "GestiOne";
+    document.title = legalDoc === "privacy" ? "Règles de confidentialité | GestiOne" : legalDoc === "terms" ? "Conditions d'utilisation | GestiOne" : legalDoc === "deletion" ? "Suppression de compte | GestiOne" : "GestiOne";
   }, [legalDoc]);
 
   const next = async () => {
