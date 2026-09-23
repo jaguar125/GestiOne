@@ -233,7 +233,7 @@ export async function startTrialBackend() {
 const ALL_SYNC_KEYS = [
   "shopMeta", "vendors", "products", "sales", "categories",
   "suppliers", "expenses", "movements", "inventories", "clients", "orders", "supplierProducts",
-  "avoirs", "cashRegisterEntries",
+  "avoirs", "cashRegisterEntries", "versements",
 ];
 
 // Une file par boutique : deux boutiques peuvent avoir la clé "products"

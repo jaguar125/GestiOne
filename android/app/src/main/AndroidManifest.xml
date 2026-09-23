@@ -32,4 +32,17 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Caméra : nécessaire pour le scanner de code-barre (getUserMedia dans
+         la WebView). Sans cette déclaration, Android refuse l'accès à la
+         caméra même si l'utilisateur accepte la demande affichée par l'app,
+         d'où "Impossible d'accéder à la caméra". -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- Microphone : nécessaire pour la recherche vocale de produit
+         (reconnaissance vocale). Même mécanisme que pour la caméra —
+         sans cette ligne, la demande d'autorisation micro échoue. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>

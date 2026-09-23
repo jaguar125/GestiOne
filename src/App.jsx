@@ -3,10 +3,11 @@ import {
   ScanLine, ShoppingCart, Boxes, History, ShieldCheck, Plus, Minus,
   Trash2, X, Check, AlertTriangle, LogOut, Search, TrendingUp,
   PackagePlus, Pencil, Beer, CupSoda, Droplets, Citrus, Receipt,
-  Wallet, CreditCard, Truck, Users, Download, Printer, Store, ChevronDown,
+  Wallet, CreditCard, Truck, Users, Download, Printer, Store, ChevronDown, ChevronLeft, ChevronRight,
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
   Zap, Rocket, Crown, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
+  Phone, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import * as Tone from "tone";
@@ -406,6 +407,65 @@ function computeItemTotal(product, qty) {
   return qty * product.price;
 }
 
+/* ---------- Fiche de stock (stock de départ, arrivages, ventes) ---------- */
+
+// Mouvements "ajustement" générés automatiquement par la suppression ou la
+// modification d'une vente : la vente elle-même porte déjà l'information,
+// on ne les compte donc pas une deuxième fois comme ajustement manuel.
+const SALE_ADJUST_NOTES = ["Suppression de vente", "Modification de vente"];
+
+// Reconstitue l'historique du stock d'un produit depuis son stock de départ :
+//   stock actuel = stock de départ + arrivages ± ajustements − ventes
+// - Le stock de départ est figé à une date (création du produit ou dernier
+//   inventaire validé) et ne bouge plus ensuite.
+// - Chaque arrivage fournisseur validé est une ligne datée (stock avant,
+//   quantité reçue, nouveau stock).
+// - Les ventes viennent des ventes réellement enregistrées.
+// `ecart` = stock réel − stock calculé (0 quand tout est cohérent).
+function buildStockLedger(product, { sales = [], movements = [], inventories = [] } = {}) {
+  const pid = product.id;
+  const time = (d) => new Date(d).getTime() || 0;
+  const lastInventoryTime = inventories.reduce((max, inv) => Math.max(max, time(inv.date)), 0);
+  const creation = movements.find((m) => m.productId === pid && m.type === "creation");
+  const refTime = product.openingStockDate ? time(product.openingStockDate) : Math.max(lastInventoryTime, creation ? time(creation.date) : 0);
+  const opening = Number(product.openingStock ?? product.stock) || 0;
+
+  const after = (d) => time(d) > refTime;
+  const arrivals = movements
+    .filter((m) => m.productId === pid && m.type === "livraison" && after(m.date))
+    .map((m) => ({ kind: "arrivage", date: m.date, qty: Number(m.delta) || 0, before: m.before, after: m.after, note: m.note, author: m.author }));
+  const adjustments = movements
+    .filter((m) => m.productId === pid && (m.type === "ajustement" || m.type === "comptage") && !SALE_ADJUST_NOTES.includes(m.note) && after(m.date))
+    .map((m) => ({ kind: m.type === "comptage" ? "comptage" : "ajustement", date: m.date, qty: Number(m.delta) || 0, before: m.before, after: m.after, note: m.note, author: m.author }));
+
+  let sold = 0, revenue = 0, cost = 0, saleCount = 0, firstSale = null, lastSale = null;
+  sales.forEach((s) => {
+    if (!after(s.date)) return;
+    (s.items || []).forEach((it) => {
+      if ((it.product?.id || it.id) !== pid) return;
+      const qty = Number(it.qty) || 0;
+      sold += qty;
+      revenue += it.product ? computeItemTotal({ ...it.product, price: Number(it.product.price) || 0 }, qty) : 0;
+      const snapCost = Number(it.product?.costPrice) || 0;
+      cost += qty * (snapCost > 0 ? snapCost : Number(product.costPrice) || 0);
+      saleCount += 1;
+      if (!firstSale || time(s.date) < time(firstSale)) firstSale = s.date;
+      if (!lastSale || time(s.date) > time(lastSale)) lastSale = s.date;
+    });
+  });
+
+  const arrived = arrivals.reduce((s, a) => s + a.qty, 0);
+  const adjusted = adjustments.reduce((s, a) => s + a.qty, 0);
+  const expected = opening + arrived + adjusted - sold;
+  const current = Number(product.stock) || 0;
+  return {
+    openingDate: refTime ? new Date(refTime).toISOString() : null,
+    opening, arrivals, arrived, adjustments, adjusted,
+    sold, saleCount, firstSale, lastSale, revenue, cost,
+    expected, current, ecart: current - expected,
+  };
+}
+
 /* ---------- Retours sonores ---------- */
 
 let gbSynth = null;
@@ -461,11 +521,52 @@ function spokenAmount(formatted) {
     .replace(/£/g, "livres");
 }
 
+// ---------- Notifications vocales : réglage PAR APPAREIL ----------
+// Avant, un seul interrupteur global (shop.voiceNotificationsEnabled) réglé
+// par l'administrateur, et plusieurs annonces n'étaient faites que sur son
+// appareil. Maintenant chaque personne connectée (vendeuse, vendeur ou
+// administrateur) active la voix sur SON téléphone et choisit les actions
+// annoncées. Tant qu'un appareil n'a rien choisi, il suit l'ancien réglage
+// global de l'entreprise.
+const VOICE_EVENT_TYPES = [
+  { id: "sale", label: "Ventes", desc: "Chaque vente et son montant", bg: "#E4F4EA", fg: "#1E8E50" },
+  { id: "cancel", label: "Annulations et modifications", desc: "Vente supprimée ou modifiée", bg: "#FBE4E1", fg: "#B3261E" },
+  { id: "credit", label: "Crédits et avoirs", desc: "Crédit encaissé, avoir créé ou rendu", bg: "#EEE7FB", fg: "#5B3A9E" },
+  { id: "stock", label: "Stock bas et ruptures", desc: "Produit sous le seuil d'alerte", bg: "#FFF1D6", fg: "#B45F06" },
+  { id: "movement", label: "Entrées et ajustements de stock", desc: "Réception, inventaire, correction", bg: "#E0F1F6", fg: "#1B7A93" },
+  { id: "order", label: "Commandes fournisseur", desc: "Commande créée, modifiée, reçue", bg: "#E6EEFA", fg: "#1D4E89" },
+  { id: "expense", label: "Dépenses", desc: "Nouvelle dépense enregistrée", bg: "#FCEEDB", fg: "#8A4B00" },
+  { id: "cash", label: "Caisse et versements", desc: "Fond de caisse saisi, versement fait", bg: "#EDEBE5", fg: "#3D4550" },
+  { id: "license", label: "Licence et rappels", desc: "Licence bientôt expirée", bg: "#F6F5F1", fg: "#4A525C" },
+];
+function voicePrefsStorageKey(shopId) { return `voicePrefs:${shopId || "default"}`; }
+function defaultVoiceTypes() { const t = {}; VOICE_EVENT_TYPES.forEach((e) => { t[e.id] = true; }); return t; }
+function readVoicePrefs(shop) {
+  try {
+    const raw = localStorage.getItem(voicePrefsStorageKey(shop?.id));
+    if (raw) {
+      const p = JSON.parse(raw);
+      return { enabled: !!p.enabled, volume: Math.min(1, Math.max(0.1, Number(p.volume) || 1)), types: { ...defaultVoiceTypes(), ...(p.types || {}) }, custom: true };
+    }
+  } catch { /* stockage indisponible */ }
+  return { enabled: !!shop?.voiceNotificationsEnabled, volume: 1, types: defaultVoiceTypes(), custom: false };
+}
+function writeVoicePrefs(shop, prefs) {
+  try { localStorage.setItem(voicePrefsStorageKey(shop?.id), JSON.stringify({ enabled: !!prefs.enabled, volume: prefs.volume, types: prefs.types })); } catch { /* ignore */ }
+}
+// Renvoie true si l'annonce de ce type doit être dite sur CET appareil.
+function voiceOn(shop, type) {
+  const p = readVoicePrefs(shop);
+  if (!p.enabled) return false;
+  return type ? p.types[type] !== false : true;
+}
+let voiceVolume = 1;
+
 async function speak(text, enabled) {
   if (!enabled) return;
   try {
     const { TextToSpeech } = await import("@capacitor-community/text-to-speech");
-    await TextToSpeech.speak({ text, lang: "fr-FR", rate: 1.0, volume: 1.0, category: "playback" });
+    await TextToSpeech.speak({ text, lang: "fr-FR", rate: 1.0, volume: voiceVolume, category: "playback" });
     return;
   } catch {
     // Repli navigateur (aperçu web hors app native) : l'API standard, qui
@@ -475,6 +576,7 @@ async function speak(text, enabled) {
         window.speechSynthesis.cancel();
         const utter = new SpeechSynthesisUtterance(text);
         utter.lang = "fr-FR";
+        utter.volume = voiceVolume;
         window.speechSynthesis.speak(utter);
       }
     } catch { /* synthèse vocale indisponible sur cet appareil */ }
@@ -523,7 +625,7 @@ function recompressDataUrl(dataUrl, maxDim = 480, quality = 0.65) {
   });
 }
 async function loadShopData(shopId) {
-  const [products, sales, vendors, suppliers, expenses, categories, movements, inventories, clients, orders, supplierProducts, avoirs, cashRegisterEntries] = await Promise.all([
+  const [products, sales, vendors, suppliers, expenses, categories, movements, inventories, clients, orders, supplierProducts, avoirs, cashRegisterEntries, versements] = await Promise.all([
     loadKey(`products:${shopId}`, SEED_PRODUCTS),
     loadKey(`sales:${shopId}`, []),
     loadKey(`vendors:${shopId}`, []),
@@ -537,8 +639,9 @@ async function loadShopData(shopId) {
     loadKey(`supplierProducts:${shopId}`, []),
     loadKey(`avoirs:${shopId}`, []),
     loadKey(`cashRegisterEntries:${shopId}`, []),
+    loadKey(`versements:${shopId}`, []),
   ]);
-  return { products, sales, vendors, suppliers, expenses, categories, movements, inventories, clients, orders, supplierProducts, avoirs, cashRegisterEntries };
+  return { products, sales, vendors, suppliers, expenses, categories, movements, inventories, clients, orders, supplierProducts, avoirs, cashRegisterEntries: ownCashEntries(cashRegisterEntries, shopId), versements: ownCashEntries(versements, shopId) };
 }
 async function seedShopData(shopId, vendor) {
   await Promise.all([
@@ -553,7 +656,113 @@ async function seedShopData(shopId, vendor) {
     window.storage.set(`clients:${shopId}`, JSON.stringify([])),
     window.storage.set(`orders:${shopId}`, JSON.stringify([])),
     window.storage.set(`supplierProducts:${shopId}`, JSON.stringify([])),
+    window.storage.set(`avoirs:${shopId}`, JSON.stringify([])),
+    window.storage.set(`cashRegisterEntries:${shopId}`, JSON.stringify([])),
+    window.storage.set(`versements:${shopId}`, JSON.stringify([])),
   ]).catch(() => {});
+}
+
+// Une entreprise ne doit apparaître qu'une seule fois dans la liste, même si
+// elle a été ajoutée deux fois (ex : reconnexion à une entreprise déjà
+// présente sur l'appareil). Fusionne les doublons par identifiant, en gardant
+// la position de la première occurrence et les informations les plus récentes.
+function uniqueShops(list) {
+  const byId = new Map();
+  (list || []).forEach((s) => {
+    if (!s || !s.id) return;
+    byId.set(s.id, { ...(byId.get(s.id) || {}), ...s });
+  });
+  return Array.from(byId.values());
+}
+
+// Fond de caisse : chaque entreprise a SA caisse. On ne garde que les
+// montants qui appartiennent explicitement à l'entreprise donnée — ceux d'une
+// autre entreprise (copiés par erreur lors d'un changement d'entreprise) ou
+// sans entreprise précisée sont ignorés, pour qu'un montant saisi dans une
+// boutique ne vaille jamais pour une autre.
+function ownCashEntries(list, shopId) {
+  if (!Array.isArray(list) || !shopId) return [];
+  return list.filter((e) => e && e.shopId === shopId);
+}
+
+// ---------- Caisse : sessions et versements ----------
+// Une "session de caisse" commence quand on saisit le fond de caisse et reste
+// OUVERTE jusqu'au versement suivant — même si la journée change. Tant
+// qu'elle est ouverte, la fenêtre du fond de caisse ne réapparaît pas. Dès
+// qu'un versement la clôture, la fenêtre revient pour saisir ce qui reste
+// dans la caisse, ce qui ouvre la session suivante.
+function cashTime(d) { return new Date(d).getTime() || 0; }
+function sortedCashSessions(entries, shopId) {
+  return ownCashEntries(entries, shopId).slice().sort((a, b) => cashTime(a.timestamp || a.date) - cashTime(b.timestamp || b.date));
+}
+function findActiveCashSession(entries, versements, shopId) {
+  const sessions = sortedCashSessions(entries, shopId);
+  const last = sessions[sessions.length - 1];
+  if (!last) return null;
+  const closed = ownCashEntries(versements, shopId).some((v) => v.sessionId === last.id);
+  return closed ? null : last;
+}
+// Bilan d'une session entre son ouverture et `until` (maintenant, ou la date
+// du versement) : espèces attendues = fond + ventes en espèces + crédits
+// encaissés − dépenses. Le Mobile Money est compté à part (hors tiroir).
+function computeCashSession(session, { sales = [], expenses = [], until = null } = {}) {
+  const from = cashTime(session?.timestamp || session?.date);
+  const to = until ? cashTime(until) : Date.now();
+  const inWindow = (d) => { const t = cashTime(d); return t > from && t <= to; };
+  let cashSales = 0, cashSalesCount = 0, mobileSales = 0, mobileSalesCount = 0, creditsCollected = 0, creditsCount = 0;
+  (sales || []).forEach((sale) => {
+    if (sale.paymentMethod === "especes" && inWindow(sale.date)) { cashSales += Number(sale.total) || 0; cashSalesCount += 1; }
+    else if (sale.paymentMethod === "mobile" && inWindow(sale.date)) { mobileSales += Number(sale.total) || 0; mobileSalesCount += 1; }
+    else if (sale.paymentMethod === "credit") {
+      creditPaymentsOf(sale).forEach((pay) => {
+        if (inWindow(pay.date)) { creditsCollected += Number(pay.amount) || 0; creditsCount += 1; }
+      });
+    }
+  });
+  const periodExpenses = (expenses || []).filter((e) => inWindow(e.date));
+  const expensesTotal = periodExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const fund = Number(session?.amount) || 0;
+  return {
+    fund, cashSales, cashSalesCount, mobileSales, mobileSalesCount, creditsCollected, creditsCount,
+    expensesTotal, expensesCount: periodExpenses.length,
+    expected: fund + cashSales + creditsCollected - expensesTotal,
+  };
+}
+
+// ---------- Caisse : montant affiché pour une journée donnée ----------
+// Le fond de caisse d'une journée est celui de la dernière session ouverte
+// ce jour-là ou avant. Tant qu'aucun versement ne l'a clôturée, il est
+// REPORTÉ tel quel sur les jours suivants (ex : 5 000 saisis le 22 restent
+// 5 000 le 23 tant que le versement n'est pas fait) — on ne le remet jamais
+// à zéro et on ne le remplace pas par un montant inventé.
+function cashDayKeyOf(d) {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+}
+function cashSnapshotForDay(entries, versements, shopId, dayKey) {
+  const sessions = sortedCashSessions(entries, shopId).filter((e) => (e.date || cashDayKeyOf(e.timestamp)) <= dayKey);
+  if (sessions.length === 0) return null;
+  const session = sessions[sessions.length - 1];
+  const sessionDay = session.date || cashDayKeyOf(session.timestamp);
+  const versement = ownCashEntries(versements, shopId).find((v) => v.sessionId === session.id) || null;
+  const versedDay = versement ? cashDayKeyOf(versement.date) : null;
+  return {
+    session,
+    amount: Number(session.amount) || 0,
+    setBy: session.setBy || "",
+    sessionDay,
+    carried: sessionDay !== dayKey,
+    versement,
+    versedOnOrBefore: !!(versedDay && versedDay <= dayKey),
+    sessionsThatDay: sortedCashSessions(entries, shopId).filter((e) => (e.date || cashDayKeyOf(e.timestamp)) === dayKey),
+  };
+}
+function listCashDays(fromKey, toKey, maxDays = 62) {
+  const out = [];
+  const d = new Date(toKey + "T12:00:00");
+  const stop = new Date(fromKey + "T12:00:00");
+  while (d >= stop && out.length < maxDays) { out.push(cashDayKeyOf(d)); d.setDate(d.getDate() - 1); }
+  return out;
 }
 
 function buildDailySeries(sales, days = 7) {
@@ -2072,7 +2281,7 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
       const received = Number(amountReceived);
       const sale = onCheckout(cartItems, total, "credit", clientId, clientName || "Client", received, received);
       playSound("sale", shop.soundsEnabled);
-      speak(`Vente enregistrée en crédit partiel. ${spokenAmount(fmt(total - received))} restant à payer.`, shop.voiceNotificationsEnabled);
+      speak(`Vente enregistrée en crédit partiel. ${spokenAmount(fmt(total - received))} restant à payer.`, voiceOn(shop, "sale"));
       setReceipt(sale);
       setShowCart(false);
       resetCheckoutFields();
@@ -2091,7 +2300,7 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
       const sale = onCheckout(cartItems, total, "mobile", clientId, clientName || avoirClient, receivedAmount);
       onCreateProductAvoir(cartItems, avoirClient, { skipStock: true, saleId: sale?.id });
       playSound("sale", shop.soundsEnabled);
-      speak(`Vente enregistrée, ${spokenAmount(fmt(total))}. Produits en avoir pour ${avoirClient}.`, shop.voiceNotificationsEnabled);
+      speak(`Vente enregistrée, ${spokenAmount(fmt(total))}. Produits en avoir pour ${avoirClient}.`, voiceOn(shop, "sale"));
       setReceipt({ ...sale, hasProductAvoir: true, avoirClientName: avoirClient, changeDue: 0 });
       setShowCart(false);
       resetCheckoutFields();
@@ -2111,7 +2320,7 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
         ? onCreateProductAndMoneyAvoir(cartItems, changeDue, avoirClient)
         : { productAvoir: onCreateProductAvoir(cartItems, avoirClient), moneyAvoir: null };
       playSound("sale", shop.soundsEnabled);
-      speak(`Avoir enregistré pour ${avoirClient}.`, shop.voiceNotificationsEnabled);
+      speak(`Avoir enregistré pour ${avoirClient}.`, voiceOn(shop, "credit"));
       setShowCart(false);
       setReceipt({
         isProductAvoir: true,
@@ -2142,7 +2351,7 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
       onCreateMoneyAvoir(changeDue, avoirClient, sale?.id);
     }
     playSound("sale", shop.soundsEnabled);
-    speak(avoirMonnaie && changeDue > 0 ? `Vente enregistrée, ${spokenAmount(fmt(total))}. Monnaie en avoir pour ${avoirClient}.` : `Vente enregistrée, ${spokenAmount(fmt(total))}.`, shop.voiceNotificationsEnabled);
+    speak(avoirMonnaie && changeDue > 0 ? `Vente enregistrée, ${spokenAmount(fmt(total))}. Monnaie en avoir pour ${avoirClient}.` : `Vente enregistrée, ${spokenAmount(fmt(total))}.`, voiceOn(shop, "sale"));
     setReceipt(avoirMonnaie && changeDue > 0 ? { ...sale, avoirMonnaie: true, avoirAmount: changeDue, avoirClientName: avoirClient, changeDue: 0 } : sale);
     setShowCart(false);
     resetCheckoutFields();
@@ -2158,105 +2367,122 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
     setCart([]);
   };
 
+  const qtyInCart = (id) => cartItems.find((i) => i.id === id)?.qty || 0;
+  const catTint = (catId) => { const c = getCategory(categories, catId).color || "#888888"; return /^#[0-9a-fA-F]{6}$/.test(c) ? `${c}1F` : "var(--paper-dim)"; };
+  const chipStyle = (on) => (on ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" });
   return (
-    <div className="pb-40">
-      <div className="px-4 pt-4">
-        <div className="rounded-2xl p-1 flex items-center gap-0" style={{ background: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.15)" }}>
-          <button onClick={() => setScannerOpen(true)} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0 m-0.5" style={{ background: "#EAF3DE" }} aria-label="Scanner le code-barre">
-            <Barcode size={20} color="#27500A" />
-          </button>
-          <input ref={inputRef} value={barcode} onChange={(e) => setBarcode(e.target.value)} onKeyDown={handleScan} placeholder="Scanner ou saisir le code-barre…" className="bg-transparent outline-none text-sm font-mono flex-1 min-w-0 px-2 placeholder:text-black/35" style={{ color: "var(--ink)" }} />
-          <button onClick={() => setScannerOpen(true)} className="gb-focus w-[42px] h-[42px] rounded-xl flex items-center justify-center shrink-0 m-0.5" style={{ background: "#FF8A00" }} aria-label="Activer le scanner caméra">
-            <Camera size={18} color="#fff" />
+    <div style={{ paddingBottom: "calc(190px + env(safe-area-inset-bottom))" }}>
+      <div className="px-4 pt-4 flex flex-col gap-2.5">
+        <div className="flex gap-2">
+          <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] px-2 rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#EAF3DE" }}><Barcode size={18} color="#27500A" /></span>
+            <input ref={inputRef} value={barcode} onChange={(e) => setBarcode(e.target.value)} onKeyDown={handleScan} placeholder="Code-barres" aria-label="Scanner ou saisir le code-barres" className="bg-transparent outline-none text-[15px] font-mono flex-1 min-w-0" style={{ color: "var(--ink)" }} />
+          </label>
+          <button onClick={() => setScannerOpen(true)} className="gb-focus shrink-0 min-h-[50px] px-3.5 rounded-2xl flex items-center gap-2 text-white text-[14px] font-bold" style={{ background: "#E8761C" }} aria-label="Scanner avec la caméra">
+            <Camera size={19} color="#fff" /> Scanner
           </button>
         </div>
+        <label className="flex items-center gap-2.5 min-h-[48px] pl-3.5 pr-1.5 rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
+          <Search size={17} className="opacity-50 shrink-0" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un produit" aria-label="Rechercher un produit" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" />
+          <button onClick={startVoiceSearch} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: listening ? "var(--danger)" : "#1F2A33" }} aria-label="Recherche vocale">
+            <Mic size={16} color="#fff" className={listening ? "gb-pop" : ""} />
+          </button>
+        </label>
       </div>
 
       {scannerOpen && <CameraScanner onDetect={handleCameraDetect} onClose={() => setScannerOpen(false)} />}
 
-      <div className="px-4 mt-3 flex items-center gap-2">
-        <div className="flex-1 flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "var(--paper-dim)" }}>
-          <Search size={15} className="opacity-50" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un produit" className="bg-transparent outline-none text-sm flex-1 min-w-0" />
-          <button onClick={startVoiceSearch} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: listening ? "var(--danger)" : "var(--glass)" }} aria-label="Recherche vocale">
-            <Mic size={13} color="#fff" className={listening ? "gb-pop" : ""} />
-          </button>
-        </div>
-      </div>
-
-      {quickPicks.length > 0 && (
-        <div className="mt-3">
-          <p className="text-[11px] font-semibold opacity-50 mb-1.5 flex items-center gap-1 px-4"><Star size={11} color="var(--cap)" fill="var(--cap)" /> Favoris &amp; populaires</p>
-          <div className="gb-marquee-wrap overflow-hidden" style={{ maskImage: "linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 24px), transparent)" }}>
-            <div className="gb-marquee-track flex gap-2 w-max" style={{ animationDuration: `${Math.max(14, quickPicks.length * 4)}s` }}>
-              {[...quickPicks, ...quickPicks].map((p, i) => (
-                <button key={`${p.id}-${i}`} onClick={() => addToCart(p)} disabled={p.stock <= 0} className="gb-focus shrink-0 rounded-xl px-3 py-2 border flex items-center gap-2 disabled:opacity-40" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-                  <CategoryIcon cat={p.category} categories={categories} size={14} />
-                  <span className="text-xs font-semibold whitespace-nowrap">{p.name}</span>
-                  <span className="text-[10px] font-mono opacity-50">{fmt(p.price)}</span>
+      {quickPicks.length > 0 && !query && (
+        <div className="px-4 mt-3.5">
+          <p className="text-[12px] font-bold uppercase tracking-wide opacity-70 mb-2 flex items-center gap-1.5"><Star size={13} color="var(--cap)" fill="var(--cap)" /> Favoris et populaires</p>
+          <div className="flex flex-wrap gap-2">
+            {quickPicks.slice(0, 6).map((p) => {
+              const n = qtyInCart(p.id);
+              return (
+                <button key={p.id} onClick={() => addToCart(p)} disabled={p.stock <= 0} className="gb-focus min-h-[42px] max-w-full rounded-xl px-3 flex items-center gap-2 disabled:opacity-40" style={{ background: n ? "#EAF6EF" : "var(--card)", border: `1px solid ${n ? "#1E8E50" : "var(--line)"}` }}>
+                  <CategoryIcon cat={p.category} categories={categories} size={15} />
+                  <span className="text-[13.5px] font-semibold text-left break-words">{p.name}</span>
+                  <span className="text-[12px] font-mono opacity-60 whitespace-nowrap">{fmt(p.price)}</span>
+                  {n > 0 && <span className="min-w-[22px] h-[22px] px-1.5 rounded-full text-[12px] font-bold text-white flex items-center justify-center" style={{ background: "#1E8E50" }}>×{n}</span>}
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      <div className="px-4 mt-3 flex gap-2 overflow-x-auto gb-scroll">
+      <div role="group" aria-label="Catégories" className="px-4 mt-3.5 flex flex-wrap gap-1.5">
         {["all", ...categories.map((c) => c.id)].map((c) => (
-          <button key={c} onClick={() => setCat(c)} className="gb-focus shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors" style={{ background: cat === c ? "var(--glass)" : "var(--paper-dim)", color: cat === c ? "#fff" : "var(--ink)" }}>
-            {c !== "all" && <CategoryIcon cat={c} categories={categories} size={12} />}
+          <button key={c} onClick={() => setCat(c)} aria-pressed={cat === c} className="gb-focus min-h-[38px] px-3.5 rounded-full text-[13.5px] font-semibold flex items-center gap-1.5 transition-colors" style={chipStyle(cat === c)}>
+            {c !== "all" && <CategoryIcon cat={c} categories={categories} size={14} />}
             {c === "all" ? "Tout" : getCategory(categories, c).label}
           </button>
         ))}
       </div>
 
-      <div className="px-4 mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div className="px-4 mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
         {filtered.map((p) => {
-          const pct = Math.min(Math.round((p.stock / Math.max(p.minStock * 2, 1)) * 100), 100);
-          const low = p.stock <= p.minStock;
-          const mid = !low && pct <= 45;
-          const barColor = low ? "var(--danger)" : mid ? "#E0A426" : "#1CA857";
-          const borderColor = low ? "var(--danger)" : mid ? "#E0A426" : "#8FCB9F";
+          const n = qtyInCart(p.id);
+          const out = p.stock <= 0;
+          const low = !out && p.stock <= p.minStock;
+          const left = p.stock - n;
+          const stockColor = out ? "#8A2419" : low ? "#6E3C00" : "#0F4F2B";
+          const dotColor = out ? "#C2331F" : low ? "#E09A1A" : "#1E8E50";
           return (
-            <button key={p.id} onClick={() => addToCart(p)} disabled={p.stock <= 0} className="gb-focus text-left rounded-2xl p-3 active:scale-[0.97] transition-transform disabled:opacity-40" style={{ background: "var(--card)", border: `1.5px solid ${borderColor}`, boxShadow: low ? "0 4px 14px rgba(163,45,45,0.2)" : "0 4px 14px rgba(0,0,0,0.08)" }}>
-              <div className="w-11 h-11 rounded-xl overflow-hidden mb-2 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}>
-                {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={20} />}
-              </div>
-              <div className="text-sm font-semibold leading-tight" style={{ color: "var(--ink)" }}>{p.name}</div>
-              <div className="font-mono font-bold text-lg mt-1" style={{ color: "var(--ink)" }}>{fmt(p.price)}</div>
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}>
-                  <div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} />
-                </div>
-                <span className="text-[10px] font-mono shrink-0" style={{ color: low ? "var(--danger)" : "var(--ink)", opacity: low ? 1 : 0.5 }}>{p.stock} {p.unit}s</span>
-              </div>
+            <button key={p.id} onClick={() => addToCart(p)} disabled={out} aria-label={`Ajouter ${p.name} au panier`} className="gb-focus min-w-0 min-h-[150px] text-left rounded-[18px] p-3 flex flex-col items-start gap-2 active:scale-[0.97] transition-transform disabled:opacity-60" style={n ? { background: "var(--card)", border: "2px solid #1E8E50", boxShadow: "0 6px 16px rgba(30,142,80,0.14)" } : out ? { background: "var(--paper-dim)", border: "1px solid var(--line)" } : { background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(22,32,42,0.05)" }}>
+              <span className="flex justify-between items-start w-full">
+                <span className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center" style={{ background: catTint(p.category) }}>
+                  {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={20} />}
+                </span>
+                {n > 0 ? (
+                  <span className="min-w-[30px] h-[30px] px-2 rounded-full text-white font-display font-bold text-[14px] flex items-center justify-center" style={{ background: "#1E8E50" }}>×{n}</span>
+                ) : !out && (
+                  <span className="w-[30px] h-[30px] rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Plus size={16} /></span>
+                )}
+              </span>
+              <span className="text-[15px] font-bold leading-tight break-words w-full" style={{ color: "var(--ink)" }}>{p.name}</span>
+              <span className="flex items-baseline gap-1">
+                <span className="font-display font-bold text-[19px]" style={{ color: "var(--ink)" }}>{fmt(p.price)}</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[12px] font-bold" style={{ color: stockColor }}>
+                <span className="w-[7px] h-[7px] rounded-full" style={{ background: dotColor }} />
+                {out ? "Rupture de stock" : left <= 0 ? "Tout est au panier" : `${left} en stock`}
+              </span>
               {p.bulkQty > 0 && p.bulkPrice > 0 && (
-                <div className="text-[10px] font-mono mt-1.5 px-1.5 py-0.5 rounded-full inline-block" style={{ background: "var(--paper-dim)", color: "var(--glass)" }}>
-                  Lot de {p.bulkQty} = {fmt(p.bulkPrice)}
-                </div>
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full" style={{ background: "var(--paper-dim)", color: "var(--glass)" }}>Lot de {p.bulkQty} = {fmt(p.bulkPrice)}</span>
               )}
             </button>
           );
         })}
-        {filtered.length === 0 && <p className="col-span-2 text-center text-sm opacity-50 py-8">Aucun produit trouvé.</p>}
+        {filtered.length === 0 && (
+          <div className="col-span-2 sm:col-span-3 lg:col-span-4 rounded-[18px] p-7 text-center flex flex-col gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+            <span className="text-[15px] font-bold">Aucun produit trouvé</span>
+            <span className="text-[13px] opacity-60">Vérifiez le nom ou scannez le code-barres.</span>
+          </div>
+        )}
       </div>
 
-      {count > 0 && !showCart && (
-        <div className="fixed left-4 right-4 z-30 rounded-2xl px-4 py-3.5 flex items-center justify-between shadow-xl gb-slide-up no-print" style={{ background: "var(--cap)", bottom: "calc(84px + env(safe-area-inset-bottom))" }}>
-          <button onClick={() => setShowCart(true)} className="gb-focus flex items-center gap-2 font-semibold text-sm flex-1 min-w-0" style={{ color: "var(--glass)" }}>
-            <ShoppingCart size={17} className="shrink-0" /> {count} article{count > 1 ? "s" : ""}
-          </button>
-          <div className="flex items-center gap-2 shrink-0">
-            <button onClick={() => setShowCart(true)} className="gb-focus font-mono font-bold text-sm" style={{ color: "var(--glass)" }}>{fmt(total)}</button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setCart([]); pushToast("Panier vidé", "ok"); }}
-              className="gb-focus w-8 h-8 rounded-full flex items-center justify-center"
-              style={{ background: "rgba(0,0,0,0.14)" }}
-              aria-label="Vider le panier"
-            >
-              <Trash2 size={15} color="var(--glass)" />
+      {!showCart && (
+        <div className="fixed left-3 right-3 z-30 gb-slide-up no-print mx-auto max-w-[600px]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
+          {count > 0 ? (
+            <button onClick={() => setShowCart(true)} className="gb-focus w-full min-h-[64px] rounded-[20px] pl-4 pr-2 py-2 flex items-center gap-3 text-white" style={{ background: "#1E8E50", boxShadow: "0 12px 26px rgba(30,142,80,0.35)" }}>
+              <span className="relative shrink-0 flex">
+                <ShoppingCart size={24} color="#fff" />
+                <span className="absolute -top-2 -right-2.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: "#fff", color: "#1E8E50" }}>{count}</span>
+              </span>
+              <span className="flex-1 min-w-0 flex flex-col items-start pl-1.5">
+                <span className="text-[12px] font-semibold" style={{ color: "#D6F2E1" }}>{count} article{count > 1 ? "s" : ""} · voir le panier</span>
+                <span className="font-display font-bold text-[20px] leading-tight">{fmt(total)}</span>
+              </span>
+              <span className="shrink-0 h-12 px-4 rounded-[14px] text-[15px] font-bold flex items-center gap-1.5" style={{ background: "#fff", color: "#0F4F2B" }}>Encaisser <ChevronRight size={16} /></span>
             </button>
-          </div>
+          ) : (
+            <div className="min-h-[52px] px-4 py-2.5 rounded-[18px] flex items-center gap-2.5 text-[13.5px]" style={{ background: "var(--card)", border: "1px dashed var(--line)", color: "var(--ink)" }}>
+              <ShoppingCart size={18} className="opacity-50 shrink-0" />
+              <span className="opacity-70">Touchez un produit ou scannez pour commencer la vente</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -2264,16 +2490,19 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
         <div className="fixed inset-0 z-40 flex items-end no-print">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowCart(false)} />
           <div className="relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col" style={{ background: "var(--card)", paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-bold text-lg">Panier</h2>
-              <button onClick={() => setShowCart(false)} className="gb-focus p-1"><X size={20} /></button>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h2 className="font-display font-bold text-[20px]">Panier · {count} article{count > 1 ? "s" : ""}</h2>
+              <div className="flex items-center gap-2 shrink-0">
+                {cartItems.length > 0 && <button onClick={() => { setCart([]); setShowCart(false); pushToast("Panier vidé", "ok"); }} className="gb-focus min-h-[38px] px-3 rounded-xl text-[13px] font-bold" style={{ border: "1px solid #EBB3AA", color: "#8A2419" }}>Vider</button>}
+                <button onClick={() => setShowCart(false)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer le panier"><X size={18} /></button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto gb-scroll -mx-1 px-1">
               {cartItems.map((i) => (
                 <div key={i.id} className="flex items-center gap-3 py-2.5 border-b" style={{ borderColor: "var(--line)" }}>
                   <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><CategoryIcon cat={i.product.category} categories={categories} size={15} /></div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{i.product.name}</div>
+                    <div className="text-[15px] font-semibold break-words">{i.product.name}</div>
                     <div className="font-mono text-xs opacity-50">
                       {fmt(computeItemTotal(i.product, i.qty))}
                       {i.product.bulkQty > 0 && i.product.bulkPrice > 0 && i.qty >= i.product.bulkQty && (
@@ -2281,10 +2510,10 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => changeQty(i.id, -1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Minus size={13} /></button>
-                    <span className="font-mono text-sm w-4 text-center">{i.qty}</span>
-                    <button onClick={() => changeQty(i.id, 1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Plus size={13} /></button>
+                  <div className="flex items-center shrink-0 rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--paper-dim)" }}>
+                    <button onClick={() => changeQty(i.id, -1)} className="gb-focus w-10 h-10 flex items-center justify-center" aria-label={`Diminuer ${i.product.name}`}>{i.qty <= 1 ? <Trash2 size={15} color="#B3261E" /> : <Minus size={15} />}</button>
+                    <span className="font-display font-bold text-[16px] min-w-[30px] text-center">{i.qty}</span>
+                    <button onClick={() => changeQty(i.id, 1)} className="gb-focus w-10 h-10 flex items-center justify-center" aria-label={`Augmenter ${i.product.name}`}><Plus size={15} /></button>
                   </div>
                 </div>
               ))}
@@ -2293,16 +2522,27 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
               {cartItems.length > 0 && (
                 <div className="pt-3">
                 <p className="text-xs font-semibold opacity-60 mb-2">Mode de paiement</p>
-                <div className="flex gap-2 mb-2">
-                  {PAYMENT_METHODS.map((m) => (
-                    <button key={m.id} onClick={() => { setPayment(m.id); if (m.id !== "especes") setAmountReceived(""); }} className="gb-focus flex-1 rounded-xl py-2 text-[11px] font-semibold transition-colors" style={{ background: payment === m.id ? "var(--glass)" : "var(--paper-dim)", color: payment === m.id ? "#fff" : "var(--ink)" }}>
-                      {m.label}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {PAYMENT_METHODS.map((m) => {
+                    const on = payment === m.id;
+                    const Icon = m.id === "especes" ? Banknote : m.id === "mobile" ? Smartphone : UserPlus;
+                    return (
+                      <button key={m.id} onClick={() => { setPayment(m.id); if (m.id !== "especes") setAmountReceived(""); }} aria-pressed={on} className="gb-focus min-w-0 min-h-[64px] px-1 py-2 rounded-2xl text-[12.5px] font-bold flex flex-col items-center justify-center gap-1.5 text-center transition-colors" style={on ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>
+                        <Icon size={20} />{m.label}
+                      </button>
+                    );
+                  })}
                 </div>
                 {payment === "especes" && (
                   <div className="mb-3 gb-slide-up">
                     <p className="text-xs font-semibold opacity-60 mb-2">Montant reçu du client (optionnel)</p>
+                    {total > 0 && (
+                      <div className="grid grid-cols-3 gap-1.5 mb-2">
+                        {[...new Set([total, ...[500, 1000, 2000, 5000, 10000].map((step) => Math.ceil(total / step) * step)])].slice(0, 6).map((v, idx) => (
+                          <button key={v} onClick={() => setAmountReceived(String(v))} className="gb-focus min-w-0 min-h-[42px] px-1 rounded-xl text-[13px] font-bold" style={Number(amountReceived) === v ? { background: "#1E8E50", color: "#fff", border: "1px solid #1E8E50" } : { background: "var(--paper-dim)", color: "var(--ink)", border: "1px solid var(--line)" }}>{idx === 0 ? "Compte juste" : fmt(v)}</button>
+                        ))}
+                      </div>
+                    )}
                     <input
                       type="number"
                       inputMode="decimal"
@@ -2389,7 +2629,8 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
                 <span className="text-sm opacity-60">Total</span>
                 <span className="font-display font-bold text-xl">{fmt(total)}</span>
               </div>
-              <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm disabled:opacity-40 active:scale-[0.98] transition-transform" style={{ background: avoirProduit ? "#534AB7" : "var(--glass)", color: "#fff" }}>
+              <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : "0 10px 22px rgba(30,142,80,0.3)" }}>
+                <Check size={19} />
                 {avoirProduit ? (avoirMonnaie ? "Enregistrer l'avoir produit + monnaie" : "Enregistrer l'avoir produit") : (cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
               </button>
             </div>
@@ -2404,51 +2645,214 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
 
 /* ---------- Écran stock ---------- */
 
-function StockScreen({ products, categories }) {
-  const [cat, setCat] = useState("all");
-  const sorted = [...products].filter((p) => cat === "all" || p.category === cat).sort((a, b) => a.stock / Math.max(a.minStock, 1) - b.stock / Math.max(b.minStock, 1));
-  const lowCount = products.filter((p) => p.stock <= p.minStock).length;
-  return (
-    <div className="px-4 pt-4 pb-28">
-      <h2 className="font-display font-bold text-lg mb-1">État du stock</h2>
-      {lowCount > 0 && <p className="text-xs font-semibold mb-3 flex items-center gap-1.5" style={{ color: "var(--danger)" }}><AlertTriangle size={13} /> {lowCount} produit{lowCount > 1 ? "s" : ""} en dessous du seuil</p>}
-      <div className="flex gap-2 overflow-x-auto gb-scroll mb-4 mt-2">
-        {["all", ...categories.map((c) => c.id)].map((c) => (
-          <button key={c} onClick={() => setCat(c)} className="gb-focus shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold" style={{ background: cat === c ? "var(--glass)" : "var(--paper-dim)", color: cat === c ? "#fff" : "var(--ink)" }}>
-            {c === "all" ? "Tout" : getCategory(categories, c).label}
-          </button>
-        ))}
+function fmtDateTime(d) {
+  if (!d) return "—";
+  const x = new Date(d);
+  return `${x.toLocaleDateString("fr-FR")} · ${x.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+}
+function fmtShortDate(d) {
+  return d ? new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "";
+}
+
+// Fiche de stock d'un produit : stock de départ daté, arrivages datés,
+// ajustements, ventes et stock actuel, avec le calcul affiché.
+function StockLedgerModal({ product, categories, sales, movements, inventories, onClose }) {
+  const L = buildStockLedger(product, { sales, movements, inventories });
+  const unit = product.unit || "unité";
+  const Tile = ({ label, value, sub, bg, fg }) => (
+    <div className="rounded-xl px-3 py-2 min-w-0" style={{ background: bg }}>
+      <p className="text-[10px] font-semibold" style={{ color: fg, opacity: 0.85 }}>{label}</p>
+      <p className="font-mono font-bold text-base leading-tight" style={{ color: fg }}>{value}</p>
+      {sub && <p className="text-[10px] truncate" style={{ color: fg, opacity: 0.75 }}>{sub}</p>}
+    </div>
+  );
+  const Row = ({ icon: Icon, color, title, sub, detail, value, valueColor, highlight }) => (
+    <div className="flex gap-2.5 py-2.5 px-4 -mx-4" style={{ borderBottom: "1px solid var(--line)", background: highlight ? "var(--paper-dim)" : "transparent" }}>
+      <Icon size={17} color={color} className="shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-semibold">{title}</p>
+        <p className="text-[11px] opacity-55">{sub}</p>
+        {detail && <p className="text-[11px] mt-1 opacity-75">{detail}</p>}
       </div>
-      <div className="flex flex-col gap-2.5">
-        {sorted.map((p) => {
-          const low = p.stock <= p.minStock;
-          const pct = Math.min(Math.round((p.stock / Math.max(p.minStock * 2, 1)) * 100), 100);
-          const mid = !low && pct <= 45;
-          const barColor = low ? "var(--danger)" : mid ? "#E0A426" : "#1CA857";
-          const borderColor = low ? "var(--danger)" : mid ? "#E0A426" : "#8FCB9F";
+      <p className="font-mono font-bold text-sm shrink-0" style={{ color: valueColor || "var(--ink)" }}>{value}</p>
+    </div>
+  );
+  // Historique chronologique : départ → arrivages / ajustements → ventes → actuel.
+  const events = [...L.arrivals, ...L.adjustments].sort((a, b) => new Date(a.date) - new Date(b.date));
+  return (
+    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center no-print">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden gb-pop flex flex-col" style={{ maxHeight: "88vh" }}>
+        <div className="px-4 py-3.5 flex items-center gap-3" style={{ background: "var(--glass)" }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.12)" }}><CategoryIcon cat={product.category} categories={categories} size={19} /></div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-white truncate">{product.name}</p>
+            <p className="text-[11px] text-white/60">Fiche de stock</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] text-white/60">Stock actuel</p>
+            <p className="font-mono font-bold text-xl text-white leading-none">{L.current}</p>
+          </div>
+          <button onClick={onClose} className="gb-focus ml-1" aria-label="Fermer"><X size={18} color="rgba(255,255,255,0.7)" /></button>
+        </div>
+
+        <div className="p-4 overflow-y-auto gb-scroll">
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <Tile label="Stock de départ" value={L.opening} sub={L.openingDate ? new Date(L.openingDate).toLocaleDateString("fr-FR") : "—"} bg="var(--paper-dim)" fg="var(--ink)" />
+            <Tile label="Arrivages" value={`+${L.arrived}`} sub={`${L.arrivals.length} livraison${L.arrivals.length > 1 ? "s" : ""}`} bg="#EAF3DE" fg="#27500A" />
+            <Tile label="Vendus" value={`−${L.sold}`} sub={L.openingDate ? `depuis le ${fmtShortDate(L.openingDate)}` : "au total"} bg="#FCEBEB" fg="#A32D2D" />
+            <Tile label="Stock actuel" value={L.current} sub={`${L.opening} + ${L.arrived}${L.adjusted ? ` ${L.adjusted > 0 ? "+" : "−"} ${Math.abs(L.adjusted)}` : ""} − ${L.sold}`} bg="#E6F1FB" fg="#0C447C" />
+          </div>
+          {L.adjusted !== 0 && <p className="text-[11px] opacity-60 mb-2">Ajustements manuels / comptages : {L.adjusted > 0 ? "+" : ""}{L.adjusted}</p>}
+          {L.ecart !== 0 && (
+            <p className="text-[11px] font-medium rounded-lg px-2.5 py-1.5 mb-2" style={{ background: "#FAEEDA", color: "#854F0B" }}>
+              Écart de {L.ecart > 0 ? "+" : ""}{L.ecart} entre le stock réel ({L.current}) et le stock calculé ({L.expected}). Un comptage de stock permet de le régulariser.
+            </p>
+          )}
+
+          <p className="text-[13px] font-bold mt-3 mb-1">Historique du stock</p>
+          <div style={{ borderTop: "1px solid var(--line)" }}>
+            <Row icon={ClipboardCheck} color="var(--ink)" title="Stock de départ" sub={fmtDateTime(L.openingDate)} value={L.opening} />
+            {events.map((e, idx) => e.kind === "arrivage" ? (
+              <Row key={idx} icon={Truck} color="#3B6D11" highlight title="Arrivage fournisseur"
+                sub={`${fmtDateTime(e.date)}${e.note ? ` · ${e.note}` : ""}`}
+                detail={e.before != null ? `Stock avant : ${e.before}  +  reçu : ${e.qty}  =  nouveau stock : ${e.after ?? e.before + e.qty}` : null}
+                value={`+${e.qty}`} valueColor="#3B6D11" />
+            ) : (
+              <Row key={idx} icon={e.qty >= 0 ? ArrowUpCircle : ArrowDownCircle} color="#854F0B"
+                title={e.kind === "comptage" ? "Comptage de stock" : "Ajustement manuel"}
+                sub={`${fmtDateTime(e.date)}${e.author ? ` · ${e.author}` : ""}`}
+                detail={e.before != null ? `${e.before} → ${e.after}` : null}
+                value={`${e.qty > 0 ? "+" : ""}${e.qty}`} valueColor="#854F0B" />
+            ))}
+            <Row icon={ShoppingCart} color="#A32D2D" title="Ventes"
+              sub={L.saleCount ? `${fmtShortDate(L.firstSale)} → ${fmtShortDate(L.lastSale)} · ${L.saleCount} vente${L.saleCount > 1 ? "s" : ""}` : "Aucune vente depuis le départ"}
+              value={`−${L.sold}`} valueColor="#A32D2D" />
+            <Row icon={Boxes} color="#185FA5" title="Stock actuel" sub={fmtDateTime(new Date())} value={`${L.current} ${unit}${L.current > 1 ? "s" : ""}`} valueColor="#185FA5" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StockScreen({ products, categories, sales = [], movements = [], inventories = [] }) {
+  const fmt = useFmt();
+  const [ledgerProductId, setLedgerProductId] = useState(null);
+  const ledgerProduct = ledgerProductId ? products.find((p) => p.id === ledgerProductId) : null;
+  const [cat, setCat] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [query, setQuery] = useState("");
+  const statusOf = (p) => (Number(p.stock) <= 0 ? "out" : Number(p.stock) <= Number(p.minStock) ? "low" : "ok");
+  const TONE = {
+    out: { c: "#C2331F", bg: "#FBE4E1", t: "#8A2419", border: "#EBB3AA", label: "Rupture" },
+    low: { c: "#E09A1A", bg: "#FFF1D6", t: "#6E3C00", border: "#F0D39A", label: "Stock bas" },
+    ok: { c: "#1E8E50", bg: "#E4F4EA", t: "#0F4F2B", border: "var(--line)", label: "En stock" },
+  };
+  const counts = { out: 0, low: 0, ok: 0 };
+  products.forEach((p) => { counts[statusOf(p)] += 1; });
+  const value = products.reduce((sum, p) => sum + Math.max(0, Number(p.stock) || 0) * (Number(p.costPrice) || 0), 0);
+  const q = query.trim().toLowerCase();
+  const list = products
+    .filter((p) => (cat === "all" || p.category === cat) && (status === "all" || statusOf(p) === status) && (!q || (p.name || "").toLowerCase().includes(q) || (p.barcode || "").toLowerCase().includes(q)))
+    .sort((a, b) => a.stock / Math.max(a.minStock, 1) - b.stock / Math.max(b.minStock, 1));
+  const groups = [
+    { id: "alert", title: "À réapprovisionner", items: list.filter((p) => statusOf(p) !== "ok"), tone: TONE.out },
+    { id: "ok", title: "En stock", items: list.filter((p) => statusOf(p) === "ok"), tone: TONE.ok },
+  ].filter((g) => g.items.length);
+  return (
+    <div className="px-4 pt-4 pb-36">
+      <div className="flex items-end justify-between gap-3 mb-3.5">
+        <div className="min-w-0">
+          <h2 className="font-display font-bold text-[24px] leading-tight">État du stock</h2>
+          <p className="text-[13px] opacity-60 mt-0.5">{products.length} produit{products.length > 1 ? "s" : ""}{value > 0 ? ` · valeur ${fmt(value)}` : ""}</p>
+        </div>
+      </div>
+
+      <section aria-label="Santé du stock" className="grid grid-cols-3 gap-2 mb-3.5">
+        {["out", "low", "ok"].map((k) => {
+          const t = TONE[k]; const on = status === k;
           return (
-            <div key={p.id} className="rounded-2xl p-3 flex items-center gap-3" style={{ background: "var(--card)", border: `1.5px solid ${borderColor}`, boxShadow: low ? "0 4px 14px rgba(163,45,45,0.2)" : "0 4px 14px rgba(0,0,0,0.08)" }}>
-              <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}>
-                {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={22} />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <div className="text-sm font-semibold truncate">{p.name}</div>
-                  {low && <AlertTriangle size={13} color="var(--danger)" className="shrink-0" />}
-                </div>
-                <div className="text-[11px] opacity-50 font-mono mb-1.5">{p.barcode}</div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}>
-                  <div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} />
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="font-mono font-bold text-lg" style={{ color: low ? "var(--danger)" : "var(--ink)" }}>{p.stock}</div>
-                <div className="text-[10px]" style={{ color: low ? "var(--danger)" : "var(--ink)", opacity: low ? 1 : 0.5 }}>{p.unit}s</div>
-              </div>
-            </div>
+            <button key={k} onClick={() => setStatus(on ? "all" : k)} aria-pressed={on} className="gb-focus min-w-0 min-h-[92px] p-3 rounded-2xl text-left flex flex-col justify-between gap-1.5" style={on ? { background: t.c, color: "#fff", border: `1px solid ${t.c}` } : { background: "var(--card)", color: k === "ok" ? "var(--ink)" : t.t, border: `1px solid ${k === "ok" ? "var(--line)" : t.border}` }}>
+              <span className="flex justify-between items-center w-full"><span className="w-2.5 h-2.5 rounded-full" style={{ background: on ? "#fff" : t.c }} />{on && <Check size={14} />}</span>
+              <span className="font-display font-bold text-[24px] leading-none">{counts[k]}</span>
+              <span className="text-[12.5px] font-bold leading-tight">{t.label}</span>
+            </button>
           );
         })}
+      </section>
+
+      <div className="sticky z-10 -mx-4 px-4 pt-2 pb-3 mb-1 flex flex-col gap-2.5" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 48px)", background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+        <label className="flex items-center gap-2.5 min-h-[46px] px-3.5 rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
+          <Search size={17} className="opacity-50" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom ou code-barres" aria-label="Rechercher un produit" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+          {query && <button onClick={() => setQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={16} /></button>}
+        </label>
+        <div role="group" aria-label="Catégories" className="flex flex-wrap gap-1.5">
+          {["all", ...categories.map((c) => c.id)].map((c) => {
+            const on = cat === c;
+            return (
+              <button key={c} onClick={() => setCat(c)} aria-pressed={on} className="gb-focus min-h-[38px] px-3.5 rounded-full text-[13.5px] font-semibold flex items-center gap-1.5" style={on ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>
+                {c !== "all" && <CategoryIcon cat={c} categories={categories} size={14} />}{c === "all" ? "Tout" : getCategory(categories, c).label}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {list.length === 0 && (
+        <div className="mt-4 rounded-[18px] p-7 text-center flex flex-col gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+          <span className="text-[15px] font-bold">Aucun produit trouvé</span>
+          <span className="text-[13px] opacity-60">Changez de catégorie ou effacez la recherche.</span>
+        </div>
+      )}
+
+      {groups.map((g) => (
+        <section key={g.id} className="flex flex-col gap-2.5 pt-4">
+          <div className="flex items-center gap-2 px-0.5">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: g.tone.c }} />
+            <h3 className="text-[13px] font-bold uppercase tracking-wide opacity-80">{g.title}</h3>
+            <span className="min-w-[22px] h-[22px] px-1.5 rounded-full text-[12px] font-bold flex items-center justify-center" style={{ background: g.tone.bg, color: g.tone.t }}>{g.items.length}</span>
+            <span className="flex-1 h-px" style={{ background: "var(--line)" }} />
+          </div>
+          {g.items.map((p) => {
+            const st = statusOf(p); const t = TONE[st];
+            const target = Math.max(Number(p.minStock) * 2, 1);
+            const pct = Math.min(Math.round((Math.max(0, p.stock) / target) * 100), 100);
+            const missing = Math.max(0, target - p.stock);
+            const catMeta = getCategory(categories, p.category);
+            return (
+              <button type="button" key={p.id} onClick={() => setLedgerProductId(p.id)} aria-label={`Fiche de stock de ${p.name}`} className="gb-focus w-full text-left rounded-[18px] p-3.5 flex flex-col gap-3" style={{ background: "var(--card)", border: `1px solid ${t.border}`, boxShadow: "0 1px 2px rgba(22,32,42,0.05)" }}>
+                <span className="flex items-center gap-3 w-full">
+                  <span className="w-[46px] h-[46px] rounded-[14px] overflow-hidden shrink-0 flex items-center justify-center" style={{ background: `${catMeta.color || "#888888"}1F` }}>
+                    {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={22} />}
+                  </span>
+                  <span className="flex-1 min-w-0 flex flex-col gap-0.5">
+                    <span className="text-[16px] font-bold leading-tight break-words">{p.name}</span>
+                    <span className="text-[12.5px] opacity-60 break-all">{catMeta.label}{p.barcode ? ` · ${p.barcode}` : " · sans code-barres"}</span>
+                  </span>
+                  <span className="shrink-0 min-w-[64px] px-2.5 py-1.5 rounded-xl flex flex-col items-center" style={st === "ok" ? { background: "var(--paper-dim)" } : { background: t.bg, color: t.t }}>
+                    <span className="font-display font-bold text-[22px] leading-none">{p.stock}</span>
+                    <span className="text-[11px] font-semibold mt-0.5">{p.unit || "unité"}{p.stock > 1 ? "s" : ""}</span>
+                  </span>
+                </span>
+                <span className="flex flex-col gap-1.5 w-full">
+                  <span className="relative block h-2 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}>
+                    <span className="absolute left-0 top-0 bottom-0 rounded-full" style={{ width: `${pct}%`, background: t.c }} />
+                    <span className="absolute top-0 bottom-0 w-0.5" style={{ left: "50%", background: "var(--ink)", opacity: 0.3 }} />
+                  </span>
+                  <span className="flex justify-between items-center gap-2 flex-wrap text-[12.5px]">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[12px] font-bold" style={{ background: t.bg, color: t.t }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: t.c }} />{t.label}</span>
+                    <span className="opacity-65">Seuil <b>{p.minStock}</b> · {st === "ok" ? "suffisant" : `manque ${missing}`}</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </section>
+      ))}
+      {products.length > 0 && <p className="text-[12px] opacity-50 text-center mt-5">Touchez un produit pour voir sa fiche de stock.</p>}
+      {ledgerProduct && <StockLedgerModal product={ledgerProduct} categories={categories} sales={sales} movements={movements} inventories={inventories} onClose={() => setLedgerProductId(null)} />}
     </div>
   );
 }
@@ -2549,8 +2953,9 @@ function SalesPdfPreview({ shop, sales, vendorFilter, onClose, pushToast }) {
   );
 }
 
-function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, pushToast, cashRegisterEntries }) {
+function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, pushToast, cashRegisterEntries, versements = [] }) {
   const fmt = useFmt();
+  const [cashDaysExpanded, setCashDaysExpanded] = useState(false);
   const [open, setOpen] = useState(null);
   const [pdfPreview, setPdfPreview] = useState(false);
   const [reprintSale, setReprintSale] = useState(null);
@@ -2614,6 +3019,29 @@ function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, 
     .reduce((sum, s) => sum + creditPaymentsOf(s).filter((p) => inRevenuePeriod(p.date)).reduce((s2, p) => s2 + p.amount, 0), 0);
   const revenueInPeriod = cashInPeriod + creditCollectedInPeriod;
   const PERIOD_LABELS = { all: "totale", today: "aujourd'hui", "7j": "sur 7 jours", "30j": "sur 30 jours", custom: "sur la plage" };
+  // Caisse jour par jour sur la période affichée. Le montant d'un jour est
+  // celui de la session ouverte ce jour-là, ou REPORTÉ depuis un jour
+  // précédent tant qu'aucun versement n'a été fait.
+  const cashTodayKey = todayCashDateKey(shop?.cashRegisterResetHour);
+  const cashRange = (() => {
+    const shiftKey = (n) => { const d = new Date(cashTodayKey + "T12:00:00"); d.setDate(d.getDate() - n); return cashDayKeyOf(d); };
+    if (periodFilter === "today") return [cashTodayKey, cashTodayKey];
+    if (periodFilter === "7j") return [shiftKey(6), cashTodayKey];
+    if (periodFilter === "30j") return [shiftKey(29), cashTodayKey];
+    if (periodFilter === "custom") {
+      const to = customTo && customTo < cashTodayKey ? customTo : cashTodayKey;
+      const from = customFrom || (() => { const d = new Date(to + "T12:00:00"); d.setDate(d.getDate() - 6); return cashDayKeyOf(d); })();
+      return [from <= to ? from : to, to];
+    }
+    const firstCash = sortedCashSessions(cashRegisterEntries, shop?.id)[0];
+    const firstKey = firstCash ? (firstCash.date || cashDayKeyOf(firstCash.timestamp)) : cashTodayKey;
+    return [firstKey, cashTodayKey];
+  })();
+  const cashDays = listCashDays(cashRange[0], cashRange[1])
+    .map((day) => ({ day, snap: cashSnapshotForDay(cashRegisterEntries, versements, shop?.id, day) }))
+    .filter((x) => x.snap);
+  const cashHeadline = cashDays[0]?.snap || null;
+  const cashDayLabel = (key) => new Date(key + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
   const periodLabel = PERIOD_LABELS[periodFilter] || "";
   return (
     <div className="px-4 pt-4 pb-28">
@@ -2643,7 +3071,7 @@ function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, 
       <div className="grid grid-cols-3 gap-2 mb-2">
         <StatCard icon={TrendingUp} label={`Recette ${periodLabel}`} value={fmt(revenueInPeriod)} dark compact />
         <StatCard icon={Receipt} label={`Ventes ${periodLabel}`} value={sorted.length} tintBg="#E6F1FB" tintFg="#185FA5" compact />
-        <StatCard icon={Banknote} label="Caisse" value={fmt(periodFilter === "today" ? (cashRegisterEntries?.find((e) => e.date === todayCashDateKey(shop?.cashRegisterResetHour) && (!e.shopId || e.shopId === shop?.id))?.amount ?? 0) : 0)} tintBg="#FAEEDA" tintFg="#854F0B" compact />
+        <StatCard icon={Banknote} label={cashRange[1] === cashTodayKey ? "Caisse actuelle" : `Caisse au ${cashDayLabel(cashRange[1])}`} value={fmt(cashHeadline?.amount ?? 0)} tintBg="#FAEEDA" tintFg="#854F0B" compact />
       </div>
       {(creditCollectedInPeriod > 0 || creditGivenUnpaidInPeriod > 0) && (
         <div className="flex flex-col gap-1 px-1 mb-4">
@@ -2658,6 +3086,41 @@ function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, 
               <span className="text-xs opacity-50">Nouveaux crédits accordés (non inclus)</span>
               <span className="font-mono text-xs font-semibold" style={{ color: "var(--danger)" }}>{fmt(creditGivenUnpaidInPeriod)}</span>
             </div>
+          )}
+        </div>
+      )}
+
+      {cashDays.length > 0 && (
+        <div className="rounded-2xl mb-4 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
+            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "#854F0B" }}><Banknote size={14} /> Caisse par jour</span>
+            <span className="text-[11px] opacity-50">{cashDays.length} jour{cashDays.length > 1 ? "s" : ""}</span>
+          </div>
+          {(cashDaysExpanded ? cashDays : cashDays.slice(0, 7)).map(({ day, snap }) => {
+            const versed = snap.versedOnOrBefore;
+            const status = versed
+              ? { label: "Versé", bg: "#EAF3DE", fg: "#27500A" }
+              : { label: "Non versé", bg: "#FAEEDA", fg: "#854F0B" };
+            const detail = snap.carried
+              ? `Reporté du ${cashDayLabel(snap.sessionDay)}${snap.setBy ? ` · saisi par ${snap.setBy}` : ""}`
+              : `Saisi${snap.setBy ? ` par ${snap.setBy}` : ""}${snap.session.timestamp ? ` à ${new Date(snap.session.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}`;
+            return (
+              <div key={day} className="flex items-center gap-3 px-3.5 py-2.5 border-t" style={{ borderColor: "var(--line)" }}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold capitalize">{day === cashTodayKey ? "Aujourd'hui" : cashDayLabel(day)}</p>
+                  <p className="text-[11px] opacity-55 mt-0.5 break-words">{detail}{snap.sessionsThatDay.length > 1 ? ` · ${snap.sessionsThatDay.length} fonds ce jour` : ""}</p>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className="font-mono font-bold text-sm">{fmt(snap.amount)}</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: status.bg, color: status.fg }}>{status.label}</span>
+                </div>
+              </div>
+            );
+          })}
+          {cashDays.length > 7 && (
+            <button onClick={() => setCashDaysExpanded((v) => !v)} className="gb-focus w-full text-xs font-semibold py-2.5 border-t" style={{ borderColor: "var(--line)", color: "#854F0B" }}>
+              {cashDaysExpanded ? "Réduire" : `Voir les ${cashDays.length} jours`}
+            </button>
           )}
         </div>
       )}
@@ -3885,7 +4348,7 @@ function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast 
 // par toute la boutique (peu importe qui le saisit). S'ouvre automatiquement
 // au centre à l'entrée sur Vendre tant qu'il manque, et se redéclenche si on
 // tente une vente sans l'avoir renseigné.
-function CashRegisterModal({ onSave, onClose }) {
+function CashRegisterModal({ onSave, onClose, afterVersement }) {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
   const submit = () => {
@@ -3902,12 +4365,12 @@ function CashRegisterModal({ onSave, onClose }) {
         <div className="px-4 py-3.5 flex items-center justify-between" style={{ background: "var(--glass)" }}>
           <div className="flex items-center gap-2">
             <Banknote size={18} color="var(--cap)" />
-            <span className="text-sm font-bold text-white">Fond de caisse du jour</span>
+            <span className="text-sm font-bold text-white">{afterVersement ? "Montant restant en caisse" : "Fond de caisse"}</span>
           </div>
           <button onClick={onClose} className="gb-focus" aria-label="Fermer"><X size={18} color="rgba(255,255,255,0.7)" /></button>
         </div>
         <div className="p-4">
-          <p className="text-xs opacity-60 mb-3.5 leading-relaxed">Indique le montant en espèces présent dans la caisse avant la première vente du jour.</p>
+          <p className="text-xs opacity-60 mb-3.5 leading-relaxed">{afterVersement ? "Le versement est enregistré. Indique le montant en espèces qui reste dans la caisse : il devient le fond de la nouvelle caisse." : "Indique le montant en espèces présent dans la caisse. Il reste valable jusqu'au prochain versement."}</p>
           <label className="text-[11px] font-bold opacity-60 block mb-1.5">Montant (FCFA)</label>
           <input
             type="number" min="0" inputMode="numeric" autoFocus
@@ -3944,7 +4407,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast }) 
       setNotFound(false);
       if (sale.paymentMethod === "credit") {
         const remaining = Math.max(0, sale.total - creditPaidSoFar(sale));
-        if (remaining > 0) speak(`${sale.clientName || "Le client"} a un reste à payer de ${spokenAmount(fmt(remaining))}.`, shop.voiceNotificationsEnabled);
+        if (remaining > 0) speak(`${sale.clientName || "Le client"} a un reste à payer de ${spokenAmount(fmt(remaining))}.`, voiceOn(shop, "credit"));
       }
       return;
     }
@@ -3957,7 +4420,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast }) 
         const msg = avoir.type === "produit"
           ? `${avoir.clientName || "Le client"} a encore ${prog.remainingQty} article${prog.remainingQty > 1 ? "s" : ""} en avoir.`
           : `${avoir.clientName || "Le client"} a encore ${spokenAmount(fmt(prog.remaining))} en avoir.`;
-        speak(msg, shop.voiceNotificationsEnabled);
+        speak(msg, voiceOn(shop, "credit"));
       }
       return;
     }
@@ -4984,16 +5447,18 @@ function ProductsSection({ products, saveProducts, categories, movements, saveMo
     const existing = products.find((x) => x.id === p.id);
     let nextP = p;
     if (!existing) {
-      nextP = { ...p, openingStock: p.stock };
+      nextP = { ...p, openingStock: p.stock, openingStockDate: new Date().toISOString() };
       saveMovements([{ id: uid(), date: new Date().toISOString(), productId: p.id, productName: p.name, type: "creation", delta: p.stock, before: 0, after: p.stock, author, note: "" }, ...movements]);
       pushNotification?.({ type: "product_created", productName: p.name });
     } else if (existing.stock !== p.stock) {
       const delta = p.stock - existing.stock;
-      nextP = { ...p, openingStock: (existing.openingStock ?? existing.stock) + delta };
+      // Le stock de départ reste figé à sa date : la correction apparaît comme
+      // un "ajustement manuel" daté dans la fiche de stock.
+      nextP = { ...p, openingStock: existing.openingStock ?? existing.stock, openingStockDate: existing.openingStockDate };
       saveMovements([{ id: uid(), date: new Date().toISOString(), productId: p.id, productName: p.name, type: "ajustement", delta, before: existing.stock, after: p.stock, author, note: "" }, ...movements]);
       pushNotification?.({ type: "product_updated", productName: p.name, delta });
     } else {
-      nextP = { ...p, openingStock: existing.openingStock ?? existing.stock };
+      nextP = { ...p, openingStock: existing.openingStock ?? existing.stock, openingStockDate: existing.openingStockDate };
       pushNotification?.({ type: "product_updated", productName: p.name, delta: 0 });
     }
     saveProducts(existing ? products.map((x) => (x.id === p.id ? nextP : x)) : [...products, nextP]);
@@ -5184,7 +5649,7 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
     if (changed.length === 0) { pushToast("Aucun écart à valider", "error"); return; }
     const nextProducts = products.map((p) => {
       const row = changed.find((r) => r.p.id === p.id);
-      return row ? { ...p, stock: row.countedNum, openingStock: (p.openingStock ?? p.stock) + row.diff } : p;
+      return row ? { ...p, stock: row.countedNum } : p;
     });
     saveProducts(nextProducts);
     const newMovements = changed.map((r) => ({ id: uid(), date: new Date().toISOString(), productId: r.p.id, productName: r.p.name, type: "comptage", delta: r.diff, before: r.p.stock, after: r.countedNum, author, note: "" }));
@@ -5238,13 +5703,52 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
   );
 }
 
-function ProfitabilitySection({ products, sales, saveProducts, inventories, saveInventories, categories, author, pushToast }) {
+function ProfitabilitySection({ products, sales, saveSales, movements, saveProducts, inventories, saveInventories, categories, author, pushToast }) {
   const fmt = useFmt();
   const symbol = useCurrencySymbol();
   const [confirming, setConfirming] = useState(false);
   const [periodFilter, setPeriodFilter] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+
+  // Coût d'achat actuel de chaque produit (sert de repli quand la vente a été
+  // enregistrée avant que le prix d'achat soit renseigné).
+  const currentCostById = new Map((products || []).map((p) => [p.id, Number(p.costPrice) || 0]));
+
+  // RÉPARATION DE LA BASE DE DONNÉES : les ventes faites avant que le prix
+  // d'achat d'un produit soit saisi ont gardé un coût à 0 dans leur "photo"
+  // du produit, ce qui donnait une marge égale au chiffre d'affaires (ex :
+  // Beaufort, Castel). On complète ces ventes avec le prix d'achat actuel,
+  // puis on les sauvegarde (localement + synchronisation serveur). Opération
+  // idempotente : une vente déjà complétée n'est plus modifiée.
+  const repairDoneRef = useRef(false);
+  useEffect(() => {
+    if (repairDoneRef.current || !saveSales || !Array.isArray(sales) || !products?.length) return;
+    let changed = false;
+    const repaired = sales.map((s) => {
+      if (!Array.isArray(s.items)) return s;
+      let saleChanged = false;
+      const items = s.items.map((it) => {
+        const prod = it.product;
+        const pid = prod?.id || it.id;
+        if (!prod || !pid) return it;
+        const snapCost = Number(prod.costPrice) || 0;
+        const curCost = currentCostById.get(pid) || 0;
+        if (snapCost > 0 || curCost <= 0) return it;
+        saleChanged = true;
+        return { ...it, product: { ...prod, costPrice: curCost } };
+      });
+      if (!saleChanged) return s;
+      changed = true;
+      return { ...s, items };
+    });
+    repairDoneRef.current = true;
+    if (changed) {
+      saveSales(repaired);
+      pushToast?.("Marges corrigées : prix d'achat complétés sur les anciennes ventes", "ok");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sales, products]);
 
   // Rentabilité basée sur les VENTES RÉELLES et leur date, pas sur un delta de
   // stock — permet de filtrer par période (aujourd'hui, 7 jours, plage
@@ -5272,26 +5776,33 @@ function ProfitabilitySection({ products, sales, saveProducts, inventories, save
       const prod = it.product;
       const pid = prod?.id || it.id;
       if (!pid) return;
-      const price = prod?.price ?? 0;
-      const cost = prod?.costPrice ?? 0;
-      const entry = productMap.get(pid) || { id: pid, name: prod?.name || "Produit supprimé", category: prod?.category, sold: 0, revenue: 0, cost: 0 };
-      entry.sold += it.qty;
-      entry.revenue += it.qty * price;
-      entry.cost += it.qty * cost;
+      const qty = Number(it.qty) || 0;
+      // Chiffre d'affaires réel de la ligne, prix de lot inclus (même calcul
+      // que le panier et le reçu).
+      const lineRevenue = prod ? computeItemTotal({ ...prod, price: Number(prod.price) || 0 }, qty) : 0;
+      // Coût : celui enregistré au moment de la vente, sinon le prix d'achat
+      // actuel du produit.
+      const snapCost = Number(prod?.costPrice) || 0;
+      const cost = snapCost > 0 ? snapCost : (currentCostById.get(pid) || 0);
+      const entry = productMap.get(pid) || { id: pid, name: prod?.name || "Produit supprimé", category: prod?.category, sold: 0, revenue: 0, cost: 0, missingCostQty: 0 };
+      entry.sold += qty;
+      entry.revenue += lineRevenue;
+      entry.cost += qty * cost;
+      if (cost <= 0) entry.missingCostQty += qty;
       productMap.set(pid, entry);
     });
   });
-  const periodRows = Array.from(productMap.values()).map((r) => ({ ...r, profit: r.revenue - r.cost })).sort((a, b) => b.revenue - a.revenue);
+  const periodRows = Array.from(productMap.values()).map((r) => ({ ...r, profit: r.revenue - r.cost, costMissing: r.missingCostQty > 0 })).sort((a, b) => b.revenue - a.revenue);
   const periodTotals = periodRows.reduce((acc, r) => ({ sold: acc.sold + r.sold, revenue: acc.revenue + r.revenue, cost: acc.cost + r.cost, profit: acc.profit + r.profit }), { sold: 0, revenue: 0, cost: 0, profit: 0 });
 
-  // Delta de stock depuis le dernier "Valider l'inventaire" — outil de
-  // réconciliation de stock, indépendant de la période choisie ci-dessus.
+  // Depuis le stock de départ de chaque produit (création ou dernier
+  // inventaire validé) : départ + arrivages ± ajustements − ventes = actuel.
+  // Calcul partagé avec la fiche de stock (buildStockLedger).
   const stockRows = products.map((p) => {
-    const openingStock = p.openingStock ?? p.stock;
-    const sold = openingStock - p.stock;
-    const unitProfit = p.price - (p.costPrice || 0);
-    const totalProfit = sold * unitProfit;
-    return { p, openingStock, sold, unitProfit, totalProfit, cost: sold * (p.costPrice || 0), revenue: sold * p.price };
+    const L = buildStockLedger(p, { sales: sales || [], movements: movements || [], inventories: inventories || [] });
+    const totalProfit = L.revenue - L.cost;
+    const unitProfit = L.sold > 0 ? totalProfit / L.sold : p.price - (p.costPrice || 0);
+    return { p, L, openingStock: L.opening, sold: L.sold, unitProfit, totalProfit, cost: L.cost, revenue: L.revenue };
   });
   const stockTotals = stockRows.reduce((acc, r) => ({ sold: acc.sold + r.sold, revenue: acc.revenue + r.revenue, cost: acc.cost + r.cost, profit: acc.profit + r.totalProfit }), { sold: 0, revenue: 0, cost: 0, profit: 0 });
 
@@ -5303,7 +5814,8 @@ function ProfitabilitySection({ products, sales, saveProducts, inventories, save
     }));
     const record = { id: uid(), date: new Date().toISOString(), author, items, totals: stockTotals };
     saveInventories([record, ...inventories]);
-    saveProducts(products.map((p) => ({ ...p, openingStock: p.stock })));
+    const nowIso = new Date().toISOString();
+    saveProducts(products.map((p) => ({ ...p, openingStock: p.stock, openingStockDate: nowIso })));
     pushToast("Inventaire validé — nouveau stock de départ enregistré", "ok");
     setConfirming(false);
   };
@@ -5347,21 +5859,58 @@ function ProfitabilitySection({ products, sales, saveProducts, inventories, save
               <span className="text-sm font-semibold flex items-center gap-1.5"><CategoryIcon cat={r.category} categories={categories} size={13} /> {r.name}</span>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center mb-2">
-              <div><div className="text-[10px] opacity-45">Vendu</div><div className="font-mono text-sm font-semibold">{r.sold}</div></div>
-              <div><div className="text-[10px] opacity-45">Chiffre d'affaires</div><div className="font-mono text-sm font-semibold">{fmt(r.revenue)}</div></div>
-              <div><div className="text-[10px] opacity-45">Marge</div><div className="font-mono text-sm font-semibold" style={{ color: r.profit >= 0 ? "#3B6D11" : "var(--danger)" }}>{r.profit >= 0 ? "+" : ""}{fmt(r.profit)}</div></div>
+              <div className="min-w-0"><div className="text-[10px] opacity-45">Vendu</div><div className="font-mono text-xs sm:text-sm font-semibold whitespace-nowrap">{r.sold}</div></div>
+              <div className="min-w-0"><div className="text-[10px] opacity-45">Chiffre d'affaires</div><div className="font-mono text-xs sm:text-sm font-semibold whitespace-nowrap">{fmt(r.revenue)}</div></div>
+              <div className="min-w-0"><div className="text-[10px] opacity-45">Marge</div>
+                {r.costMissing && r.cost === 0
+                  ? <div className="font-mono text-xs sm:text-sm font-semibold whitespace-nowrap opacity-40">—</div>
+                  : <div className="font-mono text-xs sm:text-sm font-semibold whitespace-nowrap" style={{ color: r.profit >= 0 ? "#3B6D11" : "var(--danger)" }}>{r.profit >= 0 ? "+" : ""}{fmt(r.profit)}</div>}
+              </div>
             </div>
+            {r.costMissing && (
+              <p className="text-[11px] font-medium rounded-lg px-2.5 py-1.5" style={{ background: "#FAEEDA", color: "#854F0B" }}>
+                Prix d'achat non renseigné{r.cost > 0 ? ` pour ${r.missingCostQty} unité(s)` : ""} — renseigne-le dans Stock pour obtenir la vraie marge.
+              </p>
+            )}
           </div>
         ))}
       </div>
 
       <div className="rounded-2xl p-4 mb-2.5" style={{ background: "var(--paper-dim)" }}>
         <h3 className="font-display font-bold text-sm mb-1">Depuis le dernier inventaire</h3>
-        <p className="text-[11px] opacity-50 mb-3">Comparaison stock de départ / stock actuel — outil de réconciliation, indépendant de la période choisie ci-dessus.</p>
-        <div className="grid grid-cols-2 gap-2 mb-1">
+        <p className="text-[11px] opacity-50 mb-3">Stock de départ + arrivages − ventes = stock actuel, pour chaque produit. Indépendant de la période choisie ci-dessus.</p>
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="rounded-xl px-3 py-2" style={{ background: "var(--card)" }}><p className="text-[10px] opacity-50">Unités vendues</p><p className="font-mono font-semibold text-sm">{stockTotals.sold}</p></div>
           <div className="rounded-xl px-3 py-2" style={{ background: "var(--card)" }}><p className="text-[10px] opacity-50">Bénéfice</p><p className="font-mono font-semibold text-sm" style={{ color: stockTotals.profit >= 0 ? "#3B6D11" : "var(--danger)" }}>{fmt(stockTotals.profit)}</p></div>
         </div>
+        {(() => {
+          const active = stockRows.filter((r) => r.L.sold || r.L.arrived || r.L.adjusted || r.L.ecart);
+          if (active.length === 0) return null;
+          const cols = "minmax(0,1.5fr) repeat(4, minmax(0,1fr))";
+          return (
+            <div className="rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
+              <div className="grid gap-1 text-[10px] opacity-50 pb-1.5" style={{ gridTemplateColumns: cols, borderBottom: "1px solid var(--line)" }}>
+                <span>Produit</span><span className="text-right">Départ</span><span className="text-right">Arrivé</span><span className="text-right">Vendu</span><span className="text-right">Actuel</span>
+              </div>
+              {active.map((r) => (
+                <div key={r.p.id} className="py-1.5" style={{ borderBottom: "1px solid var(--line)" }}>
+                  <div className="grid gap-1 text-xs items-baseline" style={{ gridTemplateColumns: cols }}>
+                    <span className="truncate font-semibold">{r.p.name}</span>
+                    <span className="text-right font-mono">{r.L.opening}</span>
+                    <span className="text-right font-mono" style={{ color: r.L.arrived ? "#3B6D11" : undefined }}>{r.L.arrived ? `+${r.L.arrived}` : "0"}</span>
+                    <span className="text-right font-mono" style={{ color: r.L.sold ? "#A32D2D" : undefined }}>{r.L.sold}</span>
+                    <span className="text-right font-mono font-bold">{r.L.current}</span>
+                  </div>
+                  <p className="text-[10px] opacity-45">
+                    Départ le {r.L.openingDate ? new Date(r.L.openingDate).toLocaleDateString("fr-FR") : "—"}
+                    {r.L.adjusted ? ` · ajustements ${r.L.adjusted > 0 ? "+" : ""}${r.L.adjusted}` : ""}
+                  </p>
+                  {r.L.ecart !== 0 && <p className="text-[10px] font-medium" style={{ color: "#854F0B" }}>Écart {r.L.ecart > 0 ? "+" : ""}{r.L.ecart} (stock calculé : {r.L.expected})</p>}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {confirming ? (
@@ -5425,13 +5974,199 @@ function InventoryHistorySection({ inventories }) {
   );
 }
 
-function InventorySection({ products, sales, saveProducts, categories, movements, saveMovements, inventories, saveInventories, author, pushToast, pushNotification }) {
+/* ---------- Versements (clôture de caisse) ---------- */
+
+function toDateInput(d) {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+}
+
+function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries, versements, activeCashSession, onRecordVersement, author, pushToast }) {
+  const fmt = useFmt();
+  const shopId = shop?.id;
+  const [formOpen, setFormOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [by, setBy] = useState("");
+  const [receivedBy, setReceivedBy] = useState(author || "");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const today = toDateInput(new Date());
+  const [from, setFrom] = useState(toDateInput(new Date(Date.now() - 6 * MS_DAY)));
+  const [to, setTo] = useState(today);
+  const [openId, setOpenId] = useState(null);
+
+  const live = activeCashSession ? computeCashSession(activeCashSession, { sales, expenses }) : null;
+  const versedNum = Number(amount);
+  const liveGap = live && amount !== "" && !isNaN(versedNum) ? versedNum - live.expected : null;
+
+  const submit = () => {
+    if (amount === "" || isNaN(versedNum) || versedNum < 0) { setError("Indique un montant versé valide (0 ou plus)."); return; }
+    if (!by.trim()) { setError("Indique qui fait le versement."); return; }
+    const ok = onRecordVersement?.({ amount: versedNum, by, receivedBy, note });
+    if (ok) { setFormOpen(false); setAmount(""); setNote(""); setError(""); }
+  };
+
+  const fromT = from ? new Date(from + "T00:00:00").getTime() : -Infinity;
+  const toT = to ? new Date(to + "T23:59:59").getTime() : Infinity;
+  const own = ownCashEntries(versements, shopId).slice().sort((a, b) => cashTime(b.date) - cashTime(a.date));
+  const inRange = own.filter((v) => { const t = cashTime(v.date); return t >= fromT && t <= toT; });
+  const fundsInRange = ownCashEntries(cashRegisterEntries, shopId).filter((e) => { const t = cashTime(e.timestamp || e.date); return t >= fromT && t <= toT; });
+  const totals = inRange.reduce((acc, v) => ({
+    versed: acc.versed + (Number(v.amount) || 0),
+    expected: acc.expected + (Number(v.expected) || 0),
+    gap: acc.gap + (Number(v.gap) || 0),
+    mobile: acc.mobile + (Number(v.mobileSales) || 0),
+  }), { versed: 0, expected: 0, gap: 0, mobile: 0 });
+  const fundsTotal = fundsInRange.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+  const setQuick = (days) => { setFrom(toDateInput(new Date(Date.now() - days * MS_DAY))); setTo(today); };
+  const shiftRange = (dir) => {
+    const f = new Date(from + "T00:00:00"); const t = new Date(to + "T00:00:00");
+    const span = Math.max(1, Math.round((t - f) / MS_DAY) + 1);
+    f.setDate(f.getDate() + dir * span); t.setDate(t.getDate() + dir * span);
+    setFrom(toDateInput(f)); setTo(toDateInput(t));
+  };
+
+  const Line = ({ label, value, color, strong }) => (
+    <div className="flex justify-between text-[13px]" style={{ fontWeight: strong ? 700 : 400 }}>
+      <span style={{ opacity: strong ? 1 : 0.6 }}>{label}</span>
+      <span className="font-mono" style={{ color }}>{value}</span>
+    </div>
+  );
+  const gapColor = (g) => (g === 0 ? "#3B6D11" : g < 0 ? "#A32D2D" : "#854F0B");
+  const vendorNames = Array.from(new Set([author, ...(vendors || []).map((v) => v.name)].filter(Boolean)));
+
+  return (
+    <div className="pb-16">
+      {/* Caisse en cours */}
+      <div className="rounded-2xl p-4 mb-3" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="font-display font-bold text-sm flex items-center gap-2"><Banknote size={16} color="#3B6D11" /> Caisse en cours</span>
+          {activeCashSession
+            ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#EAF3DE", color: "#27500A" }}>OUVERTE</span>
+            : <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#FAEEDA", color: "#854F0B" }}>FOND À SAISIR</span>}
+        </div>
+        {activeCashSession && live ? (
+          <>
+            <p className="text-[11px] opacity-55 mb-3">Ouverte le {fmtDateTime(activeCashSession.timestamp || activeCashSession.date)}{activeCashSession.setBy ? ` par ${activeCashSession.setBy}` : ""} · non versée</p>
+            <div className="flex flex-col gap-1.5">
+              <Line label="Fond de caisse" value={fmt(live.fund)} />
+              <Line label={`+ Ventes en espèces (${live.cashSalesCount})`} value={`+${fmt(live.cashSales)}`} color="#3B6D11" />
+              <Line label={`+ Crédits encaissés (${live.creditsCount})`} value={`+${fmt(live.creditsCollected)}`} color="#3B6D11" />
+              <Line label={`− Dépenses (${live.expensesCount})`} value={`−${fmt(live.expensesTotal)}`} color="#A32D2D" />
+              <div className="pt-1.5 mt-0.5" style={{ borderTop: "1px solid var(--line)" }}><Line label="Espèces attendues en caisse" value={fmt(live.expected)} strong /></div>
+              <div className="text-[11px] opacity-50 flex justify-between"><span>Mobile Money, hors caisse ({live.mobileSalesCount})</span><span className="font-mono">{fmt(live.mobileSales)}</span></div>
+            </div>
+            {!formOpen && (
+              <button onClick={() => { setFormOpen(true); setAmount(String(Math.max(0, live.expected))); setError(""); }} className="gb-focus w-full mt-3.5 rounded-xl py-3 text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}>
+                <Wallet size={16} /> Faire un versement
+              </button>
+            )}
+          </>
+        ) : (
+          <p className="text-xs opacity-60">Aucune caisse ouverte. Le fond de caisse sera demandé à l'ouverture de l'écran Vendre.</p>
+        )}
+      </div>
+
+      {/* Formulaire de versement */}
+      {formOpen && live && (
+        <div className="rounded-2xl p-4 mb-3 gb-slide-up" style={{ border: "1.5px solid var(--cap)", background: "var(--card)" }}>
+          <p className="font-display font-bold text-sm mb-3">Nouveau versement</p>
+          <label className="text-[11px] font-bold opacity-60 block mb-1">Montant versé ({shop?.currency || "FCFA"})</label>
+          <input type="number" min="0" inputMode="numeric" value={amount} onChange={(e) => { setAmount(e.target.value); setError(""); }} className="gb-focus w-full rounded-xl px-3 py-2.5 text-lg font-bold border-2 mb-2.5" style={{ borderColor: "var(--cap)" }} />
+          <div className="grid grid-cols-2 gap-2 mb-2.5">
+            <div className="min-w-0">
+              <label className="text-[11px] font-bold opacity-60 block mb-1">Versé par</label>
+              <input list="versement-people" value={by} onChange={(e) => { setBy(e.target.value); setError(""); }} placeholder="Francisca" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
+            </div>
+            <div className="min-w-0">
+              <label className="text-[11px] font-bold opacity-60 block mb-1">Reçu par</label>
+              <input list="versement-people" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
+            </div>
+          </div>
+          <datalist id="versement-people">{vendorNames.map((n) => <option key={n} value={n} />)}</datalist>
+          <label className="text-[11px] font-bold opacity-60 block mb-1">Note (facultatif)</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Versement du soir" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-2.5" style={{ borderColor: "var(--line)" }} />
+          {liveGap !== null && (
+            <div className="flex justify-between rounded-xl px-3 py-2 text-[13px] mb-2.5" style={{ background: liveGap === 0 ? "#EAF3DE" : liveGap < 0 ? "#FCEBEB" : "#FAEEDA", color: gapColor(liveGap) }}>
+              <span>Écart (versé − attendu)</span><span className="font-mono font-bold">{liveGap > 0 ? "+" : ""}{fmt(liveGap)}</span>
+            </div>
+          )}
+          {error && <p className="text-[11px] mb-2" style={{ color: "var(--danger)" }}>{error}</p>}
+          <p className="text-[11px] opacity-50 mb-3">Après validation, la caisse est clôturée et la fenêtre s'ouvre pour saisir le montant qui reste dans la caisse.</p>
+          <div className="flex gap-2">
+            <button onClick={() => { setFormOpen(false); setError(""); }} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+            <button onClick={submit} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-bold text-white" style={{ background: "var(--glass)" }}>Valider le versement</button>
+          </div>
+        </div>
+      )}
+
+      {/* Plage de dates */}
+      <div className="rounded-2xl p-4 mb-3" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
+        <div className="flex items-center gap-2 mb-2.5">
+          <button onClick={() => shiftRange(-1)} aria-label="Période précédente" className="gb-focus w-9 h-9 shrink-0 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><ChevronLeft size={16} /></button>
+          <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="Du" className="gb-focus flex-1 min-w-0 rounded-xl px-2 py-2 text-xs border" style={{ borderColor: "var(--line)" }} />
+          <span className="text-[11px] opacity-50">au</span>
+          <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="Au" className="gb-focus flex-1 min-w-0 rounded-xl px-2 py-2 text-xs border" style={{ borderColor: "var(--line)" }} />
+          <button onClick={() => shiftRange(1)} aria-label="Période suivante" className="gb-focus w-9 h-9 shrink-0 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><ChevronRight size={16} /></button>
+        </div>
+        <div className="flex gap-1.5 mb-3.5 overflow-x-auto gb-scroll">
+          {[["Aujourd'hui", 0], ["7 jours", 6], ["30 jours", 29]].map(([label, d]) => (
+            <button key={label} onClick={() => setQuick(d)} className="gb-focus shrink-0 px-3 py-1.5 rounded-full text-[11px] font-semibold" style={{ background: "var(--paper-dim)" }}>{label}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <StatCard icon={Wallet} label="Total versé" value={fmt(totals.versed)} tintBg="#EAF3DE" tintFg="#27500A" />
+          <StatCard icon={ClipboardCheck} label="Versements" value={inRange.length} tintBg="#E6F1FB" tintFg="#185FA5" />
+          <StatCard icon={Banknote} label={`Fonds de caisse (${fundsInRange.length})`} value={fmt(fundsTotal)} tintBg="#FAEEDA" tintFg="#854F0B" />
+          <StatCard icon={AlertTriangle} label="Écarts cumulés" value={`${totals.gap > 0 ? "+" : ""}${fmt(totals.gap)}`} tintBg={totals.gap < 0 ? "#FCEBEB" : "#EAF3DE"} tintFg={totals.gap < 0 ? "#A32D2D" : "#27500A"} />
+        </div>
+      </div>
+
+      {/* Historique des versements */}
+      <h3 className="font-display font-bold text-base mb-2">Historique des versements</h3>
+      {inRange.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun versement sur cette période.</p>}
+      <div className="flex flex-col gap-2.5">
+        {inRange.map((v) => {
+          const open = openId === v.id;
+          const g = Number(v.gap) || 0;
+          return (
+            <button type="button" key={v.id} onClick={() => setOpenId(open ? null : v.id)} className="gb-focus w-full text-left rounded-2xl p-3.5" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[13px] font-semibold">Versement du {fmtDateTime(v.date)}</span>
+                <span className="font-mono font-bold text-sm shrink-0">{fmt(v.amount)}</span>
+              </div>
+              <p className="text-[11px] opacity-55 mt-0.5">Caisse ouverte le {fmtDateTime(v.openedAt)} · fond {fmt(v.fund)}{v.by ? ` · ${v.by}` : ""}{v.receivedBy ? ` → ${v.receivedBy}` : ""}</p>
+              <p className="text-[11px] font-semibold mt-0.5" style={{ color: gapColor(g) }}>Attendu {fmt(v.expected)} · écart {g > 0 ? "+" : ""}{fmt(g)}</p>
+              {open && (
+                <div className="mt-2.5 pt-2.5 flex flex-col gap-1" style={{ borderTop: "1px solid var(--line)" }}>
+                  <Line label="Fond de caisse" value={fmt(v.fund)} />
+                  <Line label={`+ Ventes en espèces (${v.cashSalesCount || 0})`} value={`+${fmt(v.cashSales || 0)}`} color="#3B6D11" />
+                  <Line label={`+ Crédits encaissés (${v.creditsCount || 0})`} value={`+${fmt(v.creditsCollected || 0)}`} color="#3B6D11" />
+                  <Line label={`− Dépenses (${v.expensesCount || 0})`} value={`−${fmt(v.expensesTotal || 0)}`} color="#A32D2D" />
+                  <Line label="Espèces attendues" value={fmt(v.expected)} strong />
+                  <Line label="Montant versé" value={fmt(v.amount)} strong />
+                  <Line label="Mobile Money (hors caisse)" value={fmt(v.mobileSales || 0)} />
+                  {v.note && <p className="text-[11px] opacity-60 mt-1">Note : {v.note}</p>}
+                  {v.recordedBy && <p className="text-[11px] opacity-45">Enregistré par {v.recordedBy}</p>}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InventorySection({ shop, expenses, vendors, cashRegisterEntries, versements, activeCashSession, onRecordVersement, products, sales, saveSales, saveProducts, categories, movements, saveMovements, inventories, saveInventories, author, pushToast, pushNotification }) {
   const [tab, setTab] = useState("apercu");
   const TABS = [
     { id: "apercu", label: "Aperçu" },
     { id: "mouvements", label: "Mouvements" },
     { id: "comptage", label: "Comptage" },
     { id: "rentabilite", label: "Rentabilité" },
+    { id: "versements", label: "Versements" },
     { id: "historique", label: "Historique" },
   ];
   return (
@@ -5444,7 +6179,8 @@ function InventorySection({ products, sales, saveProducts, categories, movements
       {tab === "apercu" && <InventoryOverview products={products} categories={categories} movements={movements} />}
       {tab === "mouvements" && <MovementsLedger movements={movements} categories={categories} />}
       {tab === "comptage" && <StockCountSection products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} categories={categories} author={author} pushToast={pushToast} pushNotification={pushNotification} />}
-      {tab === "rentabilite" && <ProfitabilitySection products={products} sales={sales} saveProducts={saveProducts} inventories={inventories} saveInventories={saveInventories} categories={categories} author={author} pushToast={pushToast} />}
+      {tab === "rentabilite" && <ProfitabilitySection products={products} sales={sales} saveSales={saveSales} movements={movements} saveProducts={saveProducts} inventories={inventories} saveInventories={saveInventories} categories={categories} author={author} pushToast={pushToast} />}
+      {tab === "versements" && <VersementsSection shop={shop} sales={sales || []} expenses={expenses || []} vendors={vendors || []} cashRegisterEntries={cashRegisterEntries || []} versements={versements || []} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} author={author} pushToast={pushToast} />}
       {tab === "historique" && <InventoryHistorySection inventories={inventories} />}
     </div>
   );
@@ -5782,13 +6518,40 @@ function PurchaseOrderModal({ supplier, supplierProducts, onCreate, onClose }) {
   );
 }
 
-function PendingOrderModal({ order, supplier, onUpdate, onValidate, onClose, pushToast }) {
+function orderTotalOf(o) {
+  if (!o) return 0;
+  if (o.status === "received" && Number(o.total) > 0) return Number(o.total);
+  return (o.items || []).reduce((sum, i) => sum + (Number(i.crates) || 0) * (Number(i.cratePrice) || 0), 0);
+}
+
+function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, onValidate, onDelete, onClose, pushToast }) {
   const fmt = useFmt();
   const [items, setItems] = useState(order.items.map((i) => ({ ...i })));
-  const removeLine = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx));
+  const [adding, setAdding] = useState(false);
+  const [query, setQuery] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const catalog = supplierProducts.filter((sp) => sp.supplierId === order.supplierId);
+  const originalTotal = order.items.reduce((sum, i) => sum + i.crates * i.cratePrice, 0);
   const total = items.reduce((sum, i) => sum + i.crates * i.cratePrice, 0);
+  const totalCrates = items.reduce((sum, i) => sum + i.crates, 0);
+  const dirty = JSON.stringify(items) !== JSON.stringify(order.items);
+  const keyOf = (i) => i.productId || i.productName;
+  const setCrates = (idx, n) => setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, crates: Math.max(1, n) } : it)));
+  const removeLine = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx));
+  const addFromCatalog = (sp) => {
+    setItems((prev) => {
+      const idx = prev.findIndex((i) => keyOf(i) === (sp.productId || sp.productName));
+      if (idx >= 0) return prev.map((it, k) => (k === idx ? { ...it, crates: it.crates + 1 } : it));
+      return [...prev, { productId: sp.productId, productName: sp.productName, barcode: sp.barcode || "", category: sp.category || "", crateSize: sp.crateSize, cratePrice: sp.cratePrice, salePrice: sp.salePrice || 0, crates: 1 }];
+    });
+  };
+  const qtyInOrder = (sp) => items.find((i) => keyOf(i) === (sp.productId || sp.productName))?.crates || 0;
+  const filtered = query.trim() ? catalog.filter((sp) => sp.productName.toLowerCase().includes(query.trim().toLowerCase())) : catalog;
 
-  const save = () => { onUpdate({ ...order, items }); onClose(); };
+  const save = () => {
+    if (items.length === 0) { pushToast("La commande est vide : ajoute un produit ou supprime la commande", "error"); return; }
+    onUpdate({ ...order, items }); onClose();
+  };
   const validate = () => {
     if (items.length === 0) { pushToast("Ajoute au moins un produit disponible avant de valider", "error"); return; }
     onValidate({ ...order, items });
@@ -5796,38 +6559,118 @@ function PendingOrderModal({ order, supplier, onUpdate, onValidate, onClose, pus
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end no-print">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)" }}>
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="font-display font-bold text-lg">Commande en attente</h2>
-          <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
+    <div className="fixed inset-0 z-[95] flex flex-col no-print" style={{ background: "#F4F3EF", color: "#16202A" }}>
+      <div className="shrink-0 px-5 pb-3 flex items-center gap-3" style={{ paddingTop: "max(22px, env(safe-area-inset-top))" }}>
+        <button onClick={onClose} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff", border: "1px solid #E2E0D9" }} aria-label="Retour"><ChevronLeft size={19} /></button>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: "#5B6470" }}>Commande N° {order.id.slice(0, 6).toUpperCase()}</p>
+          <p className="font-display font-bold text-[19px] leading-tight break-words">{supplier?.name || "Fournisseur"}</p>
         </div>
-        <p className="text-xs opacity-50 mb-4">{supplier?.name} · N° {order.id.slice(0, 6).toUpperCase()} · {new Date(order.date).toLocaleDateString("fr-FR")}</p>
-        <p className="text-xs opacity-60 mb-2">Retire les produits que le fournisseur n'a pas en stock, puis valide pour les articles réellement disponibles.</p>
-        <div className="flex flex-col gap-2 mb-4">
+        <button onClick={() => setConfirmDelete(true)} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff", border: "1px solid #F1C9C3" }} aria-label="Supprimer la commande"><Trash2 size={18} color="#B3261E" /></button>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5 pb-6 flex flex-col gap-3.5">
+        <section className="rounded-[20px] p-4 flex flex-col gap-3 text-white" style={{ background: "#1F2A33" }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[13px]" style={{ color: "#C9D1D8" }}>Montant de la commande</span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-bold" style={{ background: "#FFF1D6", color: "#7A4E00" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#E09A1A" }} />En attente</span>
+          </div>
+          <span className="font-display font-bold text-[32px] leading-none">{fmt(total)}</span>
+          <div className="flex justify-between gap-2 flex-wrap text-[13px]" style={{ color: "#C9D1D8" }}>
+            <span>Commandée le {new Date(order.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span>
+            <span>{totalCrates} casier{totalCrates > 1 ? "s" : ""}</span>
+          </div>
+          {dirty && (
+            <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-[12.5px]" style={{ background: "rgba(255,194,102,0.14)", color: "#FFD699" }}>
+              <AlertTriangle size={14} className="shrink-0" /> Modifications non enregistrées · avant : {fmt(originalTotal)}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-[20px] px-4 pt-1.5 pb-4 flex flex-col" style={{ background: "#fff", border: "1px solid #E6E4DD" }}>
+          <div className="flex justify-between items-center gap-2 pt-3 pb-1.5">
+            <span className="text-[12px] font-bold uppercase tracking-wide" style={{ color: "#5B6470" }}>Produits ({items.length})</span>
+            <span className="text-[12px]" style={{ color: "#5B6470" }}>Touchez − / + pour ajuster</span>
+          </div>
+          {items.length === 0 && <p className="py-5 text-center text-[13.5px] border-t" style={{ color: "#5B6470", borderColor: "#EFEDE7" }}>La commande est vide. Ajoute au moins un produit ou supprime la commande.</p>}
           {items.map((i, idx) => (
-            <div key={idx} className="rounded-xl p-2.5 border flex items-center gap-2.5" style={{ borderColor: "var(--line)" }}>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium truncate">{i.productName}</div>
-                <div className="text-[10px] opacity-50">{i.crates} casier{i.crates > 1 ? "s" : ""} de {i.crateSize} · {fmt(i.crates * i.cratePrice)}</div>
+            <div key={keyOf(i) + idx} className="flex flex-col gap-2.5 py-3.5 border-t" style={{ borderColor: "#EFEDE7" }}>
+              <div className="flex justify-between items-start gap-2.5">
+                <div className="min-w-0">
+                  <p className="text-[15px] font-semibold break-words">{i.productName}</p>
+                  <p className="text-[12.5px]" style={{ color: "#5B6470" }}>Casier de {i.crateSize} · {fmt(i.cratePrice)} / casier</p>
+                </div>
+                <button onClick={() => removeLine(idx)} className="gb-focus w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#F7F6F2" }} aria-label={`Retirer ${i.productName}`}><X size={16} color="#B3261E" /></button>
               </div>
-              <button onClick={() => removeLine(idx)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} title="Produit manquant chez le fournisseur">
-                <Trash2 size={14} color="var(--danger)" />
-              </button>
+              <div className="flex justify-between items-center gap-2">
+                <div className="flex items-center rounded-xl overflow-hidden" style={{ border: "1px solid #DAD8D0", background: "#FAFAF7" }}>
+                  <button onClick={() => setCrates(idx, i.crates - 1)} disabled={i.crates <= 1} className="gb-focus w-11 h-10 flex items-center justify-center disabled:opacity-30" aria-label="Diminuer"><Minus size={16} /></button>
+                  <span className="min-w-[44px] text-center font-display font-bold text-[16px]">{i.crates}</span>
+                  <button onClick={() => setCrates(idx, i.crates + 1)} className="gb-focus w-11 h-10 flex items-center justify-center" aria-label="Augmenter"><Plus size={16} /></button>
+                </div>
+                <span className="font-display font-bold text-[16px] whitespace-nowrap">{fmt(i.crates * i.cratePrice)}</span>
+              </div>
             </div>
           ))}
-          {items.length === 0 && <p className="text-xs opacity-50 text-center py-4">Tous les articles ont été retirés.</p>}
-        </div>
-        <div className="flex justify-between items-center mb-4 px-1">
-          <span className="text-sm opacity-60">Total à payer</span>
-          <span className="font-mono font-bold text-lg" style={{ color: "var(--glass)" }}>{fmt(total)}</span>
-        </div>
-        <button onClick={validate} className="gb-focus w-full rounded-xl py-3 text-sm font-semibold text-white mb-2 flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}>
-          <Check size={16} /> Valider — payée et reçue
-        </button>
-        <button onClick={save} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Enregistrer sans valider</button>
+          <button onClick={() => { setAdding(true); setQuery(""); }} className="gb-focus mt-1.5 min-h-[50px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ border: "1.5px dashed #9AA3AD", background: "#FAFAF7", color: "#1F2A33" }}>
+            <Plus size={18} /> Ajouter des produits
+          </button>
+        </section>
       </div>
+
+      <div className="shrink-0 px-5 pt-4 flex flex-col gap-2.5" style={{ background: "#fff", borderTop: "1px solid #E6E4DD", paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
+        <div className="grid grid-cols-2 gap-2.5">
+          <button onClick={() => setConfirmDelete(true)} className="gb-focus min-h-[50px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ border: "1px solid #E3B3AC", color: "#9B2C1F", background: "#fff" }}><Trash2 size={17} /> Supprimer</button>
+          <button onClick={save} disabled={!dirty || items.length === 0} className="gb-focus min-h-[50px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: dirty && items.length ? "#1F2A33" : "#D9DCDF", color: dirty && items.length ? "#fff" : "#4A525C" }}><Check size={17} /> Enregistrer</button>
+        </div>
+        <button onClick={validate} className="gb-focus min-h-[46px] rounded-xl text-[14px] font-bold" style={{ background: "#E6F2D9", color: "#3A6410" }}>Valider — payée et reçue (entrée en stock)</button>
+      </div>
+
+      {adding && (
+        <div className="fixed inset-0 z-[96] flex flex-col justify-end" style={{ background: "rgba(22,32,42,0.45)" }}>
+          <button className="flex-1" onClick={() => setAdding(false)} aria-label="Fermer" />
+          <div className="rounded-t-3xl px-5 pt-2.5 flex flex-col gap-3" style={{ background: "#fff", maxHeight: "80vh", paddingBottom: "max(22px, env(safe-area-inset-bottom))" }}>
+            <div className="w-10 h-1 rounded-full self-center" style={{ background: "#D5D2C8" }} />
+            <div className="flex justify-between items-center gap-2">
+              <span className="font-display font-bold text-[19px]">Ajouter des produits</span>
+              <button onClick={() => setAdding(false)} className="gb-focus min-h-[40px] px-3.5 rounded-xl text-white text-[14px] font-bold" style={{ background: "#1F2A33" }}>Terminé</button>
+            </div>
+            <label className="flex items-center gap-2 min-h-[46px] px-3 rounded-xl border" style={{ borderColor: "#DAD8D0", background: "#FAFAF7" }}>
+              <Search size={17} color="#5B6470" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Rechercher un produit ${supplier?.name || ""}`} className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+            </label>
+            <div className="overflow-y-auto gb-scroll -mx-1 px-1">
+              {catalog.length === 0 && <p className="text-[13.5px] text-center py-6" style={{ color: "#5B6470" }}>Aucun produit configuré pour ce fournisseur. Ajoute-les d'abord dans « Liste des produits ».</p>}
+              {filtered.map((sp) => {
+                const n = qtyInOrder(sp);
+                return (
+                  <div key={sp.id} className="flex items-center gap-3 py-3 border-b" style={{ borderColor: "#EFEDE7" }}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[15px] font-semibold break-words">{sp.productName}</p>
+                      <p className="text-[12.5px]" style={{ color: "#5B6470" }}>Casier de {sp.crateSize} · {fmt(sp.cratePrice)}{n ? ` · ${n} dans la commande` : ""}</p>
+                    </div>
+                    <button onClick={() => addFromCatalog(sp)} className="gb-focus min-h-[38px] px-3 rounded-[10px] text-[13.5px] font-bold flex items-center gap-1.5 shrink-0" style={n ? { background: "#1F2A33", color: "#fff" } : { border: "1px solid #1F2A33", color: "#1F2A33", background: "#fff" }}><Plus size={15} />{n ? n : "Ajouter"}</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[97] flex items-center justify-center p-6" style={{ background: "rgba(22,32,42,0.55)" }}>
+          <div role="dialog" aria-modal="true" className="w-full max-w-[380px] rounded-[22px] p-5 flex flex-col gap-3" style={{ background: "#fff" }}>
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "#FBE4E1" }}><Trash2 size={22} color="#9B2C1F" /></div>
+            <h2 className="font-display font-bold text-[20px]">Supprimer la commande ?</h2>
+            <p className="text-[14px] leading-relaxed" style={{ color: "#5B6470" }}>La commande N° {order.id.slice(0, 6).toUpperCase()} ({fmt(total)}, {totalCrates} casier{totalCrates > 1 ? "s" : ""}) sera supprimée définitivement. Aucun stock n'est modifié.</p>
+            <div className="grid grid-cols-2 gap-2.5 mt-1">
+              <button onClick={() => setConfirmDelete(false)} className="gb-focus min-h-[48px] rounded-2xl text-[15px] font-bold" style={{ border: "1px solid #DAD8D0" }}>Annuler</button>
+              <button onClick={() => { onDelete?.(order); onClose(); }} className="gb-focus min-h-[48px] rounded-2xl text-[15px] font-bold text-white" style={{ background: "#B3261E" }}>Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5869,32 +6712,116 @@ function ReceivedOrderModal({ order, supplier, onClose }) {
 
 function SupplierOrdersModal({ supplier, ordersForSupplier, onNewOrder, onOpenOrder, onClose }) {
   const fmt = useFmt();
-  const sorted = [...ordersForSupplier].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const todayKey = cashDayKeyOf(new Date());
+  const shiftKey = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return cashDayKeyOf(d); };
+  const [preset, setPreset] = useState("30j");
+  const [from, setFrom] = useState(shiftKey(29));
+  const [to, setTo] = useState(todayKey);
+  const [status, setStatus] = useState("all");
+  const applyPreset = (k) => {
+    setPreset(k);
+    const now = new Date();
+    if (k === "today") { setFrom(todayKey); setTo(todayKey); }
+    if (k === "7j") { setFrom(shiftKey(6)); setTo(todayKey); }
+    if (k === "30j") { setFrom(shiftKey(29)); setTo(todayKey); }
+    if (k === "mois") { setFrom(cashDayKeyOf(new Date(now.getFullYear(), now.getMonth(), 1))); setTo(todayKey); }
+    if (k === "mprec") { setFrom(cashDayKeyOf(new Date(now.getFullYear(), now.getMonth() - 1, 1))); setTo(cashDayKeyOf(new Date(now.getFullYear(), now.getMonth(), 0))); }
+    if (k === "annee") { setFrom(`${now.getFullYear()}-01-01`); setTo(todayKey); }
+    if (k === "tout") { setFrom("2000-01-01"); setTo(todayKey); }
+  };
+  const all = [...ordersForSupplier].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const inRange = all.filter((o) => { const k = cashDayKeyOf(o.date); return k >= from && k <= to; });
+  const shown = inRange.filter((o) => status === "all" || (status === "received" ? o.status === "received" : o.status !== "received"));
+  const total = inRange.reduce((sum, o) => sum + orderTotalOf(o), 0);
+  const nReceived = inRange.filter((o) => o.status === "received").length;
+  const nPending = inRange.length - nReceived;
+  const shortDate = (k) => new Date(k + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  const chip = (on) => ({ background: on ? "#1F2A33" : "#FAFAF7", color: on ? "#fff" : "#16202A", border: `1px solid ${on ? "#1F2A33" : "#DAD8D0"}` });
+  const dateInput = "gb-focus w-full rounded-xl px-2.5 text-[14px] border min-h-[44px]";
   return (
-    <div className="fixed inset-0 z-[90] flex no-print">
-      <div className="relative w-full h-full overflow-y-auto gb-scroll px-5 pb-5" style={{ background: "var(--card)", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <h2 className="font-display font-bold text-lg min-w-0">Commandes — {supplier.name}</h2>
-          <button onClick={onClose} className="gb-focus p-1 shrink-0"><X size={20} /></button>
+    <div className="fixed inset-0 z-[90] flex flex-col no-print" style={{ background: "#F4F3EF", color: "#16202A" }}>
+      <div className="shrink-0 px-5 pb-3 flex items-start gap-3" style={{ paddingTop: "max(22px, env(safe-area-inset-top))" }}>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: "#5B6470" }}>Commandes fournisseur</p>
+          <h2 className="font-display font-bold text-[22px] leading-tight break-words">{supplier.name}</h2>
         </div>
-        <button onClick={onNewOrder} className="gb-focus w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold text-white mb-3" style={{ background: "var(--glass)" }}><Plus size={15} /> Nouvelle commande</button>
-        <div className="flex flex-col gap-2.5">
-          {sorted.map((o) => {
-            const received = o.status === "received";
-            return (
-              <button key={o.id} onClick={() => onOpenOrder(o)} className="gb-focus rounded-2xl p-3.5 border text-left flex items-center justify-between" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">{new Date(o.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</p>
-                  <p className="text-xs opacity-50 mt-0.5">N° {o.id.slice(0, 6).toUpperCase()}</p>
-                </div>
-                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0" style={{ background: received ? "#EAF3DE" : "#FAEEDA", color: received ? "#3B6D11" : "#854F0B" }}>
-                  {received ? "Reçue" : "En attente"}
+        <button onClick={onClose} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff", border: "1px solid #E2E0D9" }} aria-label="Fermer"><X size={18} /></button>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5 flex flex-col gap-3.5" style={{ paddingBottom: "calc(110px + env(safe-area-inset-bottom))" }}>
+        <section className="rounded-[20px] p-4 flex flex-col gap-3.5 text-white" style={{ background: "#1F2A33" }}>
+          <div className="flex justify-between items-center gap-2 flex-wrap">
+            <span className="text-[13px]" style={{ color: "#C9D1D8" }}>Total de la période</span>
+            <span className="text-[12px]" style={{ color: "#C9D1D8" }}>{from === "2000-01-01" ? "Depuis le début" : `${shortDate(from)} → ${shortDate(to)}`}</span>
+          </div>
+          <span className="font-display font-bold text-[30px] leading-none break-words">{fmt(total)}</span>
+          <div className="grid grid-cols-3 gap-2">
+            {[["Commandes", inRange.length, "#fff"], ["Reçues", nReceived, "#A6E07A"], ["En attente", nPending, "#FFC266"]].map(([l, n, c]) => (
+              <div key={l} className="rounded-xl p-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
+                <span className="text-[11.5px]" style={{ color: "#C9D1D8" }}>{l}</span>
+                <span className="font-display font-bold text-[18px]" style={{ color: c }}>{n}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-[20px] p-4 flex flex-col gap-3" style={{ background: "#fff", border: "1px solid #E6E4DD" }}>
+          <span className="flex items-center gap-2 text-[14px] font-bold"><CalendarCheck size={17} /> Période</span>
+          <div className="flex flex-wrap gap-2">
+            {[["today", "Aujourd'hui"], ["7j", "7 jours"], ["30j", "30 jours"], ["mois", "Ce mois"], ["mprec", "Mois dernier"], ["annee", "Cette année"], ["tout", "Tout"]].map(([k, l]) => (
+              <button key={k} onClick={() => applyPreset(k)} className="gb-focus min-h-[38px] px-3.5 rounded-full text-[13px] font-semibold" style={chip(preset === k)}>{l}</button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <label className="flex flex-col gap-1.5 text-[12px] font-semibold" style={{ color: "#5B6470" }}>Du
+              <input type="date" value={from === "2000-01-01" ? "" : from} max={to} onChange={(e) => { if (e.target.value) { setFrom(e.target.value); setPreset("perso"); } }} className={dateInput} style={{ borderColor: "#DAD8D0", background: "#FAFAF7", color: "#16202A" }} />
+            </label>
+            <label className="flex flex-col gap-1.5 text-[12px] font-semibold" style={{ color: "#5B6470" }}>Au
+              <input type="date" value={to} min={from === "2000-01-01" ? undefined : from} onChange={(e) => { if (e.target.value) { setTo(e.target.value); setPreset("perso"); } }} className={dateInput} style={{ borderColor: "#DAD8D0", background: "#FAFAF7", color: "#16202A" }} />
+            </label>
+          </div>
+        </section>
+
+        <div className="flex p-1 gap-1 rounded-xl" style={{ background: "#E9E7E0" }}>
+          {[["all", "Toutes", inRange.length], ["received", "Reçues", nReceived], ["pending", "En attente", nPending]].map(([k, l, n]) => (
+            <button key={k} onClick={() => setStatus(k)} className="gb-focus flex-1 min-w-0 min-h-[38px] rounded-[9px] text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={status === k ? { background: "#fff", color: "#16202A", boxShadow: "0 1px 3px rgba(22,32,42,0.12)" } : { color: "#4A525C" }}>{l} <span className="text-[11px] opacity-70">{n}</span></button>
+          ))}
+        </div>
+
+        {shown.length === 0 && (
+          <div className="rounded-[18px] p-7 text-center flex flex-col gap-1.5" style={{ background: "#fff", border: "1px dashed #D5D2C8" }}>
+            <span className="text-[15px] font-bold">Aucune commande sur cette période</span>
+            <span className="text-[13px]" style={{ color: "#5B6470" }}>Élargissez la plage de dates ou changez le filtre.</span>
+          </div>
+        )}
+        {shown.map((o) => {
+          const received = o.status === "received";
+          const crates = (o.items || []).reduce((sum, i) => sum + (Number(i.crates) || 0), 0);
+          const tone = received ? { bg: "#E6F2D9", fg: "#3A6410", dot: "#5B9A1E", label: "Reçue" } : { bg: "#FFF1D6", fg: "#7A4E00", dot: "#E09A1A", label: "En attente" };
+          return (
+            <button key={o.id} onClick={() => onOpenOrder(o)} className="gb-focus rounded-[18px] p-4 text-left flex flex-col gap-3" style={{ background: "#fff", border: "1px solid #E6E4DD" }}>
+              <span className="flex justify-between items-start gap-3 w-full">
+                <span className="flex flex-col gap-0.5 min-w-0">
+                  <span className="text-[16px] font-bold capitalize">{new Date(o.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span>
+                  <span className="text-[13px]" style={{ color: "#5B6470" }}>N° {o.id.slice(0, 6).toUpperCase()} · {crates} casier{crates > 1 ? "s" : ""}</span>
                 </span>
-              </button>
-            );
-          })}
-          {sorted.length === 0 && <p className="text-sm opacity-50 text-center py-8">Aucune commande pour l'instant.</p>}
-        </div>
+                <span className="flex flex-col items-end shrink-0">
+                  <span className="font-display font-bold text-[18px] whitespace-nowrap">{fmt(orderTotalOf(o))}</span>
+                  {received && o.receivedDate && <span className="text-[11px] font-semibold" style={{ color: "#5B6470" }}>reçue le {new Date(o.receivedDate).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>}
+                </span>
+              </span>
+              <span className="h-px w-full" style={{ background: "#EFEDE7" }} />
+              <span className="flex justify-between items-center w-full">
+                <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12.5px] font-bold" style={{ background: tone.bg, color: tone.fg }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: tone.dot }} />{tone.label}</span>
+                <span className="flex items-center gap-1 text-[13px] font-semibold" style={{ color: "#1F2A33" }}>{received ? "Détails" : <><Pencil size={14} /> Modifier</>}<ChevronRight size={16} /></span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="absolute left-0 right-0 bottom-0 px-5 pt-3.5" style={{ paddingBottom: "max(20px, env(safe-area-inset-bottom))", background: "linear-gradient(rgba(244,243,239,0), #F4F3EF 30%)" }}>
+        <button onClick={onNewOrder} className="gb-focus w-full min-h-[54px] rounded-2xl text-white text-[16px] font-bold flex items-center justify-center gap-2" style={{ background: "#1F2A33", boxShadow: "0 8px 20px rgba(31,42,51,0.25)" }}><Plus size={18} /> Nouvelle commande</button>
       </div>
     </div>
   );
@@ -5916,6 +6843,10 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
 
   const createOrder = (order) => { saveOrders([order, ...allOrders]); pushToast("Commande enregistrée", "ok"); };
   const updateOrder = (updated) => { saveOrders(allOrders.map((o) => (o.id === updated.id ? updated : o))); pushToast("Commande mise à jour", "ok"); };
+  const deleteOrder = (order) => { saveOrders(allOrders.filter((o) => o.id !== order.id)); pushToast("Commande supprimée", "ok"); };
+  const [menuFor, setMenuFor] = useState(null);
+  const [confirmDeleteSupplier, setConfirmDeleteSupplier] = useState(null);
+  const [supplierQuery, setSupplierQuery] = useState("");
   const saveSupplierProduct = (entry) => {
     const exists = allSupplierProducts.some((x) => x.id === entry.id);
     saveSupplierProducts(exists ? allSupplierProducts.map((x) => (x.id === entry.id ? entry : x)) : [...allSupplierProducts, entry]);
@@ -5955,7 +6886,7 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
         // et le vrai prix de vente saisi dans la liste des produits fournisseur).
         const newProduct = {
           id: uid(), name: i.productName, barcode: i.barcode || "", category: i.category || categories[0]?.id || "",
-          price: i.salePrice > 0 ? i.salePrice : unitCost, costPrice: unitCost, stock: unitsReceived, openingStock: unitsReceived,
+          price: i.salePrice > 0 ? i.salePrice : unitCost, costPrice: unitCost, stock: unitsReceived, openingStock: unitsReceived, openingStockDate: new Date().toISOString(),
           minStock: Math.max(i.crateSize, 5), unit: "bouteille", favorite: false,
         };
         nextProducts = [...nextProducts, newProduct];
@@ -5981,41 +6912,128 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-bold text-base">Fournisseurs ({suppliers.length})</h3>
-        <button onClick={() => { setAdding(true); setEditing(null); }} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: "var(--glass)" }}><Plus size={14} /> Ajouter</button>
-      </div>
+      {(() => {
+        const pendingTotal = allOrders.filter((o) => o.status === "pending").length;
+        const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+        const activeThisMonth = suppliers.filter((s) => allOrders.some((o) => o.supplierId === s.id && new Date(o.date) >= monthStart)).length;
+        return (
+          <section className="rounded-[22px] p-4 mb-3.5 flex flex-col gap-3.5 text-white" style={{ background: "#1F2A33" }}>
+            <div className="flex justify-between items-start gap-3">
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className="text-[13px]" style={{ color: "#C9D1D8" }}>Vos fournisseurs</span>
+                <span className="font-display font-bold text-[30px] leading-none">{suppliers.length}</span>
+              </div>
+              <button onClick={() => { setAdding(true); setEditing(null); }} className="gb-focus min-h-[42px] px-4 rounded-xl text-[14px] font-bold flex items-center gap-1.5 shrink-0" style={{ background: "#fff", color: "#1F2A33" }}><Plus size={16} /> Ajouter</button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl px-3 py-2.5 flex items-center gap-2.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
+                <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,194,102,0.18)" }}><Clock size={16} color="#FFC266" /></span>
+                <span className="flex flex-col min-w-0"><span className="font-display font-bold text-[17px]">{pendingTotal}</span><span className="text-[12px] leading-tight" style={{ color: "#C9D1D8" }}>Commandes en attente</span></span>
+              </div>
+              <div className="rounded-xl px-3 py-2.5 flex items-center gap-2.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
+                <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "rgba(166,224,122,0.18)" }}><Truck size={16} color="#A6E07A" /></span>
+                <span className="flex flex-col min-w-0"><span className="font-display font-bold text-[17px]">{activeThisMonth}</span><span className="text-[12px] leading-tight" style={{ color: "#C9D1D8" }}>Actifs ce mois</span></span>
+              </div>
+            </div>
+          </section>
+        );
+      })()}
+      {suppliers.length > 2 && (
+        <label className="flex items-center gap-2.5 min-h-[48px] px-3.5 mb-3.5 rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
+          <Search size={17} className="opacity-50" />
+          <input value={supplierQuery} onChange={(e) => setSupplierQuery(e.target.value)} placeholder="Rechercher un fournisseur, un numéro…" aria-label="Rechercher un fournisseur" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+        </label>
+      )}
       {adding && <SupplierForm onSave={upsert} onCancel={() => setAdding(false)} />}
-      <div className="flex flex-col gap-2.5">
-        {suppliers.map((s) => {
-          const spent = expenses.filter((e) => e.supplierId === s.id).reduce((sum, e) => sum + Number(e.amount), 0);
+      <div className="flex flex-col gap-3">
+        {suppliers.filter((s) => {
+          const q = supplierQuery.trim().toLowerCase().replace(/\s/g, "");
+          return !q || (s.name || "").toLowerCase().replace(/\s/g, "").includes(q) || (s.phone || "").replace(/\s/g, "").includes(q) || (s.note || "").toLowerCase().includes(q);
+        }).map((s, idx) => {
+          const PALETTE = [["#DDF3EC", "#0B5745", "#14A37F"], ["#E3EDFB", "#173F70", "#3B7DD8"], ["#FDEFD9", "#6E3C00", "#E09A1A"], ["#FBE3E0", "#8A2419", "#E0513F"], ["#EEE7FB", "#4A2E85", "#8B63D6"]];
+          const c = PALETTE[idx % PALETTE.length];
           const supplierOrders = allOrders.filter((o) => o.supplierId === s.id).sort((a, b) => new Date(b.date) - new Date(a.date));
           const pendingCount = supplierOrders.filter((o) => o.status === "pending").length;
+          const productCount = allSupplierProducts.filter((sp) => sp.supplierId === s.id).length;
+          const words = (s.name || "?").replace(/\(.*?\)/g, "").trim().split(/\s+/).filter(Boolean);
+          const initialsTxt = ((words[0] || "?")[0] + ((words[1] || words[0] || "")[words[1] ? 0 : 1] || "")).toUpperCase();
+          const digits = (s.phone || "").replace(/[^\d+]/g, "");
+          const phoneDisplay = digits.startsWith("+225") ? `+225 ${digits.slice(4).replace(/(\d{2})(?=\d)/g, "$1 ")}` : (s.phone || "");
           return editing === s.id ? (
             <SupplierForm key={s.id} initial={s} onSave={upsert} onCancel={() => setEditing(null)} />
           ) : (
-            <div key={s.id} className="rounded-2xl p-3 border" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-              <div className="flex items-center gap-3 mb-2.5">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#E1F5EE" }}><Truck size={17} color="#0F6E56" /></div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate">{s.name}</div>
-                  <div className="text-xs opacity-50 font-mono truncate">{s.phone}{s.note ? " · " + s.note : ""}{spent > 0 ? ` · ${fmt(spent)} dépensés` : ""}</div>
+            <article key={s.id} className="rounded-[20px] p-4 flex flex-col gap-3.5" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(22,32,42,0.04)" }}>
+              <div className="flex gap-3 items-start min-w-0">
+                <div className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 font-display font-bold text-[17px]" style={{ background: c[0], color: c[1] }}>{initialsTxt}</div>
+                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                  <span className="font-display font-bold text-[16px] leading-tight break-words">{s.name}</span>
+                  {s.note && <span className="self-start max-w-full inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-bold leading-tight break-words" style={{ background: c[0], color: c[1], border: `1px solid ${c[2]}` }}><span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: c[2] }} />{s.note}</span>}
                 </div>
-                <button onClick={() => { setEditing(s.id); setAdding(false); }} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Pencil size={14} /></button>
-                <button onClick={() => del(s.id, s.name)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Trash2 size={14} color="var(--danger)" /></button>
+                <button onClick={() => setMenuFor(s)} aria-label={`Plus d'actions pour ${s.name}`} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ border: "1px solid var(--line)", background: "var(--card)" }}><MoreVertical size={18} /></button>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setCatalogFor(s)} className="gb-focus flex-1 rounded-xl py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5" style={{ background: "#E6F1FB", color: "#185FA5" }}><Boxes size={14} /> Liste des produits</button>
-                <button onClick={() => setOrdersFor(s)} className="gb-focus flex-1 rounded-xl py-2.5 text-xs font-semibold relative flex items-center justify-center gap-1.5" style={{ background: "#FAEEDA", color: "#854F0B" }}>
-                  <ClipboardList size={14} /> Commandes
-                  {pendingCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-[3px] rounded-full text-[9px] font-bold flex items-center justify-center text-white" style={{ background: "var(--cap)" }}>{pendingCount}</span>}
+
+              {digits ? (
+                <a href={`tel:${digits}`} aria-label={`Appeler ${s.name} au ${phoneDisplay}`} className="gb-focus flex items-center gap-3 min-h-[56px] p-2 rounded-2xl" style={{ background: "#EAF6EF", border: "1px solid #C6E6D2" }}>
+                  <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#1E8E50" }}><Phone size={18} color="#fff" /></span>
+                  <span className="flex-1 min-w-0 flex flex-col">
+                    <span className="text-[16px] font-bold break-all" style={{ color: "#0F4F2B", fontVariantNumeric: "tabular-nums" }}>{phoneDisplay}</span>
+                    <span className="text-[12px] font-semibold" style={{ color: "#256B43" }}>Toucher pour appeler</span>
+                  </span>
+                  <span className="shrink-0 h-[34px] px-3 rounded-[10px] text-white text-[13px] font-bold flex items-center" style={{ background: "#1E8E50" }}>Appeler</span>
+                </a>
+              ) : (
+                <button onClick={() => { setEditing(s.id); setAdding(false); }} className="gb-focus min-h-[48px] rounded-2xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: "1.5px dashed var(--line)" }}><Phone size={16} /> Ajouter un numéro</button>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl px-3 py-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "var(--paper-dim)" }}>
+                  <span className="text-[11.5px] font-semibold opacity-60">Dernière commande</span>
+                  <span className="text-[14px] font-bold">{supplierOrders[0] ? new Date(supplierOrders[0].date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "—"}</span>
+                </div>
+                <div className="rounded-xl px-3 py-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "var(--paper-dim)" }}>
+                  <span className="text-[11.5px] font-semibold opacity-60">Produits suivis</span>
+                  <span className="text-[14px] font-bold">{productCount}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {digits ? (
+                  <a href={`https://wa.me/${digits.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label={`Écrire à ${s.name} sur WhatsApp`} className="gb-focus min-h-[64px] px-1 py-2 rounded-[14px] flex flex-col items-center justify-center gap-1.5 text-[12.5px] font-bold text-center" style={{ background: "#EAF6EF", color: "#0F4F2B" }}><MessageCircle size={20} color="#1E8E50" />WhatsApp</a>
+                ) : <span className="min-h-[64px] rounded-[14px]" style={{ background: "var(--paper-dim)" }} />}
+                <button onClick={() => setCatalogFor(s)} className="gb-focus min-h-[64px] px-1 py-2 rounded-[14px] flex flex-col items-center justify-center gap-1.5 text-[12.5px] font-bold" style={{ background: "#E6EEFA", color: "#173F70" }}><Boxes size={20} color="#1D4E89" />Produits</button>
+                <button onClick={() => setOrdersFor(s)} className="gb-focus relative min-h-[64px] px-1 py-2 rounded-[14px] flex flex-col items-center justify-center gap-1.5 text-[12.5px] font-bold" style={{ background: "#FCEEDB", color: "#74400A" }}>
+                  <ClipboardList size={20} color="#8A4B00" />Commandes
+                  {pendingCount > 0 && <span className="absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1.5 rounded-full text-[11.5px] font-bold flex items-center justify-center text-white" style={{ background: "#C2410C" }} aria-label={`${pendingCount} en attente`}>{pendingCount}</span>}
                 </button>
               </div>
-            </div>
+            </article>
           );
         })}
         {suppliers.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun fournisseur enregistré.</p>}
       </div>
+      {menuFor && (
+        <div className="fixed inset-0 z-[90] flex flex-col justify-end no-print" style={{ background: "rgba(22,32,42,0.45)" }}>
+          <button className="flex-1" onClick={() => setMenuFor(null)} aria-label="Fermer" />
+          <div className="rounded-t-3xl px-5 pt-2.5 flex flex-col gap-1.5" style={{ background: "var(--card)", paddingBottom: "max(26px, env(safe-area-inset-bottom))" }}>
+            <div className="w-10 h-1 rounded-full self-center mb-2" style={{ background: "var(--line)" }} />
+            <span className="font-display font-bold text-[18px] mb-1.5 break-words">{menuFor.name}</span>
+            <button onClick={() => { setEditing(menuFor.id); setAdding(false); setMenuFor(null); }} className="gb-focus min-h-[52px] px-3.5 rounded-2xl text-[15px] font-semibold flex items-center gap-3" style={{ background: "var(--paper-dim)" }}><Pencil size={18} /> Modifier le fournisseur</button>
+            <button onClick={() => { setConfirmDeleteSupplier(menuFor); setMenuFor(null); }} className="gb-focus min-h-[52px] px-3.5 rounded-2xl text-[15px] font-bold flex items-center gap-3" style={{ background: "#FBE4E1", color: "#9B2C1F" }}><Trash2 size={18} /> Supprimer le fournisseur</button>
+          </div>
+        </div>
+      )}
+      {confirmDeleteSupplier && (
+        <div className="fixed inset-0 z-[91] flex items-center justify-center p-6 no-print" style={{ background: "rgba(22,32,42,0.55)" }}>
+          <div role="dialog" aria-modal="true" className="w-full max-w-[380px] rounded-[22px] p-5 flex flex-col gap-3" style={{ background: "var(--card)" }}>
+            <h2 className="font-display font-bold text-[20px] break-words">Supprimer {confirmDeleteSupplier.name} ?</h2>
+            <p className="text-[14px] leading-relaxed opacity-70">Le fournisseur sera retiré de la liste. L'historique des dépenses et des commandes reçues est conservé.</p>
+            <div className="grid grid-cols-2 gap-2.5 mt-1">
+              <button onClick={() => setConfirmDeleteSupplier(null)} className="gb-focus min-h-[48px] rounded-2xl text-[15px] font-bold" style={{ border: "1px solid var(--line)" }}>Annuler</button>
+              <button onClick={() => { saveSuppliers(suppliers.filter((x) => x.id !== confirmDeleteSupplier.id)); setConfirmDeleteSupplier(null); pushToast("Fournisseur supprimé", "ok"); }} className="gb-focus min-h-[48px] rounded-2xl text-[15px] font-bold text-white" style={{ background: "#B3261E" }}>Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
       {catalogFor && (
         <SupplierProductsModal
           supplier={catalogFor}
@@ -6050,8 +7068,10 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
         <PendingOrderModal
           order={openOrder}
           supplier={suppliers.find((s) => s.id === openOrder.supplierId)}
+          supplierProducts={allSupplierProducts}
           onUpdate={updateOrder}
           onValidate={validateOrder}
+          onDelete={deleteOrder}
           onClose={() => setOpenOrder(null)}
           pushToast={pushToast}
         />
@@ -6104,7 +7124,7 @@ function VendorExpensesScreen({ expenses, saveExpenses, suppliers, vendorName })
 function ExpensesSection({ expenses, saveExpenses, suppliers, pushNotification, shop }) {
   const fmt = useFmt();
   const [adding, setAdding] = useState(false);
-  const add = (e) => { saveExpenses([...expenses, e]); setAdding(false); pushNotification?.({ type: "expense", label: e.label, amount: e.amount, author: e.author }); speak(`Dépense enregistrée : ${e.label}, ${spokenAmount(fmt(e.amount))}.`, shop?.voiceNotificationsEnabled); };
+  const add = (e) => { saveExpenses([...expenses, e]); setAdding(false); pushNotification?.({ type: "expense", label: e.label, amount: e.amount, author: e.author }); speak(`Dépense enregistrée : ${e.label}, ${spokenAmount(fmt(e.amount))}.`, voiceOn(shop, "expense")); };
   const del = (id, label) => { if (window.confirm(`Supprimer la dépense "${label}" ?`)) saveExpenses(expenses.filter((x) => x.id !== id)); };
   const total = expenses.reduce((s, e) => s + Number(e.amount), 0);
   const sorted = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -7104,6 +8124,7 @@ function LicenseSection({ license, licenseStatus, onActivate, pushToast, shopNam
 }
 
 function AdminScreen({
+  cashRegisterEntries, versements, activeCashSession, onRecordVersement,
   shop, saveShopMeta, shops, activeShopId, onSwitchShop, onCreateShop, onDeleteShop,
   products, saveProducts, categories, saveCategories, movements, saveMovements, inventories, saveInventories, sales, saveSales, suppliers, saveSuppliers, expenses, saveExpenses, vendors, saveVendors, clients, saveClients,
   license, licenseStatus, onActivateLicense, onRestoreBackup, ownerAccess, onVerifyOwner, pushToast,
@@ -7185,7 +8206,7 @@ function AdminScreen({
       {section === "licence" && <LicenseSection license={license} licenseStatus={licenseStatus} onActivate={onActivateLicense} pushToast={pushToast} shopName={shop.name} />}
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
       {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} />}
-      {section === "inventaire" && <InventorySection products={products} sales={sales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
+      {section === "inventaire" && <InventorySection shop={shop} expenses={expenses} vendors={vendors} cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} products={products} sales={sales} saveSales={saveSales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "produits" && <ProductsSection products={products} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "categories" && <CategoriesSection categories={categories} saveCategories={saveCategories} products={products} pushToast={pushToast} />}
       {section === "fournisseurs" && <SuppliersSection suppliers={suppliers} saveSuppliers={saveSuppliers} expenses={expenses} saveExpenses={saveExpenses} products={products} saveProducts={saveProducts} categories={categories} saveCategories={saveCategories} movements={movements} saveMovements={saveMovements} orders={orders} saveOrders={saveOrders} supplierProducts={supplierProducts} saveSupplierProducts={saveSupplierProducts} pushToast={pushToast} pushNotification={pushNotification} shop={shop} />}
@@ -7195,7 +8216,7 @@ function AdminScreen({
       {section === "donnees" && (
         <DataSection
           shop={shop}
-          data={{ products, sales, categories, suppliers, expenses, movements, inventories, clients, vendors, orders, supplierProducts, avoirs, cashRegisterEntries, shopSettings: { type: shop.type, currency: shop.currency, adminPinHash: shop.adminPinHash, adminDisplayName: shop.adminDisplayName, theme: shop.theme, darkMode: shop.darkMode, soundsEnabled: shop.soundsEnabled, voiceNotificationsEnabled: shop.voiceNotificationsEnabled, loyaltyThreshold: shop.loyaltyThreshold, language: shop.language, cashRegisterResetHour: shop.cashRegisterResetHour } }}
+          data={{ products, sales, categories, suppliers, expenses, movements, inventories, clients, vendors, orders, supplierProducts, avoirs, cashRegisterEntries, versements, shopSettings: { type: shop.type, currency: shop.currency, adminPinHash: shop.adminPinHash, adminDisplayName: shop.adminDisplayName, theme: shop.theme, darkMode: shop.darkMode, soundsEnabled: shop.soundsEnabled, voiceNotificationsEnabled: shop.voiceNotificationsEnabled, loyaltyThreshold: shop.loyaltyThreshold, language: shop.language, cashRegisterResetHour: shop.cashRegisterResetHour } }}
           onRestore={onRestoreBackup}
           pushToast={pushToast}
         />
@@ -7204,24 +8225,36 @@ function AdminScreen({
   );
 }
 
+const ACCOUNT_DELETION_URL = "https://case-et-comptoir.vercel.app/delete-account";
 const SUPPORT_FAQ = [
-  { q: "J'ai oublié mon code PIN, comment le récupérer ?", a: "Contacte l'administrateur via ce chat en indiquant le nom de ton entreprise — il pourra vérifier ton identité et te renvoyer ton code." },
-  { q: "Comment ajouter un produit ?", a: "Va dans Admin → Produits → Ajouter, renseigne le nom, le code-barre, la catégorie et les prix." },
-  { q: "L'application ne se synchronise pas, que faire ?", a: "Vérifie ta connexion internet, puis appuie sur le badge ⏳ en haut de l'écran pour forcer une synchronisation manuelle." },
-  { q: "Comment inviter un vendeur sur son propre téléphone ?", a: "Dans Admin → Entreprises, partage le code d'invitation à 7 caractères affiché sous le nom de ton entreprise." },
-  { q: "Comment changer la devise de mon entreprise ?", a: "Va dans Admin → Établissement, la devise peut être modifiée à tout moment." },
+  { id: "delete", danger: true, group: "Compte et sécurité", q: "Comment supprimer définitivement mon compte ?" },
+  { group: "Compte et sécurité", q: "J'ai oublié mon code PIN, comment le récupérer ?", a: "Contacte l'administrateur via ce chat en indiquant le nom de ton entreprise — il pourra vérifier ton identité et te renvoyer ton code." },
+  { group: "Compte et sécurité", q: "Comment inviter un vendeur sur son propre téléphone ?", a: "Dans Admin → Entreprises, partage le code d'invitation à 7 caractères affiché sous le nom de ton entreprise." },
+  { group: "Utilisation", q: "Comment ajouter un produit ?", a: "Va dans Admin → Produits → Ajouter, renseigne le nom, le code-barre, la catégorie et les prix." },
+  { group: "Utilisation", q: "Comment activer les notifications vocales ?", a: "Touche la cloche en haut de l'écran, puis active « Notifications vocales ». Chaque vendeuse, vendeur ou administrateur règle son propre téléphone et choisit les actions annoncées." },
+  { group: "Utilisation", q: "L'application ne se synchronise pas, que faire ?", a: "Vérifie ta connexion internet, puis appuie sur le badge ⏳ en haut de l'écran pour forcer une synchronisation manuelle." },
+  { group: "Utilisation", q: "Comment changer la devise de mon entreprise ?", a: "Va dans Admin → Établissement, la devise peut être modifiée à tout moment." },
 ];
+
+function openExternalUrl(url) {
+  import("@capacitor/browser").then(({ Browser }) => Browser.open({ url })).catch(() => { try { window.open(url, "_blank", "noopener"); } catch { /* ignore */ } });
+}
 
 function SupportChatWidget({ shop }) {
   const [open, setOpen] = useState(false);
   const [stage, setStage] = useState(() => (localStorage.getItem("support_started") === "true" ? "thread" : "faq"));
   const [openFaq, setOpenFaq] = useState(null);
+  const [faqQuery, setFaqQuery] = useState("");
+  const [copied, setCopied] = useState(false);
   const [name, setName] = useState(() => localStorage.getItem("support_name") || "");
   const [phone, setPhone] = useState(() => localStorage.getItem("support_phone") || "");
   const [email, setEmail] = useState(() => localStorage.getItem("support_email") || "");
   const [message, setMessage] = useState("");
   const [thread, setThread] = useState([]);
   const [sending, setSending] = useState(false);
+  const threadEndRef = useRef(null);
+  const started = localStorage.getItem("support_started") === "true";
+  const tab = stage === "faq" ? "faq" : "chat";
 
   useEffect(() => {
     if (!open) return;
@@ -7238,6 +8271,8 @@ function SupportChatWidget({ shop }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, stage]);
 
+  useEffect(() => { threadEndRef.current?.scrollIntoView({ block: "end" }); }, [thread.length, stage, sending]);
+
   const submitContact = async () => {
     if (!name.trim() || !phone.trim() || !message.trim()) return;
     setSending(true);
@@ -7253,112 +8288,195 @@ function SupportChatWidget({ shop }) {
     setSending(false);
   };
 
-  const sendMore = async () => {
-    if (!message.trim()) return;
+  const sendMore = async (text) => {
+    const body = (text ?? message).trim();
+    if (!body) return;
     setSending(true);
     try {
-      await api.supportSend({ name, phone, email, shopName: shop?.name, message: message.trim() });
-      setMessage("");
+      await api.supportSend({ name, phone, email, shopName: shop?.name, message: body });
+      if (text === undefined) setMessage("");
       const d = await api.supportPoll();
       setThread(d.messages);
     } catch { /* hors-ligne — réessayer plus tard */ }
     setSending(false);
   };
 
+  const copyLink = () => {
+    try { navigator.clipboard?.writeText(ACCOUNT_DELETION_URL); } catch { /* ignore */ }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const qn = faqQuery.trim().toLowerCase();
+  const faqItems = SUPPORT_FAQ.map((item, i) => ({ ...item, i })).filter((f) => !qn || f.q.toLowerCase().includes(qn) || (f.a || "supprimer suppression compte").toLowerCase().includes(qn));
+  const faqGroups = [...new Set(faqItems.map((f) => f.group))];
+  const fmtTime = (d) => { const t = d ? new Date(d) : null; return t && !isNaN(t) ? t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""; };
+  const inputCls = "gb-focus w-full rounded-xl px-3.5 text-[15px] border min-h-[46px]";
+
   return (
     <>
       {!open && (
-        <button onClick={() => setOpen(true)} className="gb-focus gb-pulse fixed right-4 z-40 w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-transform" style={{ background: "linear-gradient(135deg, var(--cap), #C9770E)", boxShadow: "0 6px 18px rgba(0,0,0,0.28)", bottom: "calc(6rem + env(safe-area-inset-bottom))" }} aria-label="Assistance">
-          <MessageCircle size={24} color="var(--glass)" strokeWidth={2.3} />
-          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2" style={{ background: "#1CA857", borderColor: "var(--paper)" }} />
+        <button onClick={() => setOpen(true)} className="gb-focus gb-pulse fixed right-4 z-40 w-14 h-14 rounded-2xl flex items-center justify-center active:scale-95 transition-transform" style={{ background: "#1F2A33", boxShadow: "0 10px 24px rgba(22,32,42,0.35)", bottom: "calc(6rem + env(safe-area-inset-bottom))" }} aria-label="Assistance">
+          <MessageCircle size={24} color="#fff" strokeWidth={2.2} />
+          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full border-2" style={{ background: "#5CC98A", borderColor: "var(--paper)" }} />
         </button>
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-end pl-5 no-print" style={{ paddingRight: "max(16px, env(safe-area-inset-right))" }}>
-          <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-          <div className="relative w-full max-w-[340px] rounded-3xl overflow-hidden flex flex-col gb-pop" style={{ background: "var(--paper)", maxHeight: "min(86vh, 700px)" }}>
-            <div className="px-4 py-3.5 flex items-center justify-between shrink-0" style={{ background: "linear-gradient(135deg, var(--glass), var(--glass-light))" }}>
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)" }}><ShieldCheck size={17} color="#fff" /></div>
-                <div>
-                  <p className="text-white font-semibold text-sm leading-tight">Assistance GestiOne</p>
-                  <p className="text-[10px] flex items-center gap-1.5" style={{ color: "#9FE1CB" }}><span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "#5DCAA5" }} />En ligne · réponse rapide</p>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center no-print" style={{ padding: "max(40px, calc(env(safe-area-inset-top) + 16px)) max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left))" }}>
+          <div className="absolute inset-0" style={{ background: "rgba(22,32,42,0.55)" }} onClick={() => setOpen(false)} />
+          <div role="dialog" aria-label="Assistance GestiOne" className="relative w-full max-w-[400px] h-full max-h-[760px] rounded-[26px] overflow-hidden flex flex-col gb-pop" style={{ background: tab === "chat" ? "#EFEDE7" : "#F4F3EF", color: "#16202A", boxShadow: "0 24px 48px rgba(0,0,0,0.3)" }}>
+            <div className="px-4 pt-4 pb-3.5 flex flex-col gap-3.5 shrink-0" style={{ background: "#1F2A33" }}>
+              <div className="flex items-center gap-3">
+                <div className="relative w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "#2F6F5E" }}>
+                  <Headphones size={21} color="#fff" />
+                  <span className="absolute -right-0.5 -bottom-0.5 w-3 h-3 rounded-full border-2" style={{ background: "#5CC98A", borderColor: "#1F2A33" }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-bold text-[16px] leading-tight">Assistance GestiOne</p>
+                  <p className="text-[12.5px] mt-0.5" style={{ color: "#C9D1D8" }}>{sending ? "Envoi en cours…" : "En ligne · réponse en quelques minutes"}</p>
+                </div>
+                <button onClick={() => setOpen(false)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Fermer l'assistance"><X size={18} color="#fff" /></button>
+              </div>
+              <div className="flex gap-1 p-1 rounded-xl" style={{ background: "rgba(255,255,255,0.08)" }}>
+                {[{ id: "faq", label: "Questions fréquentes" }, { id: "chat", label: "Discussion" }].map((t) => (
+                  <button key={t.id} onClick={() => setStage(t.id === "faq" ? "faq" : (started ? "thread" : "form"))} className="gb-focus flex-1 min-h-[38px] rounded-[9px] text-[13.5px] font-bold" style={{ background: tab === t.id ? "#fff" : "transparent", color: tab === t.id ? "#16202A" : "#C9D1D8" }}>{t.label}</button>
+                ))}
+              </div>
+            </div>
+
+            {stage === "faq" && (
+              <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5 pt-3.5 pb-5 flex flex-col gap-3">
+                <label className="flex items-center gap-2.5 min-h-[46px] px-3.5 rounded-2xl border" style={{ background: "#fff", borderColor: "#DAD8D0" }}>
+                  <Search size={17} color="#5B6470" />
+                  <input value={faqQuery} onChange={(e) => setFaqQuery(e.target.value)} placeholder="Rechercher une question" aria-label="Rechercher dans la FAQ" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+                </label>
+                {faqItems.length === 0 && <p className="text-sm text-center py-6" style={{ color: "#5B6470" }}>Aucune question ne correspond.</p>}
+                {faqGroups.map((g) => (
+                  <section key={g} className="flex flex-col gap-2">
+                    <span className="text-[12px] font-bold uppercase tracking-wide px-0.5 pt-1" style={{ color: "#4A525C" }}>{g}</span>
+                    <div className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
+                      {faqItems.filter((f) => f.group === g).map((f, idx) => {
+                        const isOpen = openFaq === f.i;
+                        return (
+                          <div key={f.i} style={{ borderTop: idx ? "1px solid #EFEDE7" : "none", background: isOpen && f.danger ? "#FFFCFB" : "transparent" }}>
+                            <button onClick={() => setOpenFaq(isOpen ? null : f.i)} aria-expanded={isOpen} className="gb-focus w-full min-h-[54px] px-3.5 py-3 flex items-center gap-3 text-left">
+                              <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: f.danger ? "#FBE4E1" : "#E6EEFA" }}>
+                                {f.danger ? <UserMinus size={17} color="#B3261E" /> : <HelpCircle size={17} color="#1D4E89" />}
+                              </span>
+                              <span className="flex-1 min-w-0 text-[14.5px] font-bold leading-snug break-words">{f.q}</span>
+                              <ChevronDown size={16} color="#5B6470" className="shrink-0" style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+                            </button>
+                            {isOpen && !f.danger && <p className="px-3.5 pb-3.5 pl-[62px] text-[13.5px] leading-relaxed" style={{ color: "#3D4550" }}>{f.a}</p>}
+                            {isOpen && f.danger && (
+                              <div className="px-3.5 pb-4 flex flex-col gap-3">
+                                <p className="text-[13.5px] leading-relaxed" style={{ color: "#3D4550" }}>Le propriétaire (administrateur) peut demander à tout moment la suppression définitive de son entreprise et de toutes les données associées.</p>
+                                <ol className="flex flex-col gap-2.5">
+                                  {[
+                                    "Depuis l'application : connectez-vous avec le code administrateur, ouvrez Admin › Établissements, choisissez l'entreprise puis confirmez la suppression. L'opération est immédiate.",
+                                    "Sans accès à l'application (téléphone perdu, application désinstallée) : ouvrez le lien de suppression ci-dessous et suivez la procédure.",
+                                    "La demande est traitée après vérification de votre identité, avec le nom de l'entreprise concernée.",
+                                  ].map((t, n) => (
+                                    <li key={n} className="flex gap-2.5 items-start">
+                                      <span className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 text-[12.5px] font-bold text-white" style={{ background: "#1F2A33" }}>{n + 1}</span>
+                                      <span className="text-[13.5px] leading-relaxed">{t}</span>
+                                    </li>
+                                  ))}
+                                </ol>
+                                <div className="flex gap-2.5 p-3 rounded-2xl" style={{ background: "#FDF0EE", border: "1px solid #F2C4BC" }}>
+                                  <AlertTriangle size={19} color="#B3261E" className="shrink-0" />
+                                  <span className="text-[13px] leading-relaxed" style={{ color: "#7A2016" }}><b>Action irréversible.</b> Produits, ventes, stock, clients, crédits, avoirs et comptes vendeurs sont effacés définitivement. Exportez vos rapports avant.</span>
+                                </div>
+                                <div className="flex flex-col gap-1 px-3 py-2.5 rounded-xl" style={{ background: "#F6F5F1", border: "1px solid #E3E1DA" }}>
+                                  <span className="text-[11.5px] font-bold" style={{ color: "#5B6470" }}>Lien de suppression du compte</span>
+                                  <span className="text-[13.5px] font-semibold break-all" style={{ color: "#1D4E89" }}>{ACCOUNT_DELETION_URL.replace("https://", "")}</span>
+                                </div>
+                                <div className="grid gap-2" style={{ gridTemplateColumns: "minmax(0,1fr) auto" }}>
+                                  <button onClick={() => openExternalUrl(ACCOUNT_DELETION_URL)} className="gb-focus min-h-[50px] px-3 rounded-2xl text-white text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: "#B3261E" }}><ExternalLink size={17} /> Demander la suppression</button>
+                                  <button onClick={copyLink} className="gb-focus min-h-[50px] px-3.5 rounded-2xl text-[14px] font-bold flex items-center gap-1.5" style={{ background: "#fff", border: "1px solid #DAD8D0" }}>{copied ? <Check size={16} color="#1E8E50" /> : <Copy size={16} />}{copied ? "Copié" : "Copier"}</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+                <div className="mt-1 p-3.5 rounded-2xl flex items-center gap-3" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
+                  <span className="flex-1 min-w-0 text-[13.5px] leading-snug" style={{ color: "#3D4550" }}>Vous ne trouvez pas la réponse ?</span>
+                  <button onClick={() => setStage(started ? "thread" : "form")} className="gb-focus shrink-0 min-h-[44px] px-3.5 rounded-xl text-white text-[14px] font-bold" style={{ background: "#1F2A33" }}>Écrire au support</button>
                 </div>
               </div>
-              <button onClick={() => setOpen(false)} className="gb-focus text-white/70"><X size={18} /></button>
-            </div>
+            )}
 
-            <div className="flex-1 overflow-y-auto gb-scroll p-4 pb-5 flex flex-col" style={{ paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
-              {stage === "faq" && (
-                <>
-                  <p className="text-xs font-semibold opacity-60 mb-3">Questions fréquentes</p>
-                  <div className="flex flex-col gap-2 mb-4">
-                    {SUPPORT_FAQ.map((item, i) => (
-                      <div key={i} className="rounded-xl overflow-hidden" style={{ border: `1px solid ${openFaq === i ? "#9FE1CB" : "var(--line)"}` }}>
-                        <button onClick={() => setOpenFaq(openFaq === i ? null : i)} className="gb-focus w-full text-left px-3 py-2.5 text-xs font-semibold flex items-center justify-between gap-2" style={{ background: openFaq === i ? "#E1F5EE" : "var(--card)", color: openFaq === i ? "#0F6E56" : "inherit" }}>
-                          <span>{item.q}</span>
-                          <ChevronDown size={14} className="shrink-0" style={{ transform: openFaq === i ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
-                        </button>
-                        {openFaq === i && <div className="px-3 py-2.5 text-xs" style={{ background: "#E1F5EE", color: "#0F6E56" }}>{item.a}</div>}
-                      </div>
-                    ))}
-                  </div>
-                  <button onClick={() => setStage("form")} className="gb-focus w-full rounded-xl py-3 text-sm font-semibold text-white flex items-center justify-center gap-2" style={{ background: "linear-gradient(135deg, var(--glass), var(--glass-light))" }}>
-                    <MessageCircle size={15} /> Je n'ai pas trouvé ma réponse
-                  </button>
-                </>
-              )}
-
-              {stage === "form" && (
-                <div className="flex flex-col gap-2.5">
-                  <p className="text-xs opacity-60 mb-1">Renseigne tes coordonnées, l'administrateur te répondra ici dès que possible.</p>
-                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ton nom" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
-                  <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Numéro de téléphone" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
-                  <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optionnel)" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
-                  <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Ton message…" rows={3} className="gb-focus rounded-xl px-3 py-2 text-sm border resize-none" style={{ borderColor: "var(--line)" }} />
-                  <button onClick={submitContact} disabled={sending} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: "var(--glass)" }}>
-                    {sending ? "Envoi…" : "Envoyer"}
-                  </button>
-                  <button onClick={() => setStage("faq")} className="gb-focus text-xs opacity-50 underline self-center">Retour aux questions fréquentes</button>
+            {stage === "form" && (
+              <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5 pt-4 pb-5 flex flex-col gap-3">
+                <div className="flex gap-2.5 p-3 rounded-2xl" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
+                  <Lock size={18} color="#2F6F5E" className="shrink-0" />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: "#3D4550" }}>Conversation privée avec l'équipe GestiOne. Ne partagez jamais votre code PIN.</span>
                 </div>
-              )}
-
-              {stage === "thread" && (
-                <div className="flex flex-col gap-2">
-                  <div className="rounded-xl p-3 mb-1 text-xs" style={{ background: "var(--paper-dim)" }}>
-                    ✓ Message envoyé. L'administrateur te répondra ici dès que possible.
-                  </div>
-                  {thread.map((m) => (
-                    <div
-                      key={m.id}
-                      className="rounded-xl px-3 py-2 text-sm max-w-[85%] gb-slide-up"
-                      style={{
-                        background: m.sender === "owner" ? "var(--glass)" : "var(--card)",
-                        color: m.sender === "owner" ? "#fff" : "var(--ink)",
-                        alignSelf: m.sender === "owner" ? "flex-start" : "flex-end",
-                        border: m.sender === "owner" ? "none" : "1px solid var(--line)",
-                      }}
-                    >
-                      {m.body}
-                    </div>
-                  ))}
-                  {sending && (
-                    <div className="rounded-xl px-3.5 py-2.5 self-end flex items-center gap-1" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--ink)", opacity: 0.4, animation: "gb-blink 1s ease-in-out infinite" }} />
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--ink)", opacity: 0.4, animation: "gb-blink 1s ease-in-out infinite .15s" }} />
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--ink)", opacity: 0.4, animation: "gb-blink 1s ease-in-out infinite .3s" }} />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                <p className="text-[13.5px] font-bold">Vos coordonnées</p>
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Votre nom" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Numéro de téléphone" inputMode="tel" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail (facultatif)" inputMode="email" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+                <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Décrivez votre question ou votre problème…" rows={4} className="gb-focus w-full rounded-xl px-3.5 py-3 text-[15px] border resize-none" style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+                <button onClick={submitContact} disabled={sending || !name.trim() || !phone.trim() || !message.trim()} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#1E8E50" }}>
+                  <Send size={17} /> {sending ? "Envoi…" : "Envoyer au support"}
+                </button>
+              </div>
+            )}
 
             {stage === "thread" && (
-              <div className="px-4 py-3.5 flex items-center gap-2 border-t shrink-0" style={{ borderColor: "var(--line)", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}>
-                <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMore()} placeholder="Écrire un message…" className="gb-focus flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm border" style={{ borderColor: "var(--line)" }} />
-                <button onClick={sendMore} disabled={sending} className="gb-focus shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50 whitespace-nowrap" style={{ background: "var(--glass)" }}>Envoyer</button>
-              </div>
+              <>
+                <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5 pt-3.5 pb-2.5 flex flex-col gap-2.5">
+                  <span className="self-center px-3 py-1 rounded-full text-[12px] font-bold" style={{ background: "#E2E0D9", color: "#3D4550" }}>Conversation</span>
+                  <div className="flex gap-2.5 p-3 rounded-2xl" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
+                    <Lock size={18} color="#2F6F5E" className="shrink-0" />
+                    <span className="text-[12.5px] leading-relaxed" style={{ color: "#3D4550" }}>Conversation privée entre votre entreprise et l'équipe GestiOne. Ne partagez jamais votre code PIN.</span>
+                  </div>
+                  {thread.length === 0 && (
+                    <div className="flex items-end gap-2 pr-9">
+                      <span className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center shrink-0 text-white text-[12px] font-bold" style={{ background: "#2F6F5E" }}>G</span>
+                      <div className="px-3 py-2.5 rounded-2xl rounded-bl-[4px] text-[14.5px] leading-relaxed" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>Message bien reçu. Un conseiller vous répond ici même.</div>
+                    </div>
+                  )}
+                  {thread.map((m, idx) => {
+                    const agent = m.sender === "owner";
+                    const prev = thread[idx - 1];
+                    return (
+                      <div key={m.id} className={`flex items-end gap-2 gb-slide-up ${agent ? "pr-9" : "pl-11 justify-end"}`}>
+                        {agent && <span className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center shrink-0 text-white text-[12px] font-bold" style={{ background: "#2F6F5E" }}>G</span>}
+                        <div className={`min-w-0 max-w-full px-3 pt-2.5 pb-2 flex flex-col gap-1 ${agent ? "rounded-2xl rounded-bl-[4px]" : "rounded-2xl rounded-br-[4px]"}`} style={agent ? { background: "#fff", border: "1px solid #E3E1DA", color: "#16202A" } : { background: "#1F2A33", color: "#fff" }}>
+                          {agent && (!prev || prev.sender !== "owner") && <span className="text-[12px] font-bold" style={{ color: "#2F6F5E" }}>Équipe GestiOne</span>}
+                          <span className="text-[14.5px] leading-relaxed whitespace-pre-line break-words">{m.body}</span>
+                          <span className="self-end flex items-center gap-1 text-[11px] font-semibold" style={{ color: agent ? "#6B747E" : "#B7C0C8" }}>
+                            {fmtTime(m.created_at)}
+                            {!agent && <Check size={12} color="#7FD6C2" />}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {sending && (
+                    <div className="self-end flex items-center gap-1 px-3.5 py-3 rounded-2xl" style={{ background: "#1F2A33" }}>
+                      {[0, 0.15, 0.3].map((d) => <span key={d} className="w-1.5 h-1.5 rounded-full" style={{ background: "#fff", opacity: 0.6, animation: `gb-blink 1s ease-in-out infinite ${d}s` }} />)}
+                    </div>
+                  )}
+                  <div ref={threadEndRef} />
+                </div>
+                <div className="px-3 pt-2 flex flex-wrap gap-1.5 shrink-0">
+                  {["Impression", "Licence", "Synchronisation", "Autre question"].map((q) => (
+                    <button key={q} onClick={() => sendMore(`J'ai une question : ${q.toLowerCase()}`)} disabled={sending} className="gb-focus min-h-[36px] px-3 rounded-full text-[13px] font-bold disabled:opacity-50" style={{ background: "#fff", border: "1px solid #C6D9D2", color: "#1F4F43" }}>{q}</button>
+                  ))}
+                </div>
+                <div className="px-3 pt-2.5 flex items-end gap-2 shrink-0" style={{ paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}>
+                  <label className="flex-1 min-w-0 min-h-[46px] px-3.5 rounded-2xl border flex items-center" style={{ background: "#fff", borderColor: "#DAD8D0" }}>
+                    <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMore()} placeholder="Écrivez votre message…" aria-label="Votre message" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+                  </label>
+                  <button onClick={() => sendMore()} disabled={sending || !message.trim()} aria-label="Envoyer" className="gb-focus w-[46px] h-[46px] rounded-2xl flex items-center justify-center shrink-0" style={{ background: message.trim() ? "#1E8E50" : "#D9DCDF", color: message.trim() ? "#fff" : "#6B747E" }}><Send size={19} /></button>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -7509,6 +8627,74 @@ function GlobalSearchModal({ products, clients, categories, sales, avoirs, expen
 
 /* ---------- App racine ---------- */
 
+// Carte "Notifications vocales" affichée en haut du panneau de notifications
+// pour TOUTE personne connectée. Réglage propre à l'appareil.
+function VoiceSettingsCard({ prefs, onChange, expanded, onToggleExpanded }) {
+  const on = !!prefs.enabled;
+  const activeCount = VOICE_EVENT_TYPES.filter((e) => prefs.types[e.id] !== false).length;
+  const allOn = activeCount === VOICE_EVENT_TYPES.length;
+  const Switch = ({ checked, onClick, label, big }) => (
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} onClick={onClick}
+      className="gb-focus shrink-0 rounded-full flex items-center transition-colors"
+      style={{ width: big ? 52 : 44, height: big ? 30 : 26, padding: 3, background: checked ? "#1E8E50" : "#C9CDD2", justifyContent: checked ? "flex-end" : "flex-start" }}>
+      <span className="rounded-full bg-white" style={{ width: big ? 24 : 20, height: big ? 24 : 20, boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }} />
+    </button>
+  );
+  const test = () => { voiceVolume = prefs.volume; speak("Nouvelle vente de 3 500 francs.", true); };
+  return (
+    <div className="m-3 rounded-2xl p-3" style={{ background: on ? "#EAF6EF" : "var(--paper-dim)", border: `1px solid ${on ? "#C6E6D2" : "var(--line)"}` }}>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: on ? "#1E8E50" : "var(--card)" }}>
+          <Volume2 size={19} color={on ? "#fff" : "var(--ink)"} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold leading-tight">Notifications vocales</p>
+          <p className="text-[11px] opacity-60 mt-0.5 leading-snug">{on ? `Activées sur ce téléphone · ${activeCount} type${activeCount > 1 ? "s" : ""} d'actions` : "Désactivées sur ce téléphone"}</p>
+        </div>
+        <Switch big checked={on} label="Activer les notifications vocales" onClick={() => { const next = { ...prefs, enabled: !on }; onChange(next); if (!on) { voiceVolume = next.volume; speak("Notifications vocales activées.", true); } }} />
+      </div>
+      {on && (
+        <>
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <button onClick={test} className="gb-focus flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold text-white min-h-[40px]" style={{ background: "#1E8E50" }}><Play size={13} fill="#fff" /> Tester</button>
+            <button onClick={onToggleExpanded} className="gb-focus flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold min-h-[40px]" style={{ background: "var(--card)", color: "#0F4F2B", border: "1px solid #C6E6D2" }}>
+              Réglages <ChevronDown size={13} style={{ transform: expanded ? "rotate(180deg)" : "none" }} />
+            </button>
+          </div>
+          {expanded && (
+            <div className="mt-3 flex flex-col gap-3 gb-slide-up">
+              <label className="flex flex-col gap-1">
+                <span className="flex justify-between text-xs font-bold"><span>Volume</span><span style={{ color: "#0F4F2B" }}>{Math.round(prefs.volume * 100)} %</span></span>
+                <input type="range" min="10" max="100" step="10" value={Math.round(prefs.volume * 100)} onChange={(e) => onChange({ ...prefs, volume: Number(e.target.value) / 100 })} style={{ accentColor: "#1E8E50" }} aria-label="Volume de la voix" />
+              </label>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide opacity-70">Annoncer à voix haute</span>
+                <button onClick={() => { const t = {}; VOICE_EVENT_TYPES.forEach((e) => { t[e.id] = !allOn; }); onChange({ ...prefs, types: t }); }} className="gb-focus text-[11px] font-bold underline" style={{ color: "#0F4F2B" }}>{allOn ? "Tout désactiver" : "Tout activer"}</button>
+              </div>
+              <div className="rounded-xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                {VOICE_EVENT_TYPES.map((e, i) => {
+                  const checked = prefs.types[e.id] !== false;
+                  return (
+                    <div key={e.id} className="flex items-center gap-2.5 px-3 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: e.fg }} />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-xs font-bold leading-tight">{e.label}</span>
+                        <span className="block text-[10.5px] opacity-55 leading-snug">{e.desc}</span>
+                      </span>
+                      <Switch checked={checked} label={e.label} onClick={() => onChange({ ...prefs, types: { ...prefs.types, [e.id]: !checked } })} />
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[10.5px] leading-snug opacity-60">Disponible pour toute personne connectée. Réglage propre à ce téléphone : gardez le volume du téléphone activé.</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 const TABS = {
   vendeur: [{ id: "sell", label: "Vendre", Icon: ScanLine }, { id: "stock", label: "Stock", Icon: Boxes }, { id: "credits", label: "Position", Icon: Scale }, { id: "history", label: "Historique", Icon: History }, { id: "expenses", label: "Dépenses", Icon: Wallet }],
   admin: [{ id: "sell", label: "Vendre", Icon: ScanLine }, { id: "stock", label: "Stock", Icon: Boxes }, { id: "credits", label: "Position", Icon: Scale }, { id: "history", label: "Historique", Icon: History }, { id: "admin", label: "Admin", Icon: ShieldCheck }],
@@ -7568,6 +8754,7 @@ function AppInner() {
   const [supplierProducts, setSupplierProducts] = useState(null);
   const [avoirs, setAvoirs] = useState([]);
   const [cashRegisterEntries, setCashRegisterEntries] = useState([]);
+  const [versements, setVersements] = useState([]);
   // Fenêtre "fond de caisse" affichée au centre : ouverte automatiquement à
   // l'entrée sur Vendre (ou au démarrage) tant qu'aucun montant n'a été
   // renseigné pour AUJOURD'HUI, et redéclenchée si on tente une vente sans
@@ -7651,11 +8838,13 @@ function AppInner() {
       setOwnerAccess(loadedOwnerAccess);
       if (loadedShops.length === 0) { setShops([]); return; }
       const data = await loadShopData(activeId);
-      setShops(loadedShops);
+      const dedupedShops = uniqueShops(loadedShops);
+      if (dedupedShops.length !== loadedShops.length) window.storage.set("shops", JSON.stringify(dedupedShops)).catch(() => {});
+      setShops(dedupedShops);
       setActiveShopId(activeId);
       api.setActiveShop(activeId);
       setPendingSync(api.getPendingCount(activeId));
-      setProducts(data.products); setSales(data.sales); setVendors(data.vendors); setSuppliers(data.suppliers); setExpenses(data.expenses); setCategories(data.categories); setMovements(data.movements); setInventories(data.inventories); setClients(data.clients); setOrders(data.orders); setSupplierProducts(data.supplierProducts); setAvoirs(data.avoirs); setCashRegisterEntries(data.cashRegisterEntries || []);
+      setProducts(data.products); setSales(data.sales); setVendors(data.vendors); setSuppliers(data.suppliers); setExpenses(data.expenses); setCategories(data.categories); setMovements(data.movements); setInventories(data.inventories); setClients(data.clients); setOrders(data.orders); setSupplierProducts(data.supplierProducts); setAvoirs(data.avoirs); setCashRegisterEntries(data.cashRegisterEntries || []); setVersements(data.versements || []);
       let storedRole = null;
       try { const r = await window.storage.get("sessionRole"); storedRole = JSON.parse(r.value); } catch { storedRole = null; }
       if (storedRole) {
@@ -7804,6 +8993,7 @@ function AppInner() {
           api.pullKey("supplierProducts", activeShopId),
           api.pullKey("inventories", activeShopId),
           api.pullKey("cashRegisterEntries", activeShopId),
+          api.pullKey("versements", activeShopId),
         ]);
         if (cancelled) return;
         // Promise.allSettled (au lieu de Promise.all) : avant, si UNE SEULE
@@ -7812,8 +9002,16 @@ function AppInner() {
         // bloquait la mise à jour de TOUTES les autres données — produits,
         // catégories, ventes, etc. — pas seulement celle en échec. Chaque
         // clé a maintenant sa propre chance indépendante de réussir.
-        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries] =
+        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements] =
           results.map((r) => (r.status === "fulfilled" ? r.value : undefined));
+        // Annonces vocales des actions faites sur les autres appareils.
+        try {
+          announceRemoteRef.current?.({
+            sales: freshSales, expenses: freshExpenses, avoirs: freshAvoirs, movements: freshMovements, orders: freshOrders, products: freshProducts,
+            cashRegisterEntries: Array.isArray(freshCashRegisterEntries) ? ownCashEntries(freshCashRegisterEntries, activeShopId) : freshCashRegisterEntries,
+            versements: Array.isArray(freshVersements) ? ownCashEntries(freshVersements, activeShopId) : freshVersements,
+          });
+        } catch { /* une annonce ratée ne doit jamais bloquer la synchronisation */ }
         if (freshMeta) {
           setShops((prevShops) => {
             const current = (prevShops || []).find((s) => s.id === activeShopId);
@@ -7892,7 +9090,8 @@ function AppInner() {
           ["orders", freshOrders, setOrders],
           ["supplierProducts", freshSupplierProducts, setSupplierProducts],
           ["inventories", freshInventories, setInventories],
-          ["cashRegisterEntries", freshCashRegisterEntries, setCashRegisterEntries],
+          ["cashRegisterEntries", Array.isArray(freshCashRegisterEntries) ? ownCashEntries(freshCashRegisterEntries, activeShopId) : freshCashRegisterEntries, setCashRegisterEntries],
+          ["versements", Array.isArray(freshVersements) ? ownCashEntries(freshVersements, activeShopId) : freshVersements, setVersements],
         ];
         SYNCED_LIST_KEYS.forEach(([key, freshValue, setter]) => {
           if (!Array.isArray(freshValue)) return;
@@ -7924,7 +9123,7 @@ function AppInner() {
             api.unlinkShop(deletedShopId);
             if (nextShops.length > 0) {
               loadShopData(nextShops[0].id).then((data) => {
-                setProducts(data.products); setSales(data.sales); setVendors(data.vendors); setSuppliers(data.suppliers); setExpenses(data.expenses); setCategories(data.categories); setMovements(data.movements); setInventories(data.inventories); setClients(data.clients); setOrders(data.orders); setSupplierProducts(data.supplierProducts); setAvoirs(data.avoirs); setCashRegisterEntries(data.cashRegisterEntries || []);
+                setProducts(data.products); setSales(data.sales); setVendors(data.vendors); setSuppliers(data.suppliers); setExpenses(data.expenses); setCategories(data.categories); setMovements(data.movements); setInventories(data.inventories); setClients(data.clients); setOrders(data.orders); setSupplierProducts(data.supplierProducts); setAvoirs(data.avoirs); setCashRegisterEntries(data.cashRegisterEntries || []); setVersements(data.versements || []);
               });
               setActiveShopId(nextShops[0].id);
               api.setActiveShop(nextShops[0].id);
@@ -7980,6 +9179,7 @@ function AppInner() {
       case "orders": return orders;
       case "supplierProducts": return supplierProducts;
       case "avoirs": return avoirs;
+      case "versements": return versements;
       case "cashRegisterEntries": return cashRegisterEntries;
       // Manquait ici : sans ce cas, toute resynchronisation automatique de
       // "shopLicense" (au lancement de l'app, à la reconnexion réseau)
@@ -8007,6 +9207,108 @@ function AppInner() {
   // longtemps (dans une minuterie notamment).
   const getLocalValueRef = useRef(getLocalValue);
   getLocalValueRef.current = getLocalValue;
+
+  // ---------- Notifications vocales (tous les rôles, réglage par appareil) ----------
+  const [voicePrefs, setVoicePrefs] = useState(() => readVoicePrefs(null));
+  const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false);
+  useEffect(() => {
+    const p = readVoicePrefs(shop);
+    setVoicePrefs(p);
+    voiceVolume = p.volume;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop?.id, shop?.voiceNotificationsEnabled]);
+  const saveVoicePrefs = (next) => {
+    setVoicePrefs(next);
+    voiceVolume = next.volume;
+    writeVoicePrefs(shop, next);
+  };
+  const announce = (type, text) => { if (text) speak(text, voiceOn(shop, type)); };
+  const selfName = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
+  // Annonce les actions faites sur les AUTRES appareils, détectées à chaque
+  // synchronisation : on compare la nouvelle version du serveur à la
+  // précédente. La première passe sert juste de référence (rien n'est dit).
+  // On compare la version du serveur à l'état LOCAL juste avant de
+  // l'appliquer : ce qui diffère vient forcément d'un autre appareil (les
+  // changements locaux sont envoyés avant chaque récupération).
+  const remoteSeededRef = useRef(null);
+  const announceRemoteChanges = (fresh) => {
+    const firstPass = remoteSeededRef.current !== activeShopId;
+    remoteSeededRef.current = activeShopId;
+    if (firstPass) return;
+    const money = (n) => spokenAmount(formatMoney(Number(n) || 0, shop?.currency));
+    const isOther = (name) => !!name && name !== selfName && !(role === "admin" && name === "Administrateur");
+    const lines = [];
+    const byId = (list) => new Map((list || []).map((x) => [x.id, x]));
+    const diff = (key, list, fn) => {
+      if (!Array.isArray(list)) return;
+      const local = getLocalValueRef.current(key);
+      if (!Array.isArray(local) || local.length === 0) return;
+      if (JSON.stringify(local) === JSON.stringify(list)) return;
+      fn(byId(local), byId(list));
+    };
+    diff("sales", fresh.sales, (prev, next) => {
+      next.forEach((s, id) => {
+        const before = prev.get(id);
+        if (!before) { if (isOther(s.vendor)) lines.push(["sale", `Nouvelle vente de ${money(s.total)} par ${s.vendor}.`]); return; }
+        if (before.total !== s.total || before.paymentMethod !== s.paymentMethod) lines.push(["cancel", `Vente numéro ${receiptNumber(id)} modifiée, nouveau total ${money(s.total)}.`]);
+        const pb = creditPaymentsOf(before), pa = creditPaymentsOf(s);
+        if (pa.length > pb.length) {
+          const last = pa[pa.length - 1];
+          if (isOther(last?.by)) lines.push(["credit", `Crédit encaissé${s.clientName ? ` pour ${s.clientName}` : ""} : ${money(last.amount)}.`]);
+        }
+      });
+      prev.forEach((s, id) => { if (!next.has(id)) lines.push(["cancel", `Vente de ${money(s.total)} supprimée.`]); });
+    });
+    diff("expenses", fresh.expenses, (prev, next) => {
+      next.forEach((e, id) => { if (!prev.has(id) && (isOther(e.author) || !e.author)) lines.push(["expense", `Nouvelle dépense : ${e.label || "sans libellé"}, ${money(e.amount)}.`]); });
+    });
+    diff("avoirs", fresh.avoirs, (prev, next) => {
+      next.forEach((a, id) => {
+        const before = prev.get(id);
+        if (!before) { if (isOther(a.vendor)) lines.push(["credit", `Avoir ${a.type === "produit" ? "produit" : "monnaie"} créé pour ${a.clientName || "un client"}.`]); return; }
+        if ((a.redemptions || []).length > (before.redemptions || []).length) lines.push(["credit", `Avoir rendu à ${a.clientName || "un client"}.`]);
+      });
+    });
+    diff("movements", fresh.movements, (prev, next) => {
+      const added = [...next.values()].filter((m) => !prev.has(m.id) && m.type !== "vente" && isOther(m.author));
+      if (added.length === 1) { const m = added[0]; lines.push(["movement", `Stock modifié : ${m.productName}, ${m.delta > 0 ? "plus" : "moins"} ${Math.abs(m.delta)}.`]); }
+      else if (added.length > 1) lines.push(["movement", `${added.length} mouvements de stock enregistrés.`]);
+    });
+    diff("orders", fresh.orders, (prev, next) => {
+      next.forEach((o, id) => {
+        const before = prev.get(id);
+        if (!before) lines.push(["order", "Nouvelle commande fournisseur créée."]);
+        else if (before.status !== "received" && o.status === "received") lines.push(["order", `Commande fournisseur reçue${o.total ? `, ${money(o.total)}` : ""}.`]);
+        else if (JSON.stringify(before.items) !== JSON.stringify(o.items)) lines.push(["order", "Commande fournisseur modifiée."]);
+      });
+      prev.forEach((o, id) => { if (!next.has(id)) lines.push(["order", "Commande fournisseur supprimée."]); });
+    });
+    diff("cashRegisterEntries", fresh.cashRegisterEntries, (prev, next) => {
+      next.forEach((c, id) => {
+        const before = prev.get(id);
+        if (!before) { if (isOther(c.setBy)) lines.push(["cash", `Fond de caisse de ${money(c.amount)} saisi par ${c.setBy}.`]); }
+        else if (Number(before.amount) !== Number(c.amount)) lines.push(["cash", `Montant de caisse modifié : ${money(c.amount)}.`]);
+      });
+    });
+    diff("versements", fresh.versements, (prev, next) => {
+      next.forEach((v, id) => { if (!prev.has(id) && isOther(v.recordedBy)) lines.push(["cash", `Versement de ${money(v.amount)} enregistré par ${v.recordedBy}.`]); });
+    });
+    diff("products", fresh.products, (prev, next) => {
+      next.forEach((p, id) => {
+        const before = prev.get(id);
+        if (!before || Number(p.stock) >= Number(before.stock)) return;
+        const min = Number(p.minStock) || 0;
+        if (p.stock <= 0 && before.stock > 0) lines.push(["stock", `Rupture de stock : ${p.name}.`]);
+        else if (p.stock <= min && before.stock > min) lines.push(["stock", `Stock bas : ${p.name}, il en reste ${p.stock}.`]);
+      });
+    });
+    const wanted = lines.filter(([type]) => voiceOn(shop, type));
+    if (wanted.length === 0) return;
+    const text = wanted.length > 4 ? `${wanted.length} nouvelles actions. ${wanted.slice(0, 3).map((l) => l[1]).join(" ")}` : wanted.map((l) => l[1]).join(" ");
+    speak(text, true);
+  };
+  const announceRemoteRef = useRef(announceRemoteChanges);
+  announceRemoteRef.current = announceRemoteChanges;
 
   const trySync = (verbose) => {
     if (shop?.backendLinked) {
@@ -8120,19 +9422,49 @@ function AppInner() {
   // changement de boutique (loadShopData le fait déjà), cette double
   // vérification garantit qu'une entrée ne peut jamais s'afficher ou se
   // compter sur la mauvaise boutique, quelle qu'en soit la cause.
-  const todayCashEntry = cashRegisterEntries.find((e) => e.date === todayCashDateKey(shop?.cashRegisterResetHour) && (!e.shopId || e.shopId === activeShopId));
+  // Session de caisse ouverte (fond saisi, pas encore versé). Nommée
+  // todayCashEntry pour le reste du code : "la caisse est-elle ouverte ?".
+  const activeCashSession = findActiveCashSession(cashRegisterEntries, versements, activeShopId);
+  const todayCashEntry = activeCashSession;
+  const saveVersements = (next) => { setVersements(next); window.storage.set(`versements:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("versements"); setPendingSync(api.getPendingCount()); api.syncKeyNow("versements", next).then(() => setPendingSync(api.getPendingCount())); } };
   const recordCashRegister = (amount) => {
     const author = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
     const entry = { id: uid(), shopId: activeShopId, date: todayCashDateKey(shop?.cashRegisterResetHour), amount: Math.max(0, Number(amount) || 0), setBy: author, timestamp: new Date().toISOString() };
-    const next = [...cashRegisterEntries.filter((e) => e.date !== entry.date || (e.shopId && e.shopId !== activeShopId)), entry];
+    // Plusieurs sessions possibles le même jour (une par versement) : on
+    // ajoute la nouvelle sans effacer les précédentes.
+    const next = [...ownCashEntries(cashRegisterEntries, activeShopId), entry];
     saveCashRegisterEntries(next);
     setCashRegisterModalOpen(false);
+    setCashModalAfterVersement(false);
     pushToast("Fond de caisse enregistré", "ok");
+    announce("cash", `Fond de caisse enregistré : ${spokenAmount(formatMoney(entry.amount, shop?.currency))}.`);
+  };
+  // Versement : clôture la session ouverte avec son bilan complet, puis
+  // rouvre immédiatement la fenêtre pour saisir ce qui reste dans la caisse.
+  const recordVersement = ({ amount, by, receivedBy, note }) => {
+    if (!activeCashSession) { pushToast("Aucune caisse ouverte à verser", "error"); return false; }
+    const now = new Date().toISOString();
+    const recap = computeCashSession(activeCashSession, { sales, expenses, until: now });
+    const versed = Math.max(0, Number(amount) || 0);
+    const v = {
+      id: uid(), shopId: activeShopId, sessionId: activeCashSession.id,
+      date: now, openedAt: activeCashSession.timestamp || activeCashSession.date, openedBy: activeCashSession.setBy || "",
+      ...recap, amount: versed, gap: versed - recap.expected,
+      by: (by || "").trim(), receivedBy: (receivedBy || "").trim(), note: (note || "").trim(),
+      recordedBy: role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName,
+    };
+    saveVersements([...ownCashEntries(versements, activeShopId), v]);
+    pushToast("Versement enregistré — saisissez le montant restant en caisse", "ok");
+    announce("cash", `Versement de ${spokenAmount(formatMoney(versed, shop?.currency))} enregistré.`);
+    setCashModalAfterVersement(true);
+    setCashRegisterModalOpen(true);
+    return true;
   };
   const saveMovements = (next) => { setMovements(next); window.storage.set(`movements:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("movements"); setPendingSync(api.getPendingCount()); api.syncKeyNow("movements", next).then(() => setPendingSync(api.getPendingCount())); } };
   // Ouvre automatiquement la fenêtre fond de caisse dès l'entrée sur "Vendre"
   // (ou au chargement si on est déjà dessus) tant qu'aucun montant n'a été
   // renseigné pour aujourd'hui — pas seulement au moment de valider une vente.
+  const [cashModalAfterVersement, setCashModalAfterVersement] = useState(false);
   useEffect(() => {
     if (view === "sell" && role && shop && cashSyncReady && !todayCashEntry) {
       setCashRegisterModalOpen(true);
@@ -8193,7 +9525,7 @@ function AppInner() {
     await seedShopData(newShop.id, vendor);
     setActiveShopId(newShop.id);
     api.setActiveShop(newShop.id);
-    setProducts(SEED_PRODUCTS); setSales([]); setVendors([vendor]); setSuppliers(SEED_SUPPLIERS); setExpenses([]); setCategories(SEED_CATEGORIES); setMovements([]); setInventories([]); setClients([]); setOrders([]); setSupplierProducts([]);
+    setProducts(SEED_PRODUCTS); setSales([]); setVendors([vendor]); setSuppliers(SEED_SUPPLIERS); setExpenses([]); setCategories(SEED_CATEGORIES); setMovements([]); setInventories([]); setClients([]); setOrders([]); setSupplierProducts([]); setAvoirs([]); setCashRegisterEntries([]); setVersements([]);
     // Le serveur a déjà écrit shopMeta, vendors et shopLicense (essai gratuit
     // de 14 jours) dans le MÊME appel qui a créé l'entreprise — s'il en a
     // renvoyé une, on la reprend telle quelle plutôt que d'en recalculer une
@@ -8228,8 +9560,13 @@ function AppInner() {
 
   const handleJoinShopComplete = async (shopObj, pulled, autoRole, autoVendorName, shopLicense) => {
     const newShop = { salesNotificationsEnabled: true, theme: "emeraude", darkMode: false, soundsEnabled: true, ...shopObj };
-    const nextShops = [...shops, newShop];
+    // Reconnexion à une entreprise déjà présente : on la met à jour au lieu
+    // de l'ajouter une deuxième fois dans la liste.
+    const nextShops = uniqueShops([...(shops || []), newShop]);
     const products = pulled.products || SEED_PRODUCTS;
+    const avoirsData = Array.isArray(pulled.avoirs) ? pulled.avoirs : [];
+    const cashData = ownCashEntries(pulled.cashRegisterEntries, newShop.id);
+    const versementsData = ownCashEntries(pulled.versements, newShop.id);
     const salesData = pulled.sales || [];
     const vendorsData = pulled.vendors || [];
     const categoriesData = pulled.categories || SEED_CATEGORIES;
@@ -8256,10 +9593,13 @@ function AppInner() {
       window.storage.set(`clients:${newShop.id}`, JSON.stringify(clientsData)),
       window.storage.set(`orders:${newShop.id}`, JSON.stringify(ordersData)),
       window.storage.set(`supplierProducts:${newShop.id}`, JSON.stringify(supplierProductsData)),
+      window.storage.set(`avoirs:${newShop.id}`, JSON.stringify(avoirsData)),
+      window.storage.set(`cashRegisterEntries:${newShop.id}`, JSON.stringify(cashData)),
+      window.storage.set(`versements:${newShop.id}`, JSON.stringify(versementsData)),
     ]).catch(() => {});
     setActiveShopId(newShop.id);
     setProducts(products); setSales(salesData); setVendors(vendorsData); setSuppliers(suppliersData);
-    setExpenses(expensesData); setCategories(categoriesData); setMovements(movementsData); setInventories(inventoriesData); setClients(clientsData); setOrders(ordersData); setSupplierProducts(supplierProductsData);
+    setExpenses(expensesData); setCategories(categoriesData); setMovements(movementsData); setInventories(inventoriesData); setClients(clientsData); setOrders(ordersData); setSupplierProducts(supplierProductsData); setAvoirs(avoirsData); setCashRegisterEntries(cashData); setVersements(versementsData);
     if (shopLicense) {
       setLicense(shopLicense);
       window.storage.set(`license:${newShop.id}`, JSON.stringify(shopLicense)).catch(() => {});
@@ -8308,7 +9648,7 @@ function AppInner() {
       return false;
     }
 
-    const nextShops = [...shops, linkedShop];
+    const nextShops = uniqueShops([...shops, linkedShop]);
     setShops(nextShops);
     window.storage.set("shops", JSON.stringify(nextShops)).catch(() => {});
     await seedShopData(linkedShop.id, linkedVendor);
@@ -8340,7 +9680,7 @@ function AppInner() {
   const handleSwitchShop = async (shopId) => {
     if (shopId === activeShopId) return;
     const data = await loadShopData(shopId);
-    setProducts(data.products); setSales(data.sales); setVendors(data.vendors); setSuppliers(data.suppliers); setExpenses(data.expenses); setCategories(data.categories); setMovements(data.movements); setInventories(data.inventories); setClients(data.clients); setOrders(data.orders); setSupplierProducts(data.supplierProducts); setAvoirs(data.avoirs); setCashRegisterEntries(data.cashRegisterEntries || []);
+    setProducts(data.products); setSales(data.sales); setVendors(data.vendors); setSuppliers(data.suppliers); setExpenses(data.expenses); setCategories(data.categories); setMovements(data.movements); setInventories(data.inventories); setClients(data.clients); setOrders(data.orders); setSupplierProducts(data.supplierProducts); setAvoirs(data.avoirs); setCashRegisterEntries(data.cashRegisterEntries || []); setVersements(data.versements || []);
     api.setActiveShop(shopId);
     setActiveShopId(shopId);
     setPendingSync(api.getPendingCount(shopId));
@@ -8464,7 +9804,7 @@ function AppInner() {
         setNotifications((prev) => [{ id: `trial-${todayKey}`, type: "trial", daysLeft, date: new Date().toISOString() }, ...prev].slice(0, 30));
         setUnreadCount((c) => c + 1);
         localStorage.setItem(`notif_trial_${activeShopId}`, todayKey);
-        if (daysLeft <= 5) speak(`Attention, votre licence expire dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}.`, shop?.voiceNotificationsEnabled);
+        if (daysLeft <= 5) speak(`Attention, votre licence expire dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}.`, voiceOn(shop, "license"));
       }
     }
 
@@ -8475,7 +9815,7 @@ function AppInner() {
         if (lowStock.length > 0) {
           setNotifications((prev) => [{ id: `stock-${todayKey}`, type: "lowstock", count: lowStock.length, names: lowStock.slice(0, 3).map((p) => p.name), date: new Date().toISOString() }, ...prev].slice(0, 30));
           setUnreadCount((c) => c + 1);
-          speak(`${lowStock.length} produit${lowStock.length > 1 ? "s sont" : " est"} en stock bas.`, shop?.voiceNotificationsEnabled);
+          speak(`${lowStock.length} produit${lowStock.length > 1 ? "s sont" : " est"} en stock bas.`, voiceOn(shop, "stock"));
         }
         localStorage.setItem(`notif_stock_${activeShopId}`, todayKey);
       }
@@ -8539,10 +9879,11 @@ function AppInner() {
       orders: bundle.orders || [],
       supplierProducts: bundle.supplierProducts || [],
       avoirs: bundle.avoirs || [],
-      cashRegisterEntries: bundle.cashRegisterEntries || [],
+      cashRegisterEntries: (Array.isArray(bundle.cashRegisterEntries) ? bundle.cashRegisterEntries : []).map((e) => ({ ...e, shopId: activeShopId })),
+      versements: (Array.isArray(bundle.versements) ? bundle.versements : []).map((v) => ({ ...v, shopId: activeShopId })),
     };
     setProducts(next.products); setSales(next.sales); setCategories(next.categories); setSuppliers(next.suppliers);
-    setExpenses(next.expenses); setMovements(next.movements); setInventories(next.inventories); setClients(next.clients); setVendors(next.vendors); setOrders(next.orders); setSupplierProducts(next.supplierProducts); setAvoirs(next.avoirs); setCashRegisterEntries(next.cashRegisterEntries);
+    setExpenses(next.expenses); setMovements(next.movements); setInventories(next.inventories); setClients(next.clients); setVendors(next.vendors); setOrders(next.orders); setSupplierProducts(next.supplierProducts); setAvoirs(next.avoirs); setCashRegisterEntries(next.cashRegisterEntries); setVersements(next.versements);
     window.storage.set(`products:${activeShopId}`, JSON.stringify(next.products)).catch(() => {});
     window.storage.set(`sales:${activeShopId}`, JSON.stringify(next.sales)).catch(() => {});
     window.storage.set(`categories:${activeShopId}`, JSON.stringify(next.categories)).catch(() => {});
@@ -8556,6 +9897,7 @@ function AppInner() {
     window.storage.set(`supplierProducts:${activeShopId}`, JSON.stringify(next.supplierProducts)).catch(() => {});
     window.storage.set(`avoirs:${activeShopId}`, JSON.stringify(next.avoirs)).catch(() => {});
     window.storage.set(`cashRegisterEntries:${activeShopId}`, JSON.stringify(next.cashRegisterEntries)).catch(() => {});
+    window.storage.set(`versements:${activeShopId}`, JSON.stringify(next.versements)).catch(() => {});
     // Réglages de la boutique (devise, thème, langue, fidélité, mode sombre,
     // sons, code administrateur) — sans ça, une restauration recréait les
     // ventes/stocks/etc. mais remettait la boutique à ses réglages par défaut.
@@ -8568,6 +9910,13 @@ function AppInner() {
   const pushNotification = (entry) => {
     setNotifications((prev) => [{ id: `${entry.type}-${Date.now()}`, date: new Date().toISOString(), ...entry }, ...prev].slice(0, 30));
     setUnreadCount((c) => c + 1);
+    // Annonce vocale locale (les ventes et dépenses parlent déjà au moment
+    // de l'action, on ne les répète pas ici).
+    const money = (n) => spokenAmount(formatMoney(Number(n) || 0, shop?.currency));
+    if (entry.type === "stock_alert") announce("stock", entry.level === 0 ? `Rupture de stock : ${entry.productName}.` : `Stock bas : ${entry.productName}, il en reste ${entry.stock}.`);
+    else if (entry.type === "order_validated") announce("order", `Commande ${entry.supplierName} reçue${entry.total ? `, ${money(entry.total)}` : ""}.`);
+    else if (entry.type === "stock_movement") announce("movement", `${entry.count || 1} mouvement${entry.count > 1 ? "s" : ""} de stock enregistré${entry.count > 1 ? "s" : ""}.`);
+    else if (entry.type === "credit_settled") announce("credit", `Crédit encaissé${entry.clientName ? ` pour ${entry.clientName}` : ""} : ${money(entry.total)}.`);
   };
 
   // Encaisse un remboursement de crédit — total ou partiel. `amount` est le
@@ -8846,14 +10195,15 @@ function AppInner() {
                         {notifPanelOpen && (
                           <>
                             <div className="fixed inset-0 z-[95]" onClick={() => setNotifPanelOpen(false)} />
-                            <div className="absolute right-0 top-11 z-[96] w-72 rounded-2xl overflow-hidden gb-slide-up" style={{ background: "var(--card)", boxShadow: "0 16px 40px -12px rgba(15,27,22,0.32)", border: "1px solid var(--line)" }}>
+                            <div className="fixed z-[96] rounded-2xl overflow-hidden gb-slide-up flex flex-col" style={{ right: "max(12px, env(safe-area-inset-right))", top: "calc(max(22px, env(safe-area-inset-top)) + 52px)", width: "min(22rem, calc(100vw - 24px))", maxHeight: "calc(100vh - max(22px, env(safe-area-inset-top)) - 160px - env(safe-area-inset-bottom))", background: "var(--card)", boxShadow: "0 16px 40px -12px rgba(15,27,22,0.32)", border: "1px solid var(--line)" }}>
                               <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--line)" }}>
                                 <span className="text-sm font-semibold">Notifications</span>
                                 {notifications.length > 0 && (
                                   <button onClick={() => setNotifications([])} className="gb-focus text-[11px] opacity-50 underline">Effacer</button>
                                 )}
                               </div>
-                              <div className="max-h-72 overflow-y-auto gb-scroll">
+                              <div className="overflow-y-auto gb-scroll" style={{ flex: "1 1 auto", minHeight: 0 }}>
+                                <VoiceSettingsCard prefs={voicePrefs} onChange={saveVoicePrefs} expanded={voiceSettingsOpen} onToggleExpanded={() => setVoiceSettingsOpen((v) => !v)} />
                                 {notifications.length === 0 && <p className="text-xs opacity-50 text-center py-8 px-4">Aucune notification récente.</p>}
                                 {notifications.map((n) => (
                                   <div key={n.id} className="px-4 py-3 border-b last:border-0 flex items-start gap-2.5" style={{ borderColor: "var(--line)" }}>
@@ -9043,14 +10393,15 @@ function AppInner() {
                     {view === "sell" && (
                       <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={handleCheckout} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
                     )}
-                    {view === "stock" && <StockScreen products={products} categories={categories} />}
+                    {view === "stock" && <StockScreen products={products} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} />}
                     {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} pushToast={pushToast} />}
-                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={handleDeleteSale} onUpdateSale={handleUpdateSale} pushToast={pushToast} cashRegisterEntries={cashRegisterEntries} />}
+                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={handleDeleteSale} onUpdateSale={handleUpdateSale} pushToast={pushToast} cashRegisterEntries={cashRegisterEntries} versements={versements} />}
                     {view === "expenses" && role === "vendeur" && (
                       <VendorExpensesScreen expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} vendorName={currentVendorName} />
                     )}
                     {view === "admin" && role === "admin" && (
                       <AdminScreen
+                        cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={recordVersement}
                         shop={shop} saveShopMeta={saveShopMeta} shops={shops} activeShopId={activeShopId}
                         onSwitchShop={handleSwitchShop} onCreateShop={handleCreateShop} onDeleteShop={handleDeleteShop}
                         products={products} saveProducts={saveProducts} categories={categories} saveCategories={saveCategories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} sales={sales} saveSales={saveSales}
@@ -9099,7 +10450,7 @@ function AppInner() {
 
         <Toast toast={toast} />
         <SaleToastStack toasts={saleToasts} />
-        {cashRegisterModalOpen && role && <CashRegisterModal onSave={recordCashRegister} onClose={() => setCashRegisterModalOpen(false)} />}
+        {cashRegisterModalOpen && role && <CashRegisterModal afterVersement={cashModalAfterVersement} onSave={recordCashRegister} onClose={() => { setCashRegisterModalOpen(false); setCashModalAfterVersement(false); }} />}
       </div>
     </div>
   );
