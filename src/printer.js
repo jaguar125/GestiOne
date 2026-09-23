@@ -408,3 +408,64 @@ export async function printCombinedAvoirReceipt(produit, monnaie, shop, fmt) {
   const data = buildCombinedAvoirReceiptEscPos(produit, monnaie, shop, fmt);
   await sendToRawBt(data, `avoir-${produit.id.slice(0, 6)}.prn`);
 }
+
+// Point de caisse / clôture de caisse — fond de caisse, ventes en espèces,
+// crédits encaissés, dépenses, espèces attendues (et versement si la caisse
+// a été clôturée). Même contenu que CashReportModal à l'écran.
+export function buildCashReportEscPos(report, shop, fmt) {
+  const bytes = [];
+  const push = (...arr) => bytes.push(...arr);
+  const line = (text = "") => push(...encodeLine(text));
+  const dt = (d) => { const x = new Date(d); return `${x.toLocaleDateString("fr-FR")} ${x.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`; };
+  const closed = !!report.versement;
+
+  push(ESC, 0x40);
+  push(ESC, 0x61, 0x01);
+  push(ESC, 0x45, 0x01);
+  line(shopHeaderLine(shop));
+  line(closed ? "CLOTURE DE CAISSE" : "POINT DE CAISSE");
+  push(ESC, 0x45, 0x00);
+  line(closed ? "Caisse versee" : "Caisse ouverte - non versee");
+  line("");
+  push(ESC, 0x61, 0x00);
+  line(`Ouverte le ${dt(report.openedAt)}`);
+  if (report.openedBy) line(`par ${report.openedBy}`);
+  line(`${closed ? "Versee le" : "Arretee le"} ${dt(report.until)}`);
+  line("--------------------------------");
+  line(twoCol("Fond de caisse", fmt(report.fund)));
+  line(twoCol(`+ Ventes especes (${report.cashSalesCount})`, fmt(report.cashSales)));
+  line(twoCol(`+ Credits encaisses (${report.creditsCount})`, fmt(report.creditsCollected)));
+  line(twoCol(`- Depenses (${report.expensesCount})`, fmt(report.expensesTotal)));
+  line("--------------------------------");
+  push(ESC, 0x45, 0x01);
+  line(twoCol("ESPECES ATTENDUES", fmt(report.expected)));
+  push(ESC, 0x45, 0x00);
+  if (closed) {
+    line(twoCol("Montant verse", fmt(report.versement.amount)));
+    const gap = Number(report.versement.amount) - Number(report.expected);
+    line(twoCol("Ecart", `${gap > 0 ? "+" : ""}${fmt(gap)}`));
+    if (report.versement.by) line(`Verse par : ${report.versement.by}`);
+    if (report.versement.receivedBy) line(`Recu par : ${report.versement.receivedBy}`);
+    if (report.versement.note) line(`Note : ${report.versement.note}`);
+  }
+  line("--------------------------------");
+  line(twoCol(`Mobile Money (${report.mobileSalesCount})`, fmt(report.mobileSales)));
+  line("(hors caisse)");
+  line(twoCol("Total encaisse", fmt(report.cashSales + report.creditsCollected + report.mobileSales)));
+  line("");
+  push(ESC, 0x61, 0x01);
+  line(`Imprime le ${dt(new Date())}`);
+  if (report.printedBy) line(`par ${report.printedBy}`);
+  line("");
+  line("Signature caissier     Signature gerant");
+  line("");
+  line("");
+  line("");
+  push(GS, 0x56, 0x42, 0x00);
+  return new Uint8Array(bytes);
+}
+
+export async function printCashReport(report, shop, fmt) {
+  const data = buildCashReportEscPos(report, shop, fmt);
+  await sendToRawBt(data, `caisse-${new Date(report.until).toISOString().slice(0, 10)}.prn`);
+}

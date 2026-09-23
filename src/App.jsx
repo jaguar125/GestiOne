@@ -15,7 +15,7 @@ import * as api from "./api.js";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
 import { exportCsvFile, exportPdfDoc, shareText } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
-import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled } from "./printer.js";
+import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport } from "./printer.js";
 
 const GESTIONE_ICON_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJpY29uVGl0bGUiPgogIDx0aXRsZSBpZD0iaWNvblRpdGxlIj5HZXN0aU9uZSDigJQgaWPDtG5lIGRlIGwnYXBwbGljYXRpb248L3RpdGxlPgogIDxkZWZzPgogICAgPCEtLSA9PT09PT09PT09PT09PT09PSBEw4lHUkFEw4lTIChtb2RpZmlhYmxlKSA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdHcmFkIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDYzQjczIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTUlIiBzdG9wLWNvbG9yPSIjMDYxQjQ1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2MUI0NSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxyYWRpYWxHcmFkaWVudCBpZD0iZ2xvd0dyYWQiIGN4PSIxNSUiIGN5PSIxMCUiIHI9Ijc1JSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDBEOUE1IiBzdG9wLW9wYWNpdHk9IjAuNTUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0NSUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMC4xMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYXduaW5nT3JhbmdlIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjhBMDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjRkY2QjAwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJhd25pbmdXaGl0ZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZGRkZGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0U4RUNGNSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZmFjYWRlR3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZEMjFGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZG93R3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDBCOEQ5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2M0I3MyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ2VhckdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJhckdyYWQiIHgxPSIwIiB5MT0iMSIgeDI9IjAiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRkQyMUYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im9uZUdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJzb2Z0U2hhZG93IiB4PSItNDAlIiB5PSItNDAlIiB3aWR0aD0iMTgwJSIgaGVpZ2h0PSIxODAlIj4KICAgICAgPGZlRHJvcFNoYWRvdyBkeD0iMCIgZHk9IjEwIiBzdGREZXZpYXRpb249IjE0IiBmbG9vZC1jb2xvcj0iIzA2MUI0NSIgZmxvb2Qtb3BhY2l0eT0iMC40NSIvPgogICAgPC9maWx0ZXI+CiAgICA8ZmlsdGVyIGlkPSJzbWFsbFNoYWRvdyIgeD0iLTYwJSIgeT0iLTYwJSIgd2lkdGg9IjIyMCUiIGhlaWdodD0iMjIwJSI+CiAgICAgIDxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSI0IiBzdGREZXZpYXRpb249IjYiIGZsb29kLWNvbG9yPSIjMDYxQjQ1IiBmbG9vZC1vcGFjaXR5PSIwLjM1Ii8+CiAgICA8L2ZpbHRlcj4KCiAgICA8Y2xpcFBhdGggaWQ9Imljb25DbGlwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiByeD0iMjI0Ii8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPGcgY2xpcC1wYXRoPSJ1cmwoI2ljb25DbGlwKSI+CiAgICA8IS0tID09PT09PT09PT09PT09PT09IGcjYmFja2dyb3VuZCA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxnIGlkPSJiYWNrZ3JvdW5kIj4KICAgICAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNiZ0dyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9InVybCgjZ2xvd0dyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik0gLTYwLDUxMiBBIDU2MCw1NjAgMCAwIDAgNjAsOTYwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMEQ5QTUiIHN0cm9rZS1vcGFjaXR5PSIwLjM1IiBzdHJva2Utd2lkdGg9IjM0Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNjIgMTQ4KSBzY2FsZSgxKSI+CiAgICAgIAogIDxnIGlkPSJicmFuZE1hcmsiPgogICAgPCEtLSA9PT09PSBnI3N0b3JlIDogYm91dGlxdWUgKGF1dmVudCwgZmHDp2FkZSwgdml0cmluZSwgcG9ydGUpID09PT09IC0tPgogICAgPGcgaWQ9InN0b3JlIiBmaWx0ZXI9InVybCgjc29mdFNoYWRvdykiPgogICAgICA8IS0tIGJhbmRlYXUgaGF1dCBkZSBsJ2F1dmVudCAtLT4KICAgICAgPHJlY3QgeD0iODAiIHk9Ijg2IiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjQ0IiByeD0iMTYiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICA8IS0tIGxhbWJyZXF1aW4gcmF5w6kgKHJheXVyZXMgb3JhbmdlIC8gYmxhbmMsIGJhcyBhcnJvbmRpIGZhw6dvbiBzdG9yZSBiYW5uZSkgLS0+CiAgICAgIDxnIGlkPSJhd25pbmctc3RyaXBlcyI+CiAgICAgICAgPHBhdGggZD0iTTgwLDEzMCBoNjggdjc4IHEwLDI2IC0zNCwyNiBxLTM0LDAgLTM0LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgICA8cGF0aCBkPSJNMTQ4LDEzMCBoNjggdjg4IHEwLDI0IC0zNCwyNCBxLTM0LDAgLTM0LC0yNCBaIiBmaWxsPSJ1cmwoI2F3bmluZ1doaXRlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yMTYsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yODQsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nV2hpdGUpIi8+CiAgICAgICAgPHBhdGggZD0iTTM1MiwxMzAgaDY4IHY4OCBxMCwyNCAtMzQsMjQgcS0zNCwwIC0zNCwtMjQgWiIgZmlsbD0idXJsKCNhd25pbmdPcmFuZ2UpIi8+CiAgICAgICAgPHBhdGggZD0iTTQyMCwxMzAgaDY4IHY3OCBxMCwyNiAtMzQsMjYgcS0zNCwwIC0zNCwtMjYgWiIgZmlsbD0idXJsKCNhd25pbmdXaGl0ZSkiLz4KICAgICAgICA8cGF0aCBkPSJNNDg4LDEzMCBoNzIgdjcwIHEwLDI2IC0zNiwyNiBxLTM2LDAgLTM2LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgPC9nPgogICAgICA8IS0tIGZhw6dhZGUgLS0+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJ1cmwoI2ZhY2FkZUdyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMwNjFCNDUiIHN0cm9rZS1vcGFjaXR5PSIwLjE1IiBzdHJva2Utd2lkdGg9IjQiLz4KICAgICAgPCEtLSB2aXRyaW5lIGJsZXVlIGF2ZWMgcGFuaWVyIC0tPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0idXJsKCN3aW5kb3dHcmFkKSIvPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utb3BhY2l0eT0iMC4zNSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICAgIDxnIGlkPSJiYXNrZXQiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIj4KICAgICAgICA8cGF0aCBkPSJNMjIzLDM1MiBxMzAsLTQ2IDYwLDAiIC8+CiAgICAgICAgPHBhdGggZD0iTTIwMywzNTIgaDE2MCBsLTE2LDc4IHEtMywxNCAtMTgsMTQgaC05MiBxLTE1LDAgLTE4LC0xNCBaIiBmaWxsPSIjRkZGRkZGIiBzdHJva2U9Im5vbmUiLz4KICAgICAgICA8cGF0aCBkPSJNMjI4LDM2NiB2NTYgTTI1MywzNjYgdjYyIE0yNzgsMzY2IHY1NiIgc3Ryb2tlPSIjMDBCOEQ5IiBzdHJva2Utd2lkdGg9IjgiLz4KICAgICAgPC9nPgogICAgICA8IS0tIHBvcnRlIC0tPgogICAgICA8cmVjdCB4PSIzOTIiIHk9IjMyMiIgd2lkdGg9IjExMiIgaGVpZ2h0PSIxODgiIHJ4PSIxMCIgZmlsbD0iIzA2MUI0NSIvPgogICAgICA8Y2lyY2xlIGN4PSI0NzIiIGN5PSI0MTYiIHI9IjciIGZpbGw9IiNGRkQyMUYiLz4KICAgIDwvZz4KCiAgICA8IS0tID09PT09IGcjZ3Jvd3RoIDogZ3JhcGhpcXVlIGVuIGJhcnJlcyArIGZsw6hjaGUgYXNjZW5kYW50ZSA9PT09PSAtLT4KICAgIDxnIGlkPSJncm93dGgiPgogICAgICA8cmVjdCB4PSI1NDAiIHk9IjM2OCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjkyIiByeD0iNiIgZmlsbD0idXJsKCNiYXJHcmFkKSIvPgogICAgICA8cmVjdCB4PSI1ODQiIHk9IjMzMCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjEzMCIgcng9IjYiIGZpbGw9InVybCgjYmFyR3JhZCkiLz4KICAgICAgPHJlY3QgeD0iNjI4IiB5PSIyODYiIHdpZHRoPSIzNCIgaGVpZ2h0PSIxNzQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2JhckdyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik01NTYsMjcyIEw2NTAsMTc4IE02NTAsMTc4IGgtNDYgTTY1MCwxNzggdjQ2IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkQyMUYiIHN0cm9rZS13aWR0aD0iMTYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogICAgPC9nPgoKICAgIDwhLS0gPT09PT0gZyNtYW5hZ2VtZW50IDogZW5ncmVuYWdlIChnZXN0aW9uKSA9PT09PSAtLT4KICAgIDxnIGlkPSJtYW5hZ2VtZW50IiBmaWx0ZXI9InVybCgjc21hbGxTaGFkb3cpIj4KICAgICAgPGcgZmlsbD0idXJsKCNnZWFyR3JhZCkiPgogICAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoMC4wKSIvPgogICAgICA8cmVjdCB4PSItMTUuMCIgeT0iLTEwOC4wIiB3aWR0aD0iMzAuMCIgaGVpZ2h0PSIzNC4wIiByeD0iNiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTYwIDQ4MCkgcm90YXRlKDM2LjApIi8+CiAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoNzIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxMDguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxNDQuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxODAuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyMTYuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyNTIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyODguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgzMjQuMCkiLz4KICAgICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9Ijg4IiAvPgogICAgICA8L2c+CiAgICAgIDxjaXJjbGUgY3g9IjU2MCIgY3k9IjQ4MCIgcj0iODgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLW9wYWNpdHk9IjAuMzUiIHN0cm9rZS13aWR0aD0iNCIvPgogICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9IjM0IiBmaWxsPSIjMDYxQjQ1Ii8+CiAgICA8L2c+CiAgPC9nPgoKICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=";
 
@@ -2202,7 +2202,7 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
 
   const filtered = products.filter((p) => {
     if (cat !== "all" && p.category !== cat) return false;
-    if (query && !p.name.toLowerCase().includes(query.toLowerCase())) return false;
+    if (query && !p.name.toLowerCase().includes(query.toLowerCase()) && !(p.barcode || "").toLowerCase().includes(query.trim().toLowerCase())) return false;
     return true;
   });
 
@@ -2368,94 +2368,139 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
   };
 
   const qtyInCart = (id) => cartItems.find((i) => i.id === id)?.qty || 0;
-  const catTint = (catId) => { const c = getCategory(categories, catId).color || "#888888"; return /^#[0-9a-fA-F]{6}$/.test(c) ? `${c}1F` : "var(--paper-dim)"; };
-  const chipStyle = (on) => (on ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" });
+  const catColor = (catId) => { const c = getCategory(categories, catId).color || "#888888"; return /^#[0-9a-fA-F]{6}$/.test(c) ? c : "#888888"; };
+  const catTint = (catId) => `${catColor(catId)}1F`;
+  // Teinte foncée de la couleur de catégorie, pour les touches rapides
+  // (texte blanc lisible dessus).
+  const catKey = (catId) => {
+    const h = catColor(catId);
+    const f = 0.62;
+    const ch = (i) => Math.round(parseInt(h.slice(i, i + 2), 16) * f).toString(16).padStart(2, "0");
+    return `#${ch(1)}${ch(3)}${ch(5)}`;
+  };
+  const [favOpen, setFavOpen] = useState(() => { try { return localStorage.getItem("sell_fav_open") !== "0"; } catch { return true; } });
+  const toggleFav = () => setFavOpen((v) => { const n = !v; try { localStorage.setItem("sell_fav_open", n ? "1" : "0"); } catch { /* ignore */ } return n; });
+  const todayStr = new Date().toDateString();
+  const todaySales = (sales || []).filter((x) => new Date(x.date).toDateString() === todayStr);
+  const todayTotal = todaySales.reduce((sum, x) => sum + (Number(x.total) || 0), 0);
+  const favorites = quickPicks.slice(0, 6);
+  const searchKey = (e) => {
+    if (e.key !== "Enter") return;
+    const code = query.trim();
+    if (!code) return;
+    const exact = products.some((p) => (p.barcode || "").trim() === code);
+    if (exact || /^\d{6,}$/.test(code)) { setQuery(""); lookupAndAdd(code); }
+  };
+  const shown = filtered;
   return (
     <div style={{ paddingBottom: "calc(190px + env(safe-area-inset-bottom))" }}>
-      <div className="px-4 pt-4 flex flex-col gap-2.5">
+      <section className="mx-3 mt-3 rounded-[24px] px-4 pt-4 pb-4 flex flex-col gap-3 text-white" style={{ background: "#1F2A33" }}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[13px] capitalize" style={{ color: "#C9D1D8" }}>{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-2xl px-3 py-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
+            <span className="text-[11.5px]" style={{ color: "#C9D1D8" }}>Ventes du jour</span>
+            <span className="font-display font-bold text-[18px] whitespace-nowrap" style={{ color: "#A6E07A" }}>{fmt(todayTotal)}</span>
+          </div>
+          <div className="rounded-2xl px-3 py-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
+            <span className="text-[11.5px]" style={{ color: "#C9D1D8" }}>Tickets</span>
+            <span className="font-display font-bold text-[18px]">{todaySales.length}</span>
+          </div>
+        </div>
         <div className="flex gap-2">
-          <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] px-2 rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
-            <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#EAF3DE" }}><Barcode size={18} color="#27500A" /></span>
-            <input ref={inputRef} value={barcode} onChange={(e) => setBarcode(e.target.value)} onKeyDown={handleScan} placeholder="Code-barres" aria-label="Scanner ou saisir le code-barres" className="bg-transparent outline-none text-[15px] font-mono flex-1 min-w-0" style={{ color: "var(--ink)" }} />
+          <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] pl-3.5 pr-1.5 rounded-2xl" style={{ background: "#fff" }}>
+            <Search size={17} color="#5B6470" className="shrink-0" />
+            <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={searchKey} placeholder="Produit ou code-barres" aria-label="Rechercher un produit ou saisir un code-barres" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" style={{ color: "#16202A" }} />
+            <button onClick={startVoiceSearch} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: listening ? "var(--danger)" : "#F0EFEA" }} aria-label="Recherche vocale">
+              <Mic size={16} color={listening ? "#fff" : "#16202A"} className={listening ? "gb-pop" : ""} />
+            </button>
           </label>
           <button onClick={() => setScannerOpen(true)} className="gb-focus shrink-0 min-h-[50px] px-3.5 rounded-2xl flex items-center gap-2 text-white text-[14px] font-bold" style={{ background: "#E8761C" }} aria-label="Scanner avec la caméra">
-            <Camera size={19} color="#fff" /> Scanner
+            <ScanLine size={19} color="#fff" /> Scanner
           </button>
         </div>
-        <label className="flex items-center gap-2.5 min-h-[48px] pl-3.5 pr-1.5 rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
-          <Search size={17} className="opacity-50 shrink-0" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un produit" aria-label="Rechercher un produit" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" />
-          <button onClick={startVoiceSearch} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: listening ? "var(--danger)" : "#1F2A33" }} aria-label="Recherche vocale">
-            <Mic size={16} color="#fff" className={listening ? "gb-pop" : ""} />
-          </button>
-        </label>
-      </div>
+      </section>
 
       {scannerOpen && <CameraScanner onDetect={handleCameraDetect} onClose={() => setScannerOpen(false)} />}
 
-      {quickPicks.length > 0 && !query && (
-        <div className="px-4 mt-3.5">
-          <p className="text-[12px] font-bold uppercase tracking-wide opacity-70 mb-2 flex items-center gap-1.5"><Star size={13} color="var(--cap)" fill="var(--cap)" /> Favoris et populaires</p>
-          <div className="flex flex-wrap gap-2">
-            {quickPicks.slice(0, 6).map((p) => {
-              const n = qtyInCart(p.id);
-              return (
-                <button key={p.id} onClick={() => addToCart(p)} disabled={p.stock <= 0} className="gb-focus min-h-[42px] max-w-full rounded-xl px-3 flex items-center gap-2 disabled:opacity-40" style={{ background: n ? "#EAF6EF" : "var(--card)", border: `1px solid ${n ? "#1E8E50" : "var(--line)"}` }}>
-                  <CategoryIcon cat={p.category} categories={categories} size={15} />
-                  <span className="text-[13.5px] font-semibold text-left break-words">{p.name}</span>
-                  <span className="text-[12px] font-mono opacity-60 whitespace-nowrap">{fmt(p.price)}</span>
-                  {n > 0 && <span className="min-w-[22px] h-[22px] px-1.5 rounded-full text-[12px] font-bold text-white flex items-center justify-center" style={{ background: "#1E8E50" }}>×{n}</span>}
-                </button>
-              );
-            })}
+      {favorites.length > 0 && !query && (
+        <section className="px-4 mt-4 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex flex-col min-w-0">
+              <span className="font-display font-bold text-[17px]">Touches rapides</span>
+              <span className="text-[12.5px] opacity-60">{favOpen ? `Vos ${favorites.length} favoris` : `${favorites.length} favoris masqués`}</span>
+            </span>
+            <button onClick={toggleFav} aria-expanded={favOpen} aria-label={favOpen ? "Replier les touches rapides" : "Déplier les touches rapides"} className="gb-focus shrink-0 min-h-[40px] pl-3.5 pr-3 rounded-xl text-[13px] font-bold flex items-center gap-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              {favOpen ? "Replier" : "Déplier"}
+              <ChevronDown size={16} style={{ transform: favOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+            </button>
           </div>
-        </div>
+          {favOpen && (
+            <div className="grid grid-cols-3 gap-2 gb-slide-up">
+              {favorites.map((p) => {
+                const n = qtyInCart(p.id);
+                const out = p.stock <= 0;
+                return (
+                  <button key={p.id} onClick={() => addToCart(p)} disabled={out} aria-label={`Ajouter ${p.name}`} className="gb-focus relative min-w-0 min-h-[104px] p-2.5 pt-3 rounded-[18px] text-left text-white flex flex-col items-start justify-between gap-1.5 active:scale-[0.97] transition-transform disabled:opacity-45" style={{ background: catKey(p.category), boxShadow: n ? "0 0 0 3px var(--paper), 0 0 0 5px #1E8E50" : "0 6px 14px rgba(22,32,42,0.15)" }}>
+                    {n > 0 && <span className="absolute top-2 right-2 min-w-[24px] h-6 px-1.5 rounded-full text-[12px] font-bold flex items-center justify-center" style={{ background: "#fff", color: "#16202A" }}>×{n}</span>}
+                    <span className="opacity-90"><CategoryIcon cat={p.category} categories={[{ ...getCategory(categories, p.category), color: "#FFFFFF" }]} size={19} /></span>
+                    <span className="text-[14px] font-bold leading-tight break-words w-full">{p.name}</span>
+                    <span className="font-display font-bold text-[15.5px] whitespace-nowrap">{fmt(p.price)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
 
-      <div role="group" aria-label="Catégories" className="px-4 mt-3.5 flex flex-wrap gap-1.5">
-        {["all", ...categories.map((c) => c.id)].map((c) => (
-          <button key={c} onClick={() => setCat(c)} aria-pressed={cat === c} className="gb-focus min-h-[38px] px-3.5 rounded-full text-[13.5px] font-semibold flex items-center gap-1.5 transition-colors" style={chipStyle(cat === c)}>
-            {c !== "all" && <CategoryIcon cat={c} categories={categories} size={14} />}
-            {c === "all" ? "Tout" : getCategory(categories, c).label}
-          </button>
-        ))}
+      <div role="tablist" aria-label="Catégories" className="mx-4 mt-4 p-1.5 rounded-[18px] grid gap-1" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(58px, 1fr))", background: "var(--card)", border: "1px solid var(--line)" }}>
+        {["all", ...categories.map((c) => c.id)].map((c) => {
+          const on = cat === c;
+          return (
+            <button key={c} onClick={() => setCat(c)} role="tab" aria-selected={on} className="gb-focus min-w-0 min-h-[56px] px-0.5 py-1.5 rounded-[13px] flex flex-col items-center justify-center gap-1" style={on ? { background: "#1F2A33", color: "#fff" } : { color: c === "all" ? "var(--ink)" : catColor(c) }}>
+              {c === "all" ? <Layers size={18} /> : <CategoryIcon cat={c} categories={on ? [{ ...getCategory(categories, c), color: "#FFFFFF" }] : categories} size={18} />}
+              <span className="text-[10.5px] font-bold leading-tight text-center break-words w-full">{c === "all" ? "Tout" : getCategory(categories, c).label}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="px-4 mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-        {filtered.map((p) => {
+        {shown.map((p) => {
           const n = qtyInCart(p.id);
           const out = p.stock <= 0;
           const low = !out && p.stock <= p.minStock;
           const left = p.stock - n;
           const stockColor = out ? "#8A2419" : low ? "#6E3C00" : "#0F4F2B";
           const dotColor = out ? "#C2331F" : low ? "#E09A1A" : "#1E8E50";
+          const meta = getCategory(categories, p.category);
           return (
-            <button key={p.id} onClick={() => addToCart(p)} disabled={out} aria-label={`Ajouter ${p.name} au panier`} className="gb-focus min-w-0 min-h-[150px] text-left rounded-[18px] p-3 flex flex-col items-start gap-2 active:scale-[0.97] transition-transform disabled:opacity-60" style={n ? { background: "var(--card)", border: "2px solid #1E8E50", boxShadow: "0 6px 16px rgba(30,142,80,0.14)" } : out ? { background: "var(--paper-dim)", border: "1px solid var(--line)" } : { background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(22,32,42,0.05)" }}>
-              <span className="flex justify-between items-start w-full">
-                <span className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center" style={{ background: catTint(p.category) }}>
-                  {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={20} />}
+            <button key={p.id} onClick={() => addToCart(p)} disabled={out} aria-label={`Ajouter ${p.name} au panier`} className="gb-focus min-w-0 text-left rounded-[18px] overflow-hidden flex flex-col active:scale-[0.97] transition-transform disabled:opacity-55" style={{ background: "var(--card)", border: n ? "2px solid #1E8E50" : "1px solid var(--line)" }}>
+              <span className="relative w-full h-[72px] flex items-center justify-center overflow-hidden" style={{ background: catTint(p.category) }}>
+                {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={26} />}
+                <span className="absolute left-2 top-2 h-[22px] px-2 rounded-full text-[11px] font-bold flex items-center" style={{ background: "rgba(255,255,255,0.92)", color: catKey(p.category) }}>{meta.label}</span>
+                {n > 0 && <span className="absolute right-2 top-2 min-w-[26px] h-[26px] px-1.5 rounded-full text-white text-[12.5px] font-bold flex items-center justify-center" style={{ background: "#1E8E50" }}>×{n}</span>}
+              </span>
+              <span className="px-3 pt-2.5 pb-3 flex flex-col gap-1 w-full">
+                <span className="text-[15px] font-bold leading-tight break-words" style={{ color: "var(--ink)" }}>{p.name}</span>
+                <span className="flex items-center justify-between gap-1.5 w-full">
+                  <span className="font-display font-bold text-[16.5px] whitespace-nowrap" style={{ color: "var(--ink)" }}>{fmt(p.price)}</span>
+                  <span className="w-8 h-8 shrink-0 rounded-[10px] flex items-center justify-center" style={{ background: out ? "#C9CDD2" : "#1F2A33" }}><Plus size={16} color="#fff" /></span>
                 </span>
-                {n > 0 ? (
-                  <span className="min-w-[30px] h-[30px] px-2 rounded-full text-white font-display font-bold text-[14px] flex items-center justify-center" style={{ background: "#1E8E50" }}>×{n}</span>
-                ) : !out && (
-                  <span className="w-[30px] h-[30px] rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Plus size={16} /></span>
+                <span className="inline-flex items-center gap-1.5 text-[12px] font-bold" style={{ color: stockColor }}>
+                  <span className="w-[7px] h-[7px] rounded-full" style={{ background: dotColor }} />
+                  {out ? "Rupture" : left <= 0 ? "Tout au panier" : low ? `Plus que ${left}` : `${left} en stock`}
+                </span>
+                {p.bulkQty > 0 && p.bulkPrice > 0 && (
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full self-start" style={{ background: "var(--paper-dim)", color: "var(--glass)" }}>Lot de {p.bulkQty} = {fmt(p.bulkPrice)}</span>
                 )}
               </span>
-              <span className="text-[15px] font-bold leading-tight break-words w-full" style={{ color: "var(--ink)" }}>{p.name}</span>
-              <span className="flex items-baseline gap-1">
-                <span className="font-display font-bold text-[19px]" style={{ color: "var(--ink)" }}>{fmt(p.price)}</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-[12px] font-bold" style={{ color: stockColor }}>
-                <span className="w-[7px] h-[7px] rounded-full" style={{ background: dotColor }} />
-                {out ? "Rupture de stock" : left <= 0 ? "Tout est au panier" : `${left} en stock`}
-              </span>
-              {p.bulkQty > 0 && p.bulkPrice > 0 && (
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full" style={{ background: "var(--paper-dim)", color: "var(--glass)" }}>Lot de {p.bulkQty} = {fmt(p.bulkPrice)}</span>
-              )}
             </button>
           );
         })}
-        {filtered.length === 0 && (
+        {shown.length === 0 && (
           <div className="col-span-2 sm:col-span-3 lg:col-span-4 rounded-[18px] p-7 text-center flex flex-col gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
             <span className="text-[15px] font-bold">Aucun produit trouvé</span>
             <span className="text-[13px] opacity-60">Vérifiez le nom ou scannez le code-barres.</span>
@@ -2472,15 +2517,15 @@ function SellScreen({ shop, categories, products, sales, clients, onCreateClient
                 <span className="absolute -top-2 -right-2.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: "#fff", color: "#1E8E50" }}>{count}</span>
               </span>
               <span className="flex-1 min-w-0 flex flex-col items-start pl-1.5">
-                <span className="text-[12px] font-semibold" style={{ color: "#D6F2E1" }}>{count} article{count > 1 ? "s" : ""} · voir le panier</span>
+                <span className="text-[12px] font-semibold" style={{ color: "#D6F2E1" }}>{count} article{count > 1 ? "s" : ""}</span>
                 <span className="font-display font-bold text-[20px] leading-tight">{fmt(total)}</span>
               </span>
-              <span className="shrink-0 h-12 px-4 rounded-[14px] text-[15px] font-bold flex items-center gap-1.5" style={{ background: "#fff", color: "#0F4F2B" }}>Encaisser <ChevronRight size={16} /></span>
+              <span className="shrink-0 h-12 px-4 rounded-[14px] text-[15px] font-bold flex items-center gap-1.5 whitespace-nowrap" style={{ background: "#fff", color: "#0F4F2B" }}>Voir le panier <ChevronRight size={16} /></span>
             </button>
           ) : (
             <div className="min-h-[52px] px-4 py-2.5 rounded-[18px] flex items-center gap-2.5 text-[13.5px]" style={{ background: "var(--card)", border: "1px dashed var(--line)", color: "var(--ink)" }}>
               <ShoppingCart size={18} className="opacity-50 shrink-0" />
-              <span className="opacity-70">Touchez un produit ou scannez pour commencer la vente</span>
+              <span className="opacity-70">Touchez une touche rapide ou un produit pour commencer</span>
             </div>
           )}
         </div>
@@ -2953,9 +2998,8 @@ function SalesPdfPreview({ shop, sales, vendorFilter, onClose, pushToast }) {
   );
 }
 
-function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, pushToast, cashRegisterEntries, versements = [] }) {
+function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, pushToast }) {
   const fmt = useFmt();
-  const [cashDaysExpanded, setCashDaysExpanded] = useState(false);
   const [open, setOpen] = useState(null);
   const [pdfPreview, setPdfPreview] = useState(false);
   const [reprintSale, setReprintSale] = useState(null);
@@ -3019,29 +3063,6 @@ function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, 
     .reduce((sum, s) => sum + creditPaymentsOf(s).filter((p) => inRevenuePeriod(p.date)).reduce((s2, p) => s2 + p.amount, 0), 0);
   const revenueInPeriod = cashInPeriod + creditCollectedInPeriod;
   const PERIOD_LABELS = { all: "totale", today: "aujourd'hui", "7j": "sur 7 jours", "30j": "sur 30 jours", custom: "sur la plage" };
-  // Caisse jour par jour sur la période affichée. Le montant d'un jour est
-  // celui de la session ouverte ce jour-là, ou REPORTÉ depuis un jour
-  // précédent tant qu'aucun versement n'a été fait.
-  const cashTodayKey = todayCashDateKey(shop?.cashRegisterResetHour);
-  const cashRange = (() => {
-    const shiftKey = (n) => { const d = new Date(cashTodayKey + "T12:00:00"); d.setDate(d.getDate() - n); return cashDayKeyOf(d); };
-    if (periodFilter === "today") return [cashTodayKey, cashTodayKey];
-    if (periodFilter === "7j") return [shiftKey(6), cashTodayKey];
-    if (periodFilter === "30j") return [shiftKey(29), cashTodayKey];
-    if (periodFilter === "custom") {
-      const to = customTo && customTo < cashTodayKey ? customTo : cashTodayKey;
-      const from = customFrom || (() => { const d = new Date(to + "T12:00:00"); d.setDate(d.getDate() - 6); return cashDayKeyOf(d); })();
-      return [from <= to ? from : to, to];
-    }
-    const firstCash = sortedCashSessions(cashRegisterEntries, shop?.id)[0];
-    const firstKey = firstCash ? (firstCash.date || cashDayKeyOf(firstCash.timestamp)) : cashTodayKey;
-    return [firstKey, cashTodayKey];
-  })();
-  const cashDays = listCashDays(cashRange[0], cashRange[1])
-    .map((day) => ({ day, snap: cashSnapshotForDay(cashRegisterEntries, versements, shop?.id, day) }))
-    .filter((x) => x.snap);
-  const cashHeadline = cashDays[0]?.snap || null;
-  const cashDayLabel = (key) => new Date(key + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
   const periodLabel = PERIOD_LABELS[periodFilter] || "";
   return (
     <div className="px-4 pt-4 pb-28">
@@ -3068,10 +3089,9 @@ function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, 
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2 mb-2">
+      <div className="grid grid-cols-2 gap-2 mb-2">
         <StatCard icon={TrendingUp} label={`Recette ${periodLabel}`} value={fmt(revenueInPeriod)} dark compact />
         <StatCard icon={Receipt} label={`Ventes ${periodLabel}`} value={sorted.length} tintBg="#E6F1FB" tintFg="#185FA5" compact />
-        <StatCard icon={Banknote} label={cashRange[1] === cashTodayKey ? "Caisse actuelle" : `Caisse au ${cashDayLabel(cashRange[1])}`} value={fmt(cashHeadline?.amount ?? 0)} tintBg="#FAEEDA" tintFg="#854F0B" compact />
       </div>
       {(creditCollectedInPeriod > 0 || creditGivenUnpaidInPeriod > 0) && (
         <div className="flex flex-col gap-1 px-1 mb-4">
@@ -3086,41 +3106,6 @@ function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, 
               <span className="text-xs opacity-50">Nouveaux crédits accordés (non inclus)</span>
               <span className="font-mono text-xs font-semibold" style={{ color: "var(--danger)" }}>{fmt(creditGivenUnpaidInPeriod)}</span>
             </div>
-          )}
-        </div>
-      )}
-
-      {cashDays.length > 0 && (
-        <div className="rounded-2xl mb-4 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-          <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
-            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "#854F0B" }}><Banknote size={14} /> Caisse par jour</span>
-            <span className="text-[11px] opacity-50">{cashDays.length} jour{cashDays.length > 1 ? "s" : ""}</span>
-          </div>
-          {(cashDaysExpanded ? cashDays : cashDays.slice(0, 7)).map(({ day, snap }) => {
-            const versed = snap.versedOnOrBefore;
-            const status = versed
-              ? { label: "Versé", bg: "#EAF3DE", fg: "#27500A" }
-              : { label: "Non versé", bg: "#FAEEDA", fg: "#854F0B" };
-            const detail = snap.carried
-              ? `Reporté du ${cashDayLabel(snap.sessionDay)}${snap.setBy ? ` · saisi par ${snap.setBy}` : ""}`
-              : `Saisi${snap.setBy ? ` par ${snap.setBy}` : ""}${snap.session.timestamp ? ` à ${new Date(snap.session.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}`;
-            return (
-              <div key={day} className="flex items-center gap-3 px-3.5 py-2.5 border-t" style={{ borderColor: "var(--line)" }}>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold capitalize">{day === cashTodayKey ? "Aujourd'hui" : cashDayLabel(day)}</p>
-                  <p className="text-[11px] opacity-55 mt-0.5 break-words">{detail}{snap.sessionsThatDay.length > 1 ? ` · ${snap.sessionsThatDay.length} fonds ce jour` : ""}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className="font-mono font-bold text-sm">{fmt(snap.amount)}</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: status.bg, color: status.fg }}>{status.label}</span>
-                </div>
-              </div>
-            );
-          })}
-          {cashDays.length > 7 && (
-            <button onClick={() => setCashDaysExpanded((v) => !v)} className="gb-focus w-full text-xs font-semibold py-2.5 border-t" style={{ borderColor: "var(--line)", color: "#854F0B" }}>
-              {cashDaysExpanded ? "Réduire" : `Voir les ${cashDays.length} jours`}
-            </button>
           )}
         </div>
       )}
@@ -5981,6 +5966,159 @@ function toDateInput(d) {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
 }
 
+// ---------- Point de caisse : rapport (écran, ticket, PDF) ----------
+// Une session de caisse va de la saisie du fond jusqu'au versement. Toutes
+// les ventes en espèces et les crédits encaissés pendant cette période
+// s'ajoutent au fond, les dépenses se retirent : on obtient les espèces
+// attendues. Le Mobile Money est indiqué à part (il n'est pas dans le tiroir).
+function buildCashReport(session, { sales = [], expenses = [], versement = null, printedBy = "" } = {}) {
+  if (!session) return null;
+  const until = versement ? versement.date : new Date().toISOString();
+  const recap = computeCashSession(session, { sales, expenses, until });
+  return {
+    ...recap,
+    sessionId: session.id,
+    openedAt: session.timestamp || session.date,
+    openedBy: session.setBy || "",
+    until,
+    versement: versement ? { amount: Number(versement.amount) || 0, by: versement.by || "", receivedBy: versement.receivedBy || "", note: versement.note || "", date: versement.date } : null,
+    printedBy,
+  };
+}
+
+function CashReportModal({ shop, report, onClose, pushToast }) {
+  const fmt = useFmt();
+  const [busy, setBusy] = useState("");
+  if (!report) return null;
+  const closed = !!report.versement;
+  const gap = closed ? report.versement.amount - report.expected : 0;
+  const dt = (d) => new Date(d).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const plain = (v) => String(v).replace(/[\u00A0\u202F]/g, " ").replace(/\u2212/g, "-").replace(/\u2026/g, "...");
+  const rows = [
+    ["Fond de caisse", fmt(report.fund), null, `Saisi${report.openedBy ? ` par ${report.openedBy}` : ""}`],
+    [`Ventes en espèces`, `+ ${fmt(report.cashSales)}`, "#1E8E50", `${report.cashSalesCount} vente${report.cashSalesCount > 1 ? "s" : ""}`],
+    [`Crédits encaissés`, `+ ${fmt(report.creditsCollected)}`, "#1E8E50", `${report.creditsCount} règlement${report.creditsCount > 1 ? "s" : ""}`],
+    [`Dépenses`, `− ${fmt(report.expensesTotal)}`, "#B3261E", `${report.expensesCount} dépense${report.expensesCount > 1 ? "s" : ""}`],
+  ];
+  const text = [
+    `${shop?.name || ""} — ${closed ? "Clôture de caisse" : "Point de caisse"}`,
+    `Ouverte le ${dt(report.openedAt)}${report.openedBy ? ` par ${report.openedBy}` : ""}`,
+    `${closed ? "Versée le" : "Arrêtée le"} ${dt(report.until)}`,
+    "",
+    ...rows.map(([l, v, , sub]) => `${l} (${sub}) : ${v}`),
+    `Espèces attendues : ${fmt(report.expected)}`,
+    ...(closed ? [`Montant versé : ${fmt(report.versement.amount)}`, `Écart : ${gap > 0 ? "+" : ""}${fmt(gap)}`] : []),
+    `Mobile Money (hors caisse) : ${fmt(report.mobileSales)}`,
+  ].map(plain).join("\n");
+
+  const doPrint = async () => {
+    setBusy("print");
+    try { await printCashReport(report, shop, fmt); }
+    catch (e) { pushToast?.(e?.message || "Impression impossible", "error"); }
+    setBusy("");
+  };
+  const doPdf = async () => {
+    setBusy("pdf");
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const W = 595, L = 60, R = 535;
+      let y = 60;
+      doc.setFillColor(31, 42, 51); doc.rect(0, 0, W, 110, "F");
+      doc.setTextColor(255); doc.setFont("helvetica", "bold"); doc.setFontSize(20);
+      doc.text(plain(shop?.name || "GestiOne"), L, y);
+      doc.setFontSize(12); doc.setFont("helvetica", "normal");
+      doc.text(closed ? "Clôture de caisse" : "Point de caisse — caisse ouverte", L, y + 22);
+      doc.setFontSize(10);
+      doc.text(plain(`Ouverte le ${dt(report.openedAt)}${report.openedBy ? ` par ${report.openedBy}` : ""}`), R, y, { align: "right" });
+      doc.text(plain(`${closed ? "Versée le" : "Arrêtée le"} ${dt(report.until)}`), R, y + 16, { align: "right" });
+      y = 150;
+      doc.setTextColor(22, 32, 42);
+      rows.forEach(([l, v, color, sub]) => {
+        doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.text(l, L, y);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(91, 100, 112); doc.text(plain(sub), L, y + 14);
+        const c = color === "#1E8E50" ? [30, 142, 80] : color === "#B3261E" ? [179, 38, 30] : [22, 32, 42];
+        doc.setTextColor(...c); doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.text(plain(v), R, y + 4, { align: "right" });
+        doc.setTextColor(22, 32, 42);
+        doc.setDrawColor(230, 228, 221); doc.setLineWidth(0.8); doc.line(L, y + 26, R, y + 26);
+        y += 46;
+      });
+      doc.setFillColor(234, 246, 239); doc.roundedRect(L, y - 4, R - L, 48, 8, 8, "F");
+      doc.setTextColor(15, 79, 43); doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+      doc.text("ESPÈCES ATTENDUES EN CAISSE", L + 16, y + 26); doc.text(plain(fmt(report.expected)), R - 16, y + 26, { align: "right" });
+      y += 72;
+      doc.setTextColor(22, 32, 42);
+      if (closed) {
+        doc.setFontSize(12);
+        [["Montant versé", fmt(report.versement.amount)], ["Écart (versé − attendu)", `${gap > 0 ? "+" : ""}${fmt(gap)}`], ["Versé par", report.versement.by || "—"], ["Reçu par", report.versement.receivedBy || "—"]].forEach(([l, v]) => {
+          doc.setFont("helvetica", "normal"); doc.text(l, L, y); doc.setFont("helvetica", "bold"); doc.text(plain(v), R, y, { align: "right" }); y += 22;
+        });
+        if (report.versement.note) { doc.setFont("helvetica", "italic"); doc.setFontSize(10); doc.text(plain(`Note : ${report.versement.note}`), L, y); y += 20; }
+        y += 8;
+      }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(74, 82, 92);
+      doc.text(plain(`Mobile Money encaissé (hors caisse) — ${report.mobileSalesCount} vente${report.mobileSalesCount > 1 ? "s" : ""}`), L, y); doc.text(plain(fmt(report.mobileSales)), R, y, { align: "right" }); y += 20;
+      doc.text("Total encaissé sur la période", L, y); doc.text(plain(fmt(report.cashSales + report.creditsCollected + report.mobileSales)), R, y, { align: "right" }); y += 60;
+      doc.setDrawColor(150); doc.line(L, y, L + 180, y); doc.line(R - 180, y, R, y);
+      doc.setFontSize(9); doc.text("Signature du caissier", L, y + 14); doc.text("Signature du gérant", R, y + 14, { align: "right" });
+      doc.setFontSize(8); doc.setTextColor(140);
+      doc.text(plain(`Imprimé le ${new Date().toLocaleString("fr-FR")}${report.printedBy ? ` par ${report.printedBy}` : ""} · GestiOne`), W / 2, 810, { align: "center" });
+      await exportPdfDoc(`${closed ? "cloture" : "point"}_caisse_${new Date(report.until).toISOString().slice(0, 10)}.pdf`, doc);
+    } catch { pushToast?.("Impossible de générer le PDF", "error"); }
+    setBusy("");
+  };
+
+  return (
+    <div className="fixed inset-0 z-[97] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(24px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
+      <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%", paddingBottom: "max(18px, env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0">
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-bold uppercase tracking-wider opacity-60">{closed ? "Clôture de caisse" : "Point de caisse"}</p>
+            <p className="font-display font-bold text-[19px] leading-tight">{closed ? "Caisse versée" : "Caisse en cours"}</p>
+          </div>
+          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5">
+          <div className="rounded-[20px] p-4 mb-3" style={{ background: "#fff", color: "#16202A", border: "1px solid #E6E4DD", boxShadow: "0 1px 2px rgba(22,32,42,0.05)" }}>
+            <div className="text-center pb-3 mb-2" style={{ borderBottom: "1.5px dashed #D5D2C8" }}>
+              <p className="font-display font-bold text-[17px] break-words">{shop?.name}</p>
+              <p className="text-[12px] mt-1" style={{ color: "#5B6470" }}>Ouverte le {dt(report.openedAt)}{report.openedBy ? ` par ${report.openedBy}` : ""}</p>
+              <p className="text-[12px]" style={{ color: "#5B6470" }}>{closed ? "Versée" : "Arrêtée"} le {dt(report.until)}</p>
+            </div>
+            {rows.map(([l, v, color, sub]) => (
+              <div key={l} className="flex justify-between items-center gap-3 py-2.5" style={{ borderBottom: "1px solid #EFEDE7" }}>
+                <div className="min-w-0"><p className="text-[14.5px] font-semibold">{l}</p><p className="text-[12px]" style={{ color: "#5B6470" }}>{sub}</p></div>
+                <span className="font-mono font-bold text-[15px] whitespace-nowrap" style={{ color: color || "#16202A" }}>{v}</span>
+              </div>
+            ))}
+            <div className="flex justify-between items-center gap-3 mt-3 px-3.5 py-3 rounded-2xl" style={{ background: "#EAF6EF", color: "#0F4F2B" }}>
+              <span className="text-[13.5px] font-bold leading-tight">Espèces attendues en caisse</span>
+              <span className="font-display font-bold text-[20px] whitespace-nowrap">{fmt(report.expected)}</span>
+            </div>
+            {closed && (
+              <div className="mt-3 flex flex-col gap-1.5 text-[13.5px]">
+                <div className="flex justify-between"><span style={{ color: "#5B6470" }}>Montant versé</span><b className="font-mono">{fmt(report.versement.amount)}</b></div>
+                <div className="flex justify-between"><span style={{ color: "#5B6470" }}>Écart</span><b className="font-mono" style={{ color: gap === 0 ? "#1E8E50" : gap < 0 ? "#B3261E" : "#8A4B00" }}>{gap > 0 ? "+" : ""}{fmt(gap)}</b></div>
+                {(report.versement.by || report.versement.receivedBy) && <p className="text-[12px]" style={{ color: "#5B6470" }}>{report.versement.by ? `Versé par ${report.versement.by}` : ""}{report.versement.receivedBy ? ` · reçu par ${report.versement.receivedBy}` : ""}</p>}
+              </div>
+            )}
+            <div className="mt-3 pt-3 flex justify-between gap-3 text-[12.5px]" style={{ borderTop: "1.5px dashed #D5D2C8", color: "#4A525C" }}>
+              <span>Mobile Money, hors caisse ({report.mobileSalesCount})</span><span className="font-mono font-semibold whitespace-nowrap">{fmt(report.mobileSales)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="px-5 pt-2 grid grid-cols-3 gap-2 shrink-0">
+          {isPrinterFeatureAvailable() && (
+            <button onClick={doPrint} disabled={!!busy} className="gb-focus min-h-[52px] rounded-2xl text-white text-[13.5px] font-bold flex flex-col items-center justify-center gap-0.5 disabled:opacity-50" style={{ background: "#1F2A33" }}><Printer size={17} />{busy === "print" ? "…" : "Ticket"}</button>
+          )}
+          <button onClick={doPdf} disabled={!!busy} className="gb-focus min-h-[52px] rounded-2xl text-[13.5px] font-bold flex flex-col items-center justify-center gap-0.5 disabled:opacity-50" style={{ background: "#E6EEFA", color: "#173F70", gridColumn: isPrinterFeatureAvailable() ? "auto" : "span 2" }}><FileText size={17} />{busy === "pdf" ? "…" : "PDF"}</button>
+          <button onClick={() => shareText(closed ? "Clôture de caisse" : "Point de caisse", text).catch(() => {})} className="gb-focus min-h-[52px] rounded-2xl text-[13.5px] font-bold flex flex-col items-center justify-center gap-0.5" style={{ background: "#EAF6EF", color: "#0F4F2B" }}><Send size={17} />Partager</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries, versements, activeCashSession, onRecordVersement, author, pushToast }) {
   const fmt = useFmt();
   const shopId = shop?.id;
@@ -5994,6 +6132,7 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
   const [from, setFrom] = useState(toDateInput(new Date(Date.now() - 6 * MS_DAY)));
   const [to, setTo] = useState(today);
   const [openId, setOpenId] = useState(null);
+  const [cashReport, setCashReport] = useState(null);
 
   const live = activeCashSession ? computeCashSession(activeCashSession, { sales, expenses }) : null;
   const versedNum = Number(amount);
@@ -6002,8 +6141,13 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
   const submit = () => {
     if (amount === "" || isNaN(versedNum) || versedNum < 0) { setError("Indique un montant versé valide (0 ou plus)."); return; }
     if (!by.trim()) { setError("Indique qui fait le versement."); return; }
-    const ok = onRecordVersement?.({ amount: versedNum, by, receivedBy, note });
-    if (ok) { setFormOpen(false); setAmount(""); setNote(""); setError(""); }
+    const session = activeCashSession;
+    const v = onRecordVersement?.({ amount: versedNum, by, receivedBy, note });
+    if (v) {
+      setFormOpen(false); setAmount(""); setNote(""); setError("");
+      // Le versement clôture la caisse : on propose aussitôt d'imprimer la clôture.
+      if (typeof v === "object") setCashReport({ ...buildCashReport(session, { sales, expenses, versement: v, printedBy: author }), fund: Number(v.fund) || 0, cashSales: Number(v.cashSales) || 0, cashSalesCount: v.cashSalesCount || 0, creditsCollected: Number(v.creditsCollected) || 0, creditsCount: v.creditsCount || 0, expensesTotal: Number(v.expensesTotal) || 0, expensesCount: v.expensesCount || 0, mobileSales: Number(v.mobileSales) || 0, mobileSalesCount: v.mobileSalesCount || 0, expected: Number(v.expected) || 0 });
+    }
   };
 
   const fromT = from ? new Date(from + "T00:00:00").getTime() : -Infinity;
@@ -6058,9 +6202,14 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
               <div className="text-[11px] opacity-50 flex justify-between"><span>Mobile Money, hors caisse ({live.mobileSalesCount})</span><span className="font-mono">{fmt(live.mobileSales)}</span></div>
             </div>
             {!formOpen && (
-              <button onClick={() => { setFormOpen(true); setAmount(String(Math.max(0, live.expected))); setError(""); }} className="gb-focus w-full mt-3.5 rounded-xl py-3 text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}>
-                <Wallet size={16} /> Faire un versement
-              </button>
+              <div className="grid grid-cols-2 gap-2 mt-3.5">
+                <button onClick={() => setCashReport(buildCashReport(activeCashSession, { sales, expenses, printedBy: author }))} className="gb-focus min-h-[46px] rounded-xl text-sm font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}>
+                  <Printer size={16} /> Imprimer
+                </button>
+                <button onClick={() => { setFormOpen(true); setAmount(String(Math.max(0, live.expected))); setError(""); }} className="gb-focus min-h-[46px] rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}>
+                  <Wallet size={16} /> Versement
+                </button>
+              </div>
             )}
           </>
         ) : (
@@ -6123,6 +6272,43 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
         </div>
       </div>
 
+      {cashReport && <CashReportModal shop={shop} report={cashReport} onClose={() => setCashReport(null)} pushToast={pushToast} />}
+
+      {/* Caisse jour par jour sur la plage choisie */}
+      {(() => {
+        const days = listCashDays(from || today, to || today)
+          .map((day) => ({ day, snap: cashSnapshotForDay(cashRegisterEntries, versements, shopId, day) }))
+          .filter((x) => x.snap);
+        if (days.length === 0) return null;
+        const label = (k) => new Date(k + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+        return (
+          <div className="rounded-2xl mb-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
+              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "#854F0B" }}><Banknote size={14} /> Caisse par jour</span>
+              <span className="text-[11px] opacity-50">{days.length} jour{days.length > 1 ? "s" : ""}</span>
+            </div>
+            {days.map(({ day, snap }) => {
+              const versed = snap.versedOnOrBefore;
+              const detail = snap.carried
+                ? `Reporté du ${label(snap.sessionDay)}${snap.setBy ? ` · saisi par ${snap.setBy}` : ""}`
+                : `Saisi${snap.setBy ? ` par ${snap.setBy}` : ""}${snap.session.timestamp ? ` à ${new Date(snap.session.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}`;
+              return (
+                <div key={day} className="flex items-center gap-3 px-3.5 py-2.5 border-t" style={{ borderColor: "var(--line)" }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold capitalize">{day === today ? "Aujourd'hui" : label(day)}</p>
+                    <p className="text-[11px] opacity-55 mt-0.5 break-words">{detail}{snap.sessionsThatDay.length > 1 ? ` · ${snap.sessionsThatDay.length} fonds ce jour` : ""}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="font-mono font-bold text-sm">{fmt(snap.amount)}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={versed ? { background: "#EAF3DE", color: "#27500A" } : { background: "#FAEEDA", color: "#854F0B" }}>{versed ? "Versé" : "Non versé"}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Historique des versements */}
       <h3 className="font-display font-bold text-base mb-2">Historique des versements</h3>
       {inRange.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun versement sur cette période.</p>}
@@ -6149,6 +6335,7 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
                   <Line label="Mobile Money (hors caisse)" value={fmt(v.mobileSales || 0)} />
                   {v.note && <p className="text-[11px] opacity-60 mt-1">Note : {v.note}</p>}
                   {v.recordedBy && <p className="text-[11px] opacity-45">Enregistré par {v.recordedBy}</p>}
+                  <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const session = ownCashEntries(cashRegisterEntries, shopId).find((x) => x.id === v.sessionId) || { id: v.sessionId, amount: v.fund, timestamp: v.openedAt, setBy: v.openedBy }; setCashReport({ ...buildCashReport(session, { sales, expenses, versement: v, printedBy: author }), fund: Number(v.fund) || 0, cashSales: Number(v.cashSales) || 0, cashSalesCount: v.cashSalesCount || 0, creditsCollected: Number(v.creditsCollected) || 0, creditsCount: v.creditsCount || 0, expensesTotal: Number(v.expensesTotal) || 0, expensesCount: v.expensesCount || 0, mobileSales: Number(v.mobileSales) || 0, mobileSalesCount: v.mobileSalesCount || 0, expected: Number(v.expected) || 0 }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus mt-2 min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Printer size={15} /> Imprimer la clôture</span>
                 </div>
               )}
             </button>
@@ -6973,13 +7160,13 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
               </div>
 
               {digits ? (
-                <a href={`tel:${digits}`} aria-label={`Appeler ${s.name} au ${phoneDisplay}`} className="gb-focus flex items-center gap-3 min-h-[56px] p-2 rounded-2xl" style={{ background: "#EAF6EF", border: "1px solid #C6E6D2" }}>
-                  <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#1E8E50" }}><Phone size={18} color="#fff" /></span>
+                <a href={`tel:${digits}`} aria-label={`Appeler ${s.name} au ${phoneDisplay}`} className="gb-focus flex items-center gap-2.5 min-h-[56px] p-2 rounded-2xl" style={{ background: "#EAF6EF", border: "1px solid #C6E6D2" }}>
+                  <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#1E8E50" }}><Phone size={17} color="#fff" /></span>
                   <span className="flex-1 min-w-0 flex flex-col">
-                    <span className="text-[16px] font-bold break-all" style={{ color: "#0F4F2B", fontVariantNumeric: "tabular-nums" }}>{phoneDisplay}</span>
-                    <span className="text-[12px] font-semibold" style={{ color: "#256B43" }}>Toucher pour appeler</span>
+                    <span className="font-bold whitespace-nowrap overflow-hidden" style={{ color: "#0F4F2B", fontVariantNumeric: "tabular-nums", fontSize: "clamp(12.5px, 3.6vw, 15px)", letterSpacing: "-0.01em", textOverflow: "clip" }}>{phoneDisplay}</span>
+                    <span className="text-[11.5px] font-semibold whitespace-nowrap" style={{ color: "#256B43" }}>Toucher pour appeler</span>
                   </span>
-                  <span className="shrink-0 h-[34px] px-3 rounded-[10px] text-white text-[13px] font-bold flex items-center" style={{ background: "#1E8E50" }}>Appeler</span>
+                  <span className="shrink-0 h-[34px] px-2.5 rounded-[10px] text-white text-[12.5px] font-bold flex items-center" style={{ background: "#1E8E50" }}>Appeler</span>
                 </a>
               ) : (
                 <button onClick={() => { setEditing(s.id); setAdding(false); }} className="gb-focus min-h-[48px] rounded-2xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: "1.5px dashed var(--line)" }}><Phone size={16} /> Ajouter un numéro</button>
@@ -8311,7 +8498,7 @@ function SupportChatWidget({ shop }) {
   const faqItems = SUPPORT_FAQ.map((item, i) => ({ ...item, i })).filter((f) => !qn || f.q.toLowerCase().includes(qn) || (f.a || "supprimer suppression compte").toLowerCase().includes(qn));
   const faqGroups = [...new Set(faqItems.map((f) => f.group))];
   const fmtTime = (d) => { const t = d ? new Date(d) : null; return t && !isNaN(t) ? t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""; };
-  const inputCls = "gb-focus w-full rounded-xl px-3.5 text-[15px] border min-h-[46px]";
+  const inputCls = "gb-focus w-full rounded-xl px-3 text-[14.5px] border min-h-[42px]";
 
   return (
     <>
@@ -8323,31 +8510,32 @@ function SupportChatWidget({ shop }) {
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center no-print" style={{ padding: "max(40px, calc(env(safe-area-inset-top) + 16px)) max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left))" }}>
-          <div className="absolute inset-0" style={{ background: "rgba(22,32,42,0.55)" }} onClick={() => setOpen(false)} />
-          <div role="dialog" aria-label="Assistance GestiOne" className="relative w-full max-w-[400px] h-full max-h-[760px] rounded-[26px] overflow-hidden flex flex-col gb-pop" style={{ background: tab === "chat" ? "#EFEDE7" : "#F4F3EF", color: "#16202A", boxShadow: "0 24px 48px rgba(0,0,0,0.3)" }}>
-            <div className="px-4 pt-4 pb-3.5 flex flex-col gap-3.5 shrink-0" style={{ background: "#1F2A33" }}>
-              <div className="flex items-center gap-3">
-                <div className="relative w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "#2F6F5E" }}>
-                  <Headphones size={21} color="#fff" />
-                  <span className="absolute -right-0.5 -bottom-0.5 w-3 h-3 rounded-full border-2" style={{ background: "#5CC98A", borderColor: "#1F2A33" }} />
+        <div className="fixed inset-0 z-50 no-print" style={{ pointerEvents: "none" }}>
+          <div className="absolute inset-0" style={{ background: "rgba(22,32,42,0.18)", pointerEvents: "auto" }} onClick={() => setOpen(false)} />
+          <div role="dialog" aria-label="Assistance GestiOne" className="absolute rounded-[22px] overflow-hidden flex flex-col gb-pop" style={{ pointerEvents: "auto", right: "max(12px, env(safe-area-inset-right))", bottom: "calc(92px + env(safe-area-inset-bottom))", width: "min(320px, calc(100vw - 56px))", height: "min(580px, calc(100vh - 170px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))", background: tab === "chat" ? "#EFEDE7" : "#F4F3EF", color: "#16202A", boxShadow: "0 20px 44px rgba(22,32,42,0.32)", border: "1px solid rgba(22,32,42,0.08)" }}>
+            <div className="px-3.5 pt-3 pb-3 flex flex-col gap-2.5 shrink-0" style={{ background: "#1F2A33" }}>
+              <div className="flex items-center gap-2.5">
+                <div className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#2F6F5E" }}>
+                  <Headphones size={17} color="#fff" />
+                  <span className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full border-2" style={{ background: "#5CC98A", borderColor: "#1F2A33" }} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white font-bold text-[16px] leading-tight">Assistance GestiOne</p>
-                  <p className="text-[12.5px] mt-0.5" style={{ color: "#C9D1D8" }}>{sending ? "Envoi en cours…" : "En ligne · réponse en quelques minutes"}</p>
+                  <p className="text-white font-bold text-[14.5px] leading-tight truncate">Assistance GestiOne</p>
+                  <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "#C9D1D8" }}>{sending ? "Envoi en cours…" : "En ligne · réponse rapide"}</p>
                 </div>
-                <button onClick={() => setOpen(false)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Fermer l'assistance"><X size={18} color="#fff" /></button>
+                <button onClick={() => setOpen(false)} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Fermer l'assistance"><X size={17} color="#fff" /></button>
               </div>
               <div className="flex gap-1 p-1 rounded-xl" style={{ background: "rgba(255,255,255,0.08)" }}>
-                {[{ id: "faq", label: "Questions fréquentes" }, { id: "chat", label: "Discussion" }].map((t) => (
-                  <button key={t.id} onClick={() => setStage(t.id === "faq" ? "faq" : (started ? "thread" : "form"))} className="gb-focus flex-1 min-h-[38px] rounded-[9px] text-[13.5px] font-bold" style={{ background: tab === t.id ? "#fff" : "transparent", color: tab === t.id ? "#16202A" : "#C9D1D8" }}>{t.label}</button>
+                {[{ id: "faq", label: "Questions" }, { id: "chat", label: "Discussion" }].map((t) => (
+                  <button key={t.id} onClick={() => setStage(t.id === "faq" ? "faq" : (started ? "thread" : "form"))} className="gb-focus flex-1 min-h-[34px] rounded-[9px] text-[13px] font-bold whitespace-nowrap" style={{ background: tab === t.id ? "#fff" : "transparent", color: tab === t.id ? "#16202A" : "#C9D1D8" }}>{t.label}</button>
                 ))}
               </div>
             </div>
 
             {stage === "faq" && (
-              <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5 pt-3.5 pb-5 flex flex-col gap-3">
-                <label className="flex items-center gap-2.5 min-h-[46px] px-3.5 rounded-2xl border" style={{ background: "#fff", borderColor: "#DAD8D0" }}>
+              <>
+              <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3 pt-3 pb-4 flex flex-col gap-2.5">
+                <label className="flex items-center gap-2 min-h-[42px] px-3 rounded-xl border" style={{ background: "#fff", borderColor: "#DAD8D0" }}>
                   <Search size={17} color="#5B6470" />
                   <input value={faqQuery} onChange={(e) => setFaqQuery(e.target.value)} placeholder="Rechercher une question" aria-label="Rechercher dans la FAQ" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
                 </label>
@@ -8360,14 +8548,14 @@ function SupportChatWidget({ shop }) {
                         const isOpen = openFaq === f.i;
                         return (
                           <div key={f.i} style={{ borderTop: idx ? "1px solid #EFEDE7" : "none", background: isOpen && f.danger ? "#FFFCFB" : "transparent" }}>
-                            <button onClick={() => setOpenFaq(isOpen ? null : f.i)} aria-expanded={isOpen} className="gb-focus w-full min-h-[54px] px-3.5 py-3 flex items-center gap-3 text-left">
-                              <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: f.danger ? "#FBE4E1" : "#E6EEFA" }}>
-                                {f.danger ? <UserMinus size={17} color="#B3261E" /> : <HelpCircle size={17} color="#1D4E89" />}
+                            <button onClick={() => setOpenFaq(isOpen ? null : f.i)} aria-expanded={isOpen} className="gb-focus w-full min-h-[48px] px-3 py-2.5 flex items-center gap-2.5 text-left">
+                              <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: f.danger ? "#FBE4E1" : "#E6EEFA" }}>
+                                {f.danger ? <UserMinus size={15} color="#B3261E" /> : <HelpCircle size={15} color="#1D4E89" />}
                               </span>
-                              <span className="flex-1 min-w-0 text-[14.5px] font-bold leading-snug break-words">{f.q}</span>
+                              <span className="flex-1 min-w-0 text-[13.5px] font-bold leading-snug break-words">{f.q}</span>
                               <ChevronDown size={16} color="#5B6470" className="shrink-0" style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
                             </button>
-                            {isOpen && !f.danger && <p className="px-3.5 pb-3.5 pl-[62px] text-[13.5px] leading-relaxed" style={{ color: "#3D4550" }}>{f.a}</p>}
+                            {isOpen && !f.danger && <p className="px-3 pb-3 pl-[54px] text-[13px] leading-relaxed" style={{ color: "#3D4550" }}>{f.a}</p>}
                             {isOpen && f.danger && (
                               <div className="px-3.5 pb-4 flex flex-col gap-3">
                                 <p className="text-[13.5px] leading-relaxed" style={{ color: "#3D4550" }}>Le propriétaire (administrateur) peut demander à tout moment la suppression définitive de son entreprise et de toutes les données associées.</p>
@@ -8403,42 +8591,47 @@ function SupportChatWidget({ shop }) {
                     </div>
                   </section>
                 ))}
-                <div className="mt-1 p-3.5 rounded-2xl flex items-center gap-3" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
-                  <span className="flex-1 min-w-0 text-[13.5px] leading-snug" style={{ color: "#3D4550" }}>Vous ne trouvez pas la réponse ?</span>
-                  <button onClick={() => setStage(started ? "thread" : "form")} className="gb-focus shrink-0 min-h-[44px] px-3.5 rounded-xl text-white text-[14px] font-bold" style={{ background: "#1F2A33" }}>Écrire au support</button>
-                </div>
               </div>
+              <div className="shrink-0 px-3 py-2.5 flex items-center gap-2.5" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
+                <span className="flex-1 min-w-0 text-[12.5px] leading-snug whitespace-nowrap overflow-hidden" style={{ color: "#3D4550", textOverflow: "ellipsis" }}>Besoin d'aide ?</span>
+                <button onClick={() => setStage(started ? "thread" : "form")} className="gb-focus shrink-0 min-h-[40px] px-3 rounded-xl text-white text-[13px] font-bold flex items-center gap-1.5" style={{ background: "#1F2A33" }}><MessageCircle size={15} /> Écrire au support</button>
+              </div>
+              </>
             )}
 
             {stage === "form" && (
-              <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5 pt-4 pb-5 flex flex-col gap-3">
-                <div className="flex gap-2.5 p-3 rounded-2xl" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
-                  <Lock size={18} color="#2F6F5E" className="shrink-0" />
-                  <span className="text-[12.5px] leading-relaxed" style={{ color: "#3D4550" }}>Conversation privée avec l'équipe GestiOne. Ne partagez jamais votre code PIN.</span>
+              <>
+              <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3 pt-3 pb-4 flex flex-col gap-2.5">
+                <div className="flex gap-2 p-2.5 rounded-xl" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
+                  <Lock size={16} color="#2F6F5E" className="shrink-0" />
+                  <span className="text-[12px] leading-relaxed" style={{ color: "#3D4550" }}>Conversation privée avec l'équipe GestiOne. Ne partagez jamais votre code PIN.</span>
                 </div>
-                <p className="text-[13.5px] font-bold">Vos coordonnées</p>
+                <p className="text-[13px] font-bold">Vos coordonnées</p>
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Votre nom" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Numéro de téléphone" inputMode="tel" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
                 <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail (facultatif)" inputMode="email" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
-                <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Décrivez votre question ou votre problème…" rows={4} className="gb-focus w-full rounded-xl px-3.5 py-3 text-[15px] border resize-none" style={{ borderColor: "#DAD8D0", background: "#fff" }} />
-                <button onClick={submitContact} disabled={sending || !name.trim() || !phone.trim() || !message.trim()} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#1E8E50" }}>
-                  <Send size={17} /> {sending ? "Envoi…" : "Envoyer au support"}
+                <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Décrivez votre question ou votre problème…" rows={3} className="gb-focus w-full rounded-xl px-3 py-2.5 text-[14.5px] border resize-none" style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+              </div>
+              <div className="shrink-0 px-3 py-2.5" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
+                <button onClick={submitContact} disabled={sending || !name.trim() || !phone.trim() || !message.trim()} className="gb-focus w-full min-h-[46px] rounded-xl text-[14.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#1E8E50" }}>
+                  <Send size={16} /> {sending ? "Envoi…" : "Envoyer au support"}
                 </button>
               </div>
+              </>
             )}
 
             {stage === "thread" && (
               <>
                 <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5 pt-3.5 pb-2.5 flex flex-col gap-2.5">
                   <span className="self-center px-3 py-1 rounded-full text-[12px] font-bold" style={{ background: "#E2E0D9", color: "#3D4550" }}>Conversation</span>
-                  <div className="flex gap-2.5 p-3 rounded-2xl" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
-                    <Lock size={18} color="#2F6F5E" className="shrink-0" />
-                    <span className="text-[12.5px] leading-relaxed" style={{ color: "#3D4550" }}>Conversation privée entre votre entreprise et l'équipe GestiOne. Ne partagez jamais votre code PIN.</span>
+                  <div className="flex gap-2 p-2.5 rounded-xl" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>
+                    <Lock size={15} color="#2F6F5E" className="shrink-0" />
+                    <span className="text-[11.5px] leading-relaxed" style={{ color: "#3D4550" }}>Conversation privée avec l'équipe GestiOne. Ne partagez jamais votre code PIN.</span>
                   </div>
                   {thread.length === 0 && (
                     <div className="flex items-end gap-2 pr-9">
                       <span className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center shrink-0 text-white text-[12px] font-bold" style={{ background: "#2F6F5E" }}>G</span>
-                      <div className="px-3 py-2.5 rounded-2xl rounded-bl-[4px] text-[14.5px] leading-relaxed" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>Message bien reçu. Un conseiller vous répond ici même.</div>
+                      <div className="px-3 py-2 rounded-2xl rounded-bl-[4px] text-[13.5px] leading-relaxed" style={{ background: "#fff", border: "1px solid #E3E1DA" }}>Message bien reçu. Un conseiller vous répond ici même.</div>
                     </div>
                   )}
                   {thread.map((m, idx) => {
@@ -8449,7 +8642,7 @@ function SupportChatWidget({ shop }) {
                         {agent && <span className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center shrink-0 text-white text-[12px] font-bold" style={{ background: "#2F6F5E" }}>G</span>}
                         <div className={`min-w-0 max-w-full px-3 pt-2.5 pb-2 flex flex-col gap-1 ${agent ? "rounded-2xl rounded-bl-[4px]" : "rounded-2xl rounded-br-[4px]"}`} style={agent ? { background: "#fff", border: "1px solid #E3E1DA", color: "#16202A" } : { background: "#1F2A33", color: "#fff" }}>
                           {agent && (!prev || prev.sender !== "owner") && <span className="text-[12px] font-bold" style={{ color: "#2F6F5E" }}>Équipe GestiOne</span>}
-                          <span className="text-[14.5px] leading-relaxed whitespace-pre-line break-words">{m.body}</span>
+                          <span className="text-[13.5px] leading-relaxed whitespace-pre-line break-words">{m.body}</span>
                           <span className="self-end flex items-center gap-1 text-[11px] font-semibold" style={{ color: agent ? "#6B747E" : "#B7C0C8" }}>
                             {fmtTime(m.created_at)}
                             {!agent && <Check size={12} color="#7FD6C2" />}
@@ -8465,12 +8658,12 @@ function SupportChatWidget({ shop }) {
                   )}
                   <div ref={threadEndRef} />
                 </div>
-                <div className="px-3 pt-2 flex flex-wrap gap-1.5 shrink-0">
-                  {["Impression", "Licence", "Synchronisation", "Autre question"].map((q) => (
-                    <button key={q} onClick={() => sendMore(`J'ai une question : ${q.toLowerCase()}`)} disabled={sending} className="gb-focus min-h-[36px] px-3 rounded-full text-[13px] font-bold disabled:opacity-50" style={{ background: "#fff", border: "1px solid #C6D9D2", color: "#1F4F43" }}>{q}</button>
+                <div className="px-3 pt-2 pb-0.5 flex flex-wrap gap-1.5 shrink-0" style={{ background: "#EFEDE7" }}>
+                  {["Impression", "Licence", "Synchro"].map((q) => (
+                    <button key={q} onClick={() => sendMore(`J'ai une question : ${q.toLowerCase()}`)} disabled={sending} className="gb-focus shrink-0 min-h-[32px] px-2.5 rounded-full text-[12px] font-bold whitespace-nowrap disabled:opacity-50" style={{ background: "#fff", border: "1px solid #C6D9D2", color: "#1F4F43" }}>{q}</button>
                   ))}
                 </div>
-                <div className="px-3 pt-2.5 flex items-end gap-2 shrink-0" style={{ paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}>
+                <div className="px-3 pt-2 pb-2.5 flex items-end gap-2 shrink-0" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
                   <label className="flex-1 min-w-0 min-h-[46px] px-3.5 rounded-2xl border flex items-center" style={{ background: "#fff", borderColor: "#DAD8D0" }}>
                     <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMore()} placeholder="Écrivez votre message…" aria-label="Votre message" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
                   </label>
@@ -9458,7 +9651,7 @@ function AppInner() {
     announce("cash", `Versement de ${spokenAmount(formatMoney(versed, shop?.currency))} enregistré.`);
     setCashModalAfterVersement(true);
     setCashRegisterModalOpen(true);
-    return true;
+    return v;
   };
   const saveMovements = (next) => { setMovements(next); window.storage.set(`movements:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("movements"); setPendingSync(api.getPendingCount()); api.syncKeyNow("movements", next).then(() => setPendingSync(api.getPendingCount())); } };
   // Ouvre automatiquement la fenêtre fond de caisse dès l'entrée sur "Vendre"
@@ -10395,7 +10588,7 @@ function AppInner() {
                     )}
                     {view === "stock" && <StockScreen products={products} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} />}
                     {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} pushToast={pushToast} />}
-                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={handleDeleteSale} onUpdateSale={handleUpdateSale} pushToast={pushToast} cashRegisterEntries={cashRegisterEntries} versements={versements} />}
+                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={handleDeleteSale} onUpdateSale={handleUpdateSale} pushToast={pushToast} />}
                     {view === "expenses" && role === "vendeur" && (
                       <VendorExpensesScreen expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} vendorName={currentVendorName} />
                     )}
