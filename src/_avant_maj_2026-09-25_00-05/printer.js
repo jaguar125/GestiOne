@@ -200,11 +200,7 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
   push(ESC, 0x45, 0x01);
   line(twoCol(receipt.isProductAvoir ? "VALEUR EN AVOIR" : "TOTAL", fmt(receipt.total)));
   push(ESC, 0x45, 0x00);
-  if (receipt.avoirPaid > 0) {
-    line(twoCol("Paye avec avoir", "-" + fmt(receipt.avoirPaid)));
-    if (receipt.total - receipt.avoirPaid > 0) line(twoCol("Complement " + PAYMENT_LABEL(receipt.paymentMethod), fmt(receipt.total - receipt.avoirPaid)));
-    line(twoCol("Avoir restant", fmt(receipt.avoirLeft || 0)));
-  } else if (!receipt.isProductAvoir) line(PAYMENT_LABEL(receipt.paymentMethod));
+  if (!receipt.isProductAvoir) line(PAYMENT_LABEL(receipt.paymentMethod));
   if (receipt.amountReceived != null) {
     line(twoCol("Recu", fmt(receipt.amountReceived)));
     if (receipt.paymentMethod === "credit" && receipt.total > receipt.amountReceived) {

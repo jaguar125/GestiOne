@@ -7,7 +7,7 @@ import {
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
   Zap, Rocket, Crown, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
-  Phone, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3,
+  Phone, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import * as Tone from "tone";
@@ -332,11 +332,6 @@ function buildReceiptText(receipt, shop, fmt) {
   lines.push(`Total : ${fmt(receipt.total)}`);
   lines.push(`Paiement : ${PAYMENT_LABELS[receipt.paymentMethod]}`);
   if (receipt.paymentMethod === "credit" && receipt.clientName) lines.push(`Client : ${receipt.clientName}`);
-  if (receipt.avoirPaid > 0) {
-    lines.push(`Payé avec avoir : ${fmt(receipt.avoirPaid)}`);
-    if (receipt.total - receipt.avoirPaid > 0) lines.push(`Complément : ${fmt(receipt.total - receipt.avoirPaid)}`);
-    if (receipt.avoirLeft > 0) lines.push(`Avoir restant : ${fmt(receipt.avoirLeft)}`);
-  }
   if (receipt.amountReceived != null) {
     lines.push(`Montant reçu : ${fmt(receipt.amountReceived)}`);
     lines.push(`Monnaie rendue : ${fmt(receipt.changeDue)}`);
@@ -440,45 +435,6 @@ const RETURN_REASONS = ["Produit défectueux", "Erreur de vente", "Client a chan
 const RETURN_NO_RESTOCK_REASONS = ["Produit défectueux", "Produit périmé"];
 const REFUND_LABELS = { especes: "Espèces", mobile: "Mobile Money", avoir: "Avoir client", credit: "Déduit du crédit" };
 function saleReturnsOf(sale) { return Array.isArray(sale?.returns) ? sale.returns : []; }
-
-// Tout ce qui dépend d'une vente et doit disparaître avec elle : avoirs
-// monnaie / produit rattachés (saleId === vente), l'avoir monnaie regroupé
-// avec un avoir produit (saleId === avoir produit), le crédit porté par la
-// vente elle-même, les retours et documents émis. Sert à la fois à l'écran
-// de confirmation (ce qui va être supprimé) et à la suppression en cascade.
-function avoirRemaining(a) {
-  if (a.type === "monnaie") return Math.max(0, (Number(a.amount) || 0) - (a.redemptions || []).reduce((t, r) => t + (Number(r.amount) || 0), 0));
-  const taken = {};
-  (a.history || []).forEach((h) => (h.items || []).forEach((i) => { taken[i.productId] = (taken[i.productId] || 0) + i.qty; }));
-  return (a.items || []).reduce((t, i) => t + Math.max(0, i.qty - (taken[i.productId] || 0)), 0);
-}
-function saleDeletionImpact(sale, avoirs) {
-  if (!sale) return null;
-  const list = Array.isArray(avoirs) ? avoirs : [];
-  const direct = list.filter((a) => a.saleId && a.saleId === sale.id);
-  const directIds = new Set(direct.map((a) => a.id));
-  const grouped = list.filter((a) => a.saleId && directIds.has(a.saleId) && !directIds.has(a.id));
-  const linked = [...direct, ...grouped].map((a) => {
-    const remaining = avoirRemaining(a);
-    const started = a.type === "monnaie" ? (a.redemptions || []).length > 0 : (a.history || []).length > 0;
-    return { avoir: a, remaining, started, settled: !!a.settled };
-  });
-  const isCredit = sale.paymentMethod === "credit";
-  const paid = isCredit ? creditPaidSoFar(sale) : 0;
-  const credit = isCredit ? { total: Number(sale.total) || 0, paid, remaining: Math.max(0, (Number(sale.total) || 0) - paid), settled: !!sale.paid } : null;
-  // Avoir monnaie utilisé pour payer cette vente : il est recrédité.
-  const payAvoir = sale.avoirId ? list.find((a) => a.id === sale.avoirId) : null;
-  const restoredAmt = payAvoir ? (payAvoir.redemptions || []).filter((r) => r.saleId === sale.id).reduce((t, r) => t + (Number(r.amount) || 0), 0) : 0;
-  return {
-    restored: payAvoir && restoredAmt > 0 ? { avoir: payAvoir, amount: restoredAmt } : null,
-    credit,
-    avoirs: linked,
-    avoirIds: linked.map((l) => l.avoir.id),
-    returns: saleReturnsOf(sale).length,
-    invoices: Array.isArray(sale.invoices) ? sale.invoices.length : 0,
-    hasStarted: linked.some((l) => l.started) || (credit && credit.paid > 0),
-  };
-}
 function returnedAmountOf(sale) { return saleReturnsOf(sale).reduce((t, r) => t + (Number(r.amount) || 0), 0); }
 
 /* ---------- Fiche de stock (stock de départ, arrivages, ventes) ---------- */
@@ -812,13 +768,7 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
       else if (r.refundMode === "mobile") refundsMobile += Number(r.refund) || 0;
     });
     if (sale.paymentMethod === "especes" && inWindow(sale.date)) { cashSales += gross; cashSalesCount += 1; const v = V(sale.vendor); v.cash += gross; v.cashCount += 1; v.tickets += 1; }
-    else if (sale.paymentMethod === "mobile" && inWindow(sale.date)) {
-      // Part payée avec un avoir monnaie : cet argent est déjà dans le tiroir
-      // (monnaie non rendue lors d'un achat précédent) — il compte en espèces.
-      const avoirPart = Math.min(gross, Number(sale.avoirPaid) || 0);
-      mobileSales += gross - avoirPart; mobileSalesCount += 1; cashSales += avoirPart;
-      const v = V(sale.vendor); v.mobile += gross - avoirPart; v.cash += avoirPart; v.mobileCount += 1; v.tickets += 1;
-    }
+    else if (sale.paymentMethod === "mobile" && inWindow(sale.date)) { mobileSales += gross; mobileSalesCount += 1; const v = V(sale.vendor); v.mobile += gross; v.mobileCount += 1; v.tickets += 1; }
     else if (sale.paymentMethod === "credit") {
       if (inWindow(sale.date)) V(sale.vendor).tickets += 1;
       creditPaymentsOf(sale).forEach((pay) => {
@@ -1147,274 +1097,147 @@ const LICENSE_PLANS_PRICING = [
   { id: "lifetime", name: "Permanent", duration: "À vie", price: null, oldPrice: null, icon: "Infinity" },
 ];
 
-// ---------- Licence : offres, demande de commande, activation ----------
-// Aucun paiement n'a lieu dans l'application : le client envoie une demande,
-// l'équipe le recontacte, puis il saisit ici le code d'activation reçu.
-const LIC = { bg: "#F6F5F1", card: "#FFFFFF", line: "#E4E1D8", ink: "#12202B", mut: "#5F6B76", pri: "#0F6E56", pri2: "#0A5543", gold: "#C98A1B", ok: "#1E8E50", okBg: "#E7F5EC" };
-const LIC_FEATURES = [
-  { Icon: Zap, t: "Ventes illimitées", d: "Caisse tactile, scan, tickets" },
-  { Icon: Boxes, t: "Stock intelligent", d: "Prévisions, péremption, lots" },
-  { Icon: Users, t: "Équipe", d: "Vendeurs, codes, performance" },
-  { Icon: FileText, t: "Factures pro", d: "Proforma, bon de livraison, TVA" },
-  { Icon: Banknote, t: "Caisse et crédits", d: "Clôture, versements, retours" },
-  { Icon: Cloud, t: "Sauvegarde", d: "Chaque nuit, 30 jours gardés" },
-  { Icon: BarChart3, t: "Rapports", d: "Export Excel comptable" },
-  { Icon: ShieldCheck, t: "Sécurité", d: "Journal, verrouillage" },
-];
-const licFmt = (n) => Math.round(Number(n) || 0).toLocaleString("fr-FR").replace(/[  ]/g, " ");
-function licPlanInfo(p) {
-  const months = { "1m": 1, "3m": 3, "6m": 6, "12m": 12 }[p.id] || 1;
-  const monthly = LICENSE_PLANS_PRICING.find((x) => x.id === "1m")?.price || p.price;
-  const full = monthly * months;
-  const saving = Math.max(0, full - p.price);
-  return { months, perMonth: Math.round(p.price / months), full, saving, pct: full ? Math.round((saving / full) * 100) : 0 };
-}
-function LicPrimaryButton({ children, onClick, disabled, Icon = ChevronRight }) {
-  return (
-    <button onClick={onClick} disabled={disabled} className="gb-focus w-full min-h-[54px] rounded-[18px] text-white text-[15.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50" style={{ background: `linear-gradient(180deg, #13866A, ${LIC.pri2})`, boxShadow: "0 10px 24px rgba(15,110,86,0.28), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
-      {children}{Icon && <Icon size={18} strokeWidth={2.4} />}
-    </button>
-  );
-}
-
-function PricingScreen({ registeredAdmin, onClose, pushToast, shopName, license, onActivate, initialStep }) {
-  const plans = LICENSE_PLANS_PRICING.filter((p) => p.price);
-  const lifetime = LICENSE_PLANS_PRICING.find((p) => p.id === "lifetime");
-  const [planId, setPlanId] = useState(plans.find((p) => p.popular)?.id || plans[0].id);
-  const [step, setStep] = useState(initialStep || "offers"); // offers | order | sent | activate
-  const [orderPlan, setOrderPlan] = useState(null);
+function PricingScreen({ registeredAdmin, onClose, pushToast, shopName }) {
+  const [ordering, setOrdering] = useState(null); // plan sélectionné
   const [name, setName] = useState(registeredAdmin?.name || "");
   const [phone, setPhone] = useState(registeredAdmin?.phone || "");
   const [sending, setSending] = useState(false);
-  const [code, setCode] = useState("");
-  const [checking, setChecking] = useState(false);
-  const plan = plans.find((p) => p.id === planId) || plans[0];
-  const info = licPlanInfo(plan);
-  const endDate = new Date(Date.now() + ({ "1m": 30, "3m": 90, "6m": 180, "12m": 365 }[plan.id] || 30) * MS_DAY);
-  const isTrial = license && !license.lifetime && (license.planId === "trial" || !license.planId);
-  const daysLeft = license?.expiresAt ? Math.ceil((new Date(license.expiresAt) - Date.now()) / MS_DAY) : null;
+  const [sent, setSent] = useState(false);
 
-  const openOrder = (p) => { setOrderPlan(p); setStep("order"); };
   const submitOrder = async () => {
-    if (!name.trim() || !phone.trim()) { pushToast("Indiquez votre nom et votre téléphone", "error"); return; }
+    if (!name.trim() || !phone.trim()) { pushToast("Nom et téléphone requis", "error"); return; }
     setSending(true);
     try {
-      const label = orderPlan.price ? `${orderPlan.name} — ${orderPlan.duration} (${licFmt(orderPlan.price)} FCFA)` : `${orderPlan.name} — ${orderPlan.duration} (devis)`;
-      await api.supportSend({ name: name.trim(), phone: phone.trim(), email: registeredAdmin?.email || "", shopName, message: orderPlan.price ? `Je souhaite commander la licence : ${label}` : `Je souhaite un devis pour la licence : ${label}` });
-      setStep("sent");
+      const label = ordering.price ? `${ordering.name} — ${ordering.duration} (${ordering.price.toLocaleString("fr-FR")} FCFA)` : `${ordering.name} — ${ordering.duration}`;
+      await api.supportSend({ name: name.trim(), phone: phone.trim(), email: registeredAdmin?.email || "", message: `Je souhaite commander la licence : ${label}` });
+      setSent(true);
     } catch {
-      pushToast("Envoi impossible — vérifiez la connexion et réessayez", "error");
+      pushToast("Erreur d'envoi — vérifie ta connexion et réessaie", "error");
     } finally {
       setSending(false);
     }
   };
-  const submitCode = async () => {
-    if (code.length !== 12) { pushToast("Le code contient 12 chiffres", "error"); return; }
-    setChecking(true);
-    try {
-      const ok = await onActivate?.(code);
-      if (ok !== false) { setCode(""); onClose(); }
-    } finally { setChecking(false); }
-  };
 
-  const Header = ({ title, back }) => (
-    <div className="shrink-0 flex items-center gap-3 px-5" style={{ paddingTop: "max(44px, calc(env(safe-area-inset-top) + 12px))", paddingBottom: 10, background: LIC.bg }}>
-      {back ? (
-        <button onClick={back} className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: LIC.card, border: `1px solid ${LIC.line}` }} aria-label="Retour"><ChevronLeft size={19} color={LIC.ink} /></button>
-      ) : (
-        <div className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #1E8E50, #0F6E56)" }}><GestiOneIcon size={22} /></div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="text-[12px] truncate" style={{ color: LIC.mut }}>{shopName || "Entreprise"} · Administrateur</p>
-        <p className="font-display font-bold text-[16.5px] truncate" style={{ color: LIC.ink }}>{title}</p>
+  // En-tête réutilisé dans les deux écrans (liste des plans + formulaire de
+  // commande), pour que la page ressemble aux autres pages de l'app plutôt
+  // qu'à une fenêtre isolée. Juste le nom de l'entreprise et le bouton
+  // fermer — l'icône de recherche et la barre du bas étaient décoratives
+  // (rien derrière) et n'ont fait que semer la confusion.
+  const TopBar = () => (
+    <div className="flex items-center justify-between px-4 shrink-0" style={{ background: "var(--card)", borderBottom: "1px solid var(--line)", paddingTop: "max(14px, env(safe-area-inset-top))", paddingBottom: 14 }}>
+      <div>
+        <p className="font-display font-bold text-base leading-none">{shopName || "Entreprise"}</p>
+        <p className="text-[11px] opacity-50 mt-1">Administrateur</p>
       </div>
-      <button onClick={onClose} className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: LIC.card, border: `1px solid ${LIC.line}` }} aria-label="Fermer"><X size={18} color={LIC.ink} /></button>
+      <button onClick={onClose} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><X size={16} /></button>
     </div>
   );
-  const Footer = ({ children }) => (
-    <div className="shrink-0 px-5 pt-3" style={{ background: LIC.card, borderTop: `1px solid ${LIC.line}`, boxShadow: "0 -10px 30px rgba(18,32,43,0.08)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>{children}</div>
-  );
-  const shell = (children) => (
-    <div className="fixed inset-0 z-[70] flex flex-col text-left no-print" style={{ background: LIC.bg, color: LIC.ink }}>{children}</div>
-  );
 
-  // ---------- Demande envoyée ----------
-  if (step === "sent") {
-    return shell(<>
-      <Header title="Demande envoyée" />
-      <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-6 flex flex-col items-center justify-center text-center gap-4">
-        <div className="w-20 h-20 rounded-[26px] flex items-center justify-center gb-pop" style={{ background: LIC.okBg, border: "1px solid #BFE3CC" }}><Check size={36} color={LIC.ok} strokeWidth={2.6} /></div>
-        <p className="font-display font-bold text-[24px]">Merci, {name.trim().split(" ")[0] || "c'est noté"} !</p>
-        <p className="text-[14.5px] leading-relaxed max-w-[300px]" style={{ color: LIC.mut }}>Votre demande pour la licence <b style={{ color: LIC.ink }}>{orderPlan?.name} · {orderPlan?.duration}</b> est bien partie. Nous vous contactons très vite au <b style={{ color: LIC.ink }}>{phone}</b> pour vous remettre votre code.</p>
-      </div>
-      <Footer>
-        <div className="flex flex-col gap-2.5">
-          {onActivate && <LicPrimaryButton onClick={() => setStep("activate")} Icon={KeyRound}>J'ai reçu mon code</LicPrimaryButton>}
-          <button onClick={onClose} className="gb-focus w-full min-h-[48px] rounded-[16px] text-[14.5px] font-bold" style={{ background: LIC.card, border: `1px solid ${LIC.line}`, color: LIC.ink }}>Fermer</button>
-        </div>
-      </Footer>
-    </>);
-  }
-
-  // ---------- Activation d'un code ----------
-  if (step === "activate") {
-    const groups = [code.slice(0, 4), code.slice(4, 8), code.slice(8, 12)];
-    return shell(<>
-      <Header title="Activer ma licence" back={initialStep === "activate" ? null : () => setStep("offers")} />
-      <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5 pt-6 pb-4 flex flex-col gap-5">
-        <div className="flex flex-col items-center text-center gap-3">
-          <div className="w-[72px] h-[72px] rounded-[22px] flex items-center justify-center" style={{ background: LIC.okBg, border: "1px solid #BFE3CC" }}><KeyRound size={32} color={LIC.pri} /></div>
-          <p className="font-display font-bold text-[24px]">Entrez votre code</p>
-          <p className="text-[14px] leading-relaxed max-w-[300px]" style={{ color: LIC.mut }}>Reçu après la validation de votre commande. Il s'applique à tous les appareils de l'entreprise.</p>
-        </div>
-        <label className="relative block">
-          <div className="flex items-center gap-2" aria-hidden="true">
-            {groups.map((g, i) => (
-              <div key={i} className="flex items-center gap-2 flex-1 min-w-0">
-                <div className="flex-1 h-[58px] rounded-[15px] flex items-center justify-center font-display font-bold text-[20px] tracking-[3px]" style={{ background: LIC.card, border: (code.length >= i * 4 && code.length < (i + 1) * 4) || (i === 2 && code.length === 12) ? `1.5px solid ${LIC.pri}` : `1px solid ${LIC.line}`, color: LIC.ink }}>{g || <span style={{ color: "#C9C6BC" }}>0000</span>}</div>
-                {i < 2 && <span className="font-bold" style={{ color: "#B5BCC2" }}>–</span>}
+  if (ordering) {
+    return (
+      <div className="min-h-full flex flex-col" style={{ background: "var(--paper)" }}>
+        <TopBar />
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-10">
+          {sent ? (
+            <div className="text-center gb-slide-up">
+              <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: "#1CA857" }}>
+                <Check size={30} color="#fff" strokeWidth={2.5} />
               </div>
-            ))}
-          </div>
-          <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 12))} onKeyDown={(e) => e.key === "Enter" && submitCode()} inputMode="numeric" autoFocus aria-label="Code d'activation à 12 chiffres" className="absolute inset-0 w-full h-full opacity-0" />
-        </label>
-        <div className="rounded-[20px] px-4 py-3.5 flex flex-col gap-2.5" style={{ background: LIC.card, border: `1px solid ${LIC.line}` }}>
-          {["Vos données restent intactes", "Les vendeurs n'ont rien à faire", "Rappel 7 jours avant la fin"].map((t) => (
-            <div key={t} className="flex items-center gap-2.5 text-[13.5px]"><Check size={16} color={LIC.ok} strokeWidth={2.6} />{t}</div>
-          ))}
+              <h1 className="font-display font-bold text-xl mb-2">Demande envoyée !</h1>
+              <p className="opacity-60 text-sm max-w-[260px] mx-auto mb-6">L'administrateur te contactera très vite pour finaliser ton achat.</p>
+              <button onClick={onClose} className="gb-focus rounded-2xl py-3 px-6 font-semibold text-sm text-white" style={{ background: "var(--glass)" }}>Retour</button>
+            </div>
+          ) : (
+            <>
+              <div className="mb-6 text-center gb-slide-up">
+                <h1 className="font-display font-bold text-xl">{ordering.name}</h1>
+                <p className="opacity-60 text-sm mt-1">{ordering.duration}{ordering.price ? ` — ${ordering.price.toLocaleString("fr-FR")} FCFA` : ""}</p>
+              </div>
+              <div className="w-full max-w-xs flex flex-col gap-3">
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ton nom" className="gb-focus w-full rounded-2xl px-4 py-3.5 text-sm border outline-none" style={{ borderColor: "var(--line)" }} />
+                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Numéro de téléphone" className="gb-focus w-full rounded-2xl px-4 py-3.5 text-sm border outline-none" style={{ borderColor: "var(--line)" }} />
+                <button onClick={submitOrder} disabled={sending} className="gb-focus w-full rounded-2xl py-3 font-semibold text-sm text-white disabled:opacity-50" style={{ background: "linear-gradient(135deg, var(--cap), #C9770E)" }}>
+                  {sending ? "Envoi…" : "Envoyer la demande"}
+                </button>
+                <button onClick={() => setOrdering(null)} className="gb-focus text-xs underline self-center opacity-50">Retour aux tarifs</button>
+              </div>
+            </>
+          )}
         </div>
-        {step === "activate" && !initialStep && (
-          <button onClick={() => setStep("offers")} className="gb-focus self-center text-[13.5px] font-semibold" style={{ color: LIC.pri }}>Pas encore de code ? Voir les offres</button>
-        )}
       </div>
-      <Footer><LicPrimaryButton onClick={submitCode} disabled={checking || code.length !== 12} Icon={Check}>{checking ? "Vérification…" : "Activer"}</LicPrimaryButton></Footer>
-    </>);
+    );
   }
 
-  // ---------- Demande de commande ----------
-  if (step === "order" && orderPlan) {
-    const oi = orderPlan.price ? licPlanInfo(orderPlan) : null;
-    return shell(<>
-      <Header title={orderPlan.price ? "Commander une licence" : "Demander un devis"} back={() => setStep("offers")} />
-      <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5 pt-2 pb-4 flex flex-col gap-4">
-        <div className="rounded-[22px] p-px" style={{ background: "linear-gradient(160deg, #0F6E56, rgba(15,110,86,0.15) 45%, #C98A1B)", boxShadow: "0 14px 32px rgba(18,32,43,0.10)" }}>
-          <div className="rounded-[21px] p-4 flex items-center gap-3" style={{ background: LIC.card }}>
-            <div className="w-[46px] h-[46px] rounded-[14px] flex items-center justify-center shrink-0" style={{ background: orderPlan.price ? LIC.okBg : "#FBEFF5" }}>{orderPlan.price ? <Sparkles size={22} color={LIC.pri} /> : <Infinity size={22} color="#9B3A63" />}</div>
-            <div className="flex-1 min-w-0">
-              <p className="font-display font-bold text-[17px]">{orderPlan.name} · {orderPlan.duration}</p>
-              <p className="text-[12.5px]" style={{ color: LIC.mut }}>{oi ? (oi.months > 1 ? `Soit ${licFmt(oi.perMonth)} F par mois` : "Sans engagement") : "Un seul paiement, pour toujours"}</p>
-            </div>
-            <span className="font-display font-bold text-[18px] whitespace-nowrap">{orderPlan.price ? `${licFmt(orderPlan.price)} F` : "Sur devis"}</span>
-          </div>
+  return (
+    <div className="min-h-full flex flex-col" style={{ background: "var(--paper)" }}>
+      <TopBar />
+      <div className="flex-1 overflow-y-auto gb-scroll px-4 py-5">
+        <div className="flex items-center gap-2.5 mb-4">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "#FAEEDA" }}><Star size={17} color="#854F0B" /></div>
+          <h1 className="font-display font-bold text-lg">Nos licences</h1>
         </div>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[12.5px] font-semibold" style={{ color: LIC.mut }}>Votre nom</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom et prénom" className="gb-focus w-full h-[52px] rounded-[15px] px-4 text-[15.5px] outline-none" style={{ background: LIC.card, border: `1px solid ${LIC.line}`, color: LIC.ink }} />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[12.5px] font-semibold" style={{ color: LIC.mut }}>Téléphone ou WhatsApp</span>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Numéro pour vous joindre" inputMode="tel" className="gb-focus w-full h-[52px] rounded-[15px] px-4 text-[15.5px] outline-none" style={{ background: LIC.card, border: `1px solid ${LIC.line}`, color: LIC.ink }} />
-        </label>
-        <div className="rounded-[20px] p-4 flex flex-col gap-3.5" style={{ background: LIC.card, border: `1px solid ${LIC.line}` }}>
-          <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: LIC.mut }}>Comment ça se passe</p>
-          {[["Envoyez votre demande", "Un seul clic, depuis cette page."], ["Nous vous contactons", "Par téléphone ou WhatsApp pour finaliser."], ["Vous recevez votre code", "Il s'active ici, sur tous vos appareils."]].map(([t, d], i) => (
-            <div key={t} className="flex gap-3 items-start">
-              <span className="w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 font-display font-bold text-[13px]" style={{ background: i === 0 ? LIC.pri : LIC.okBg, color: i === 0 ? "#fff" : LIC.pri }}>{i + 1}</span>
-              <div className="min-w-0"><p className="text-[14.5px] font-bold">{t}</p><p className="text-[12.5px] leading-snug" style={{ color: LIC.mut }}>{d}</p></div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <Footer>
-        <LicPrimaryButton onClick={submitOrder} disabled={sending}>{sending ? "Envoi…" : "Envoyer ma demande"}</LicPrimaryButton>
-        <p className="text-[12px] text-center mt-2" style={{ color: LIC.mut }}>Aucun paiement dans l'application</p>
-      </Footer>
-    </>);
-  }
-
-  // ---------- Offres ----------
-  return shell(<>
-    <Header title="Licence GestiOne" />
-    <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5 pt-2 pb-5 flex flex-col gap-[18px]">
-      <div className="flex flex-col gap-2.5">
-        {isTrial && daysLeft !== null && (
-          <span className="self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12.5px] font-bold" style={{ background: daysLeft > 0 ? "#FFF4DE" : "#FBE4E1", border: `1px solid ${daysLeft > 0 ? "#F1D39A" : "#EBB3AA"}`, color: daysLeft > 0 ? "#8A5A08" : "#8A2419" }}>
-            <span className="w-[7px] h-[7px] rounded-full" style={{ background: daysLeft > 0 ? LIC.gold : "#B3261E" }} />
-            {daysLeft > 0 ? `Essai gratuit · ${daysLeft} jour${daysLeft > 1 ? "s" : ""} restant${daysLeft > 1 ? "s" : ""}` : "Essai gratuit terminé"}
-          </span>
-        )}
-        <p className="font-display font-bold text-[29px] leading-[1.12] tracking-tight">Passez à la version complète</p>
-        <p className="text-[14.5px] leading-relaxed" style={{ color: LIC.mut }}>Toutes les fonctions, sans limite. Vos ventes, votre stock et vos clients restent tels quels.</p>
-      </div>
-
-      <div role="radiogroup" aria-label="Durée de la licence" className="flex gap-1 p-1 rounded-[16px] mt-1" style={{ background: LIC.card, border: `1px solid ${LIC.line}` }}>
-        {plans.map((p) => {
-          const on = p.id === planId; const pi = licPlanInfo(p);
-          return (
-            <button key={p.id} role="radio" aria-checked={on} onClick={() => setPlanId(p.id)} className="gb-focus relative flex-1 min-w-0 rounded-[13px] pt-2.5 pb-2 text-center transition-colors" style={{ background: on ? LIC.ink : "transparent", color: on ? "#fff" : LIC.ink, boxShadow: on ? "0 4px 12px rgba(18,32,43,0.22)" : "none" }}>
-              {p.popular && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-1.5 py-px rounded-full text-[9.5px] font-extrabold text-white whitespace-nowrap" style={{ background: LIC.gold }}>POPULAIRE</span>}
-              <span className="block font-display font-bold text-[15px]">{p.duration}</span>
-              <span className="block text-[11px] font-bold mt-0.5" style={{ color: pi.pct ? (on ? "#7BD88F" : LIC.ok) : (on ? "#AAB4BD" : LIC.mut) }}>{pi.pct ? `−${pi.pct} %` : "mensuel"}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="rounded-[24px] p-px" style={{ background: "linear-gradient(160deg, #0F6E56, rgba(15,110,86,0.15) 45%, #C98A1B)", boxShadow: "0 18px 40px rgba(18,32,43,0.12)" }}>
-        <div key={plan.id} className="rounded-[23px] p-5 flex flex-col gap-3.5 gb-slide-up" style={{ background: LIC.card }}>
-          <div className="flex items-center justify-between gap-2.5">
-            <span className="font-display font-bold text-[18px]">{plan.name}</span>
-            {info.saving > 0 ? <span className="px-2.5 py-1 rounded-full text-[12px] font-bold whitespace-nowrap" style={{ background: LIC.okBg, color: LIC.ok }}>Vous économisez {licFmt(info.saving)} F</span> : <span className="px-2.5 py-1 rounded-full text-[12px] font-bold" style={{ background: "#F3F1EB", color: LIC.mut }}>Sans engagement</span>}
-          </div>
-          <div className="flex items-end gap-2 flex-wrap">
-            <span className="font-display font-bold text-[46px] leading-none tracking-tight">{licFmt(plan.price)}</span>
-            <span className="font-display font-bold text-[18px] pb-1">FCFA</span>
-            {info.saving > 0 && <span className="text-[13px] line-through pb-1.5 ml-1" style={{ color: "#9AA3AB" }}>{licFmt(info.full)}</span>}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {[info.months > 1 ? `${licFmt(info.perMonth)} F / mois` : "Renouvelable chaque mois", `Jusqu'au ${endDate.toLocaleDateString("fr-FR")}`, "Tous vos appareils"].map((t) => (
-              <span key={t} className="px-3 py-1.5 rounded-[11px] text-[12.5px]" style={{ background: "#F3F1EB" }}>{t}</span>
-            ))}
-          </div>
-          <LicPrimaryButton onClick={() => openOrder(plan)}>Choisir la formule {plan.name}</LicPrimaryButton>
-          <p className="text-[12px] text-center" style={{ color: LIC.mut }}>Sans engagement · aucun prélèvement automatique</p>
+        <div className="flex flex-col gap-3">
+          {LICENSE_PLANS_PRICING.map((p) => {
+            const PlanIcon = { Zap, Rocket, Crown, Building2, Infinity }[p.icon];
+            if (p.id === "lifetime") {
+              return (
+                <div key={p.id} className="rounded-2xl p-4" style={{ background: p.iconBg || "#FBEAF0", border: "1px solid #ED93B1" }}>
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--card)" }}><PlanIcon size={18} color="#993556" /></div>
+                    <div className="flex-1">
+                      <p className="font-display font-bold text-base" style={{ color: "#4B1528" }}>{p.name}</p>
+                      <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide mt-0.5" style={{ background: "#993556", color: "#fff" }}>{p.duration.toUpperCase()}</span>
+                    </div>
+                  </div>
+                  <p className="text-xs mb-3" style={{ color: "#993556" }}>Accès à vie — tarif sur demande</p>
+                  <button onClick={() => setOrdering(p)} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold text-white" style={{ background: "#993556" }}>
+                    Contacter l'administrateur
+                  </button>
+                </div>
+              );
+            }
+            return (
+              <div key={p.id} className="relative rounded-2xl p-4" style={{ background: p.popular ? "#E6F1FB" : p.iconBg, border: `${p.popular ? "2px" : "1px"} solid ${p.borderColor}` }}>
+                {p.popular && (
+                  <span className="absolute -top-2.5 left-4 text-[10px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: "var(--cap)", color: "var(--glass)" }}>Le plus choisi</span>
+                )}
+                <div className="flex items-center gap-2.5 mb-1 mt-0.5">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--card)" }}><PlanIcon size={18} color={p.iconColor} /></div>
+                  <div className="flex-1">
+                    <p className="font-display font-bold text-base" style={{ color: p.iconColor }}>{p.name}</p>
+                    <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide mt-0.5" style={{ background: p.popular ? p.iconColor : "var(--card)", color: p.popular ? "#fff" : p.iconColor }}>{p.duration.toUpperCase()}</span>
+                  </div>
+                </div>
+                <div className="flex items-baseline gap-2 mb-3 mt-2">
+                  <span className="font-mono font-bold text-lg" style={{ color: p.iconColor }}>{p.price.toLocaleString("fr-FR")} FCFA</span>
+                  <span className="font-mono text-xs opacity-40 line-through">{p.oldPrice.toLocaleString("fr-FR")} FCFA</span>
+                </div>
+                <button onClick={() => setOrdering(p)} className={`gb-focus w-full rounded-xl py-2.5 text-sm font-semibold ${p.popular ? "gb-pulse" : ""}`} style={p.popular ? { background: "linear-gradient(135deg, var(--cap), #C9770E)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>
+                  Commander
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
-
-      <div className="flex flex-col gap-3">
-        <p className="font-display font-bold text-[19px]">Tout est inclus</p>
-        <div className="grid grid-cols-2 gap-2.5">
-          {LIC_FEATURES.map(({ Icon, t, d }) => (
-            <div key={t} className="rounded-[18px] p-3.5 flex flex-col gap-2 min-w-0" style={{ background: LIC.card, border: `1px solid ${LIC.line}`, boxShadow: "0 2px 6px rgba(18,32,43,0.04)" }}>
-              <div className="w-[34px] h-[34px] rounded-[10px] flex items-center justify-center" style={{ background: LIC.okBg }}><Icon size={17} color={LIC.ok} /></div>
-              <p className="text-[14px] font-bold">{t}</p>
-              <p className="text-[12px] leading-snug" style={{ color: LIC.mut }}>{d}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {lifetime && (
-        <div className="rounded-[22px] p-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #FFF7FA, #FBEFF5)", border: "1px solid #EFCFDD" }}>
-          <div className="w-[46px] h-[46px] rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "#fff" }}><Infinity size={22} color="#9B3A63" /></div>
-          <div className="flex-1 min-w-0"><p className="font-display font-bold text-[16px]">Licence à vie</p><p className="text-[12.5px]" style={{ color: "#8A4D66" }}>Un seul paiement, pour toujours. Sur devis.</p></div>
-          <button onClick={() => openOrder(lifetime)} className="gb-focus px-3.5 py-2.5 rounded-[12px] text-[12.5px] font-bold text-white shrink-0" style={{ background: "#9B3A63" }}>Devis</button>
-        </div>
-      )}
-
-      {onActivate && (
-        <button onClick={() => setStep("activate")} className="gb-focus w-full flex items-center gap-3 px-4 py-[15px] rounded-[18px] text-left" style={{ background: LIC.card, border: "1px dashed #CFCABD" }}>
-          <KeyRound size={20} color={LIC.pri} /><span className="flex-1 text-[14.5px] font-semibold">J'ai déjà un code d'activation</span><ChevronRight size={18} color={LIC.mut} />
-        </button>
-      )}
     </div>
-    <Footer>
-      <div className="flex items-center gap-3.5">
-        <div className="min-w-0"><p className="text-[12px]" style={{ color: LIC.mut }}>{plan.name} · {plan.duration}</p><p className="font-display font-bold text-[20px] whitespace-nowrap">{licFmt(plan.price)} F</p></div>
-        <div className="flex-1"><LicPrimaryButton onClick={() => openOrder(plan)}>Continuer</LicPrimaryButton></div>
+  );
+}
+
+function RenewLicenseModal({ onActivate, onClose, pushToast }) {
+  return (
+    <div className="fixed inset-0 z-[85] flex items-center justify-center px-5 no-print">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-[340px] rounded-3xl p-6 gb-pop max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--glass)" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-bold text-lg text-white">Renouveler la licence</h2>
+          <button onClick={onClose} className="gb-focus p-1"><X size={20} color="#fff" /></button>
+        </div>
+        <p className="text-white/60 text-xs mb-4">Entrez un nouveau code d'activation pour prolonger votre accès.</p>
+        <ActivationCodeForm onActivate={(r) => { onActivate(r); onClose(); }} pushToast={pushToast} />
       </div>
-    </Footer>
-  </>);
+    </div>
+  );
 }
 
 // Écran plein écran affiché à la place de TOUT le reste de l'app (vente,
@@ -1439,14 +1262,9 @@ function LicenseLockedScreen({ role, shopName, onLogout, onActivate, pushToast }
           : "L'accès est suspendu en attendant que le propriétaire renouvelle la licence. Préviens-le si ce n'est pas déjà fait."}
       </p>
       {isOwner ? (
-        <div className="w-full max-w-xs flex flex-col gap-2.5">
-          <button onClick={() => setShowRenew("activate")} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "var(--cap)", color: "var(--glass)" }}>
-            <KeyRound size={16} /> J'ai un code d'activation
-          </button>
-          <button onClick={() => setShowRenew("offers")} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "rgba(255,255,255,0.12)" }}>
-            <ShoppingCart size={16} /> Commander une licence
-          </button>
-        </div>
+        <button onClick={() => setShowRenew(true)} className="gb-focus w-full max-w-xs rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "var(--cap)", color: "var(--glass)" }}>
+          <KeyRound size={16} /> Activer une licence
+        </button>
       ) : (
         <div className="w-full max-w-xs rounded-2xl py-3.5 px-4 text-xs font-medium" style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.6)" }}>
           Contacte le propriétaire de l'entreprise
@@ -1455,7 +1273,7 @@ function LicenseLockedScreen({ role, shopName, onLogout, onActivate, pushToast }
       {onLogout && (
         <button onClick={onLogout} className="gb-focus mt-6 text-white/40 text-xs underline">Se déconnecter</button>
       )}
-      {showRenew && <PricingScreen registeredAdmin={null} onClose={() => setShowRenew(false)} pushToast={pushToast} shopName={shopName} onActivate={onActivate} initialStep={showRenew} />}
+      {showRenew && <RenewLicenseModal onActivate={onActivate} onClose={() => setShowRenew(false)} pushToast={pushToast} />}
     </div>
   );
 }
@@ -1509,7 +1327,7 @@ function LegalScreen({ doc, onSwitch, onClose }) {
           <button onClick={onClose} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.12)" }}><X size={16} color="#fff" /></button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto gb-scroll px-5 py-5" style={{ paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="flex-1 overflow-y-auto gb-scroll px-5 py-5" style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
         {sections.map((s) => (
           <div key={s.title} className="mb-5">
             <h3 className="font-display font-bold text-sm mb-1.5">{s.title}</h3>
@@ -1953,7 +1771,7 @@ function PinPad({ accent, onSubmit }) {
 // seul l'utilisateur connecté peut le lever avec son propre code.
 function LockScreen({ userName, onUnlock, onSwitchUser }) {
   return (
-    <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center px-6 no-print" style={{ background: "#1F2A33", paddingTop: "max(40px, env(safe-area-inset-top))", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+    <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center px-6 no-print" style={{ background: "#1F2A33", paddingTop: "max(24px, env(safe-area-inset-top))", paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
       <div className="w-16 h-16 rounded-[22px] flex items-center justify-center mb-4" style={{ background: "rgba(255,255,255,0.1)" }}><Lock size={28} color="#fff" /></div>
       <p className="font-display font-bold text-[23px] text-white text-center">Session verrouillée</p>
       <p className="text-[14px] text-center mt-1.5 mb-7" style={{ color: "#B7C0C8" }}>Aucune activité depuis un moment.<br />{userName ? `${userName}, entrez votre code pour continuer.` : "Entrez votre code pour continuer."}</p>
@@ -1970,7 +1788,7 @@ function LockScreen({ userName, onUnlock, onSwitchUser }) {
 function AdminCodeModal({ label, onSubmit, onCancel }) {
   return (
     <div className="fixed inset-0 z-[250] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.6)" }} onClick={onCancel}>
-      <div className="w-full max-w-[420px] rounded-t-[26px] sm:rounded-[26px] px-6 pt-5 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[420px] rounded-t-[26px] sm:rounded-[26px] px-6 pt-5 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(24px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-5">
           <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "#FFF1D6" }}><ShieldCheck size={20} color="#8A4B00" /></div>
           <div className="flex-1 min-w-0">
@@ -2281,14 +2099,7 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
           <span className="text-[11px] font-semibold uppercase tracking-wide opacity-50">{receipt.isProductAvoir ? "Valeur en avoir" : "Total"}</span>
           <span className="font-display font-bold text-2xl" style={{ color: receipt.isProductAvoir ? "#534AB7" : "var(--glass)" }}>{fmt(receipt.total)}</span>
         </div>
-        {receipt.avoirPaid > 0 && (
-          <div className="rounded-xl p-3 mt-3" style={{ background: "#FAEEDA" }}>
-            <div className="flex justify-between text-[12px] font-bold" style={{ color: "#854F0B" }}><span className="flex items-center gap-1.5"><Coins size={13} /> Payé avec l'avoir</span><span className="font-mono">- {fmt(receipt.avoirPaid)}</span></div>
-            {receipt.total - receipt.avoirPaid > 0 && <div className="flex justify-between text-[11.5px] mt-1" style={{ color: "#854F0B" }}><span>Complément payé ({PAYMENT_LABELS[receipt.paymentMethod]})</span><span className="font-mono">{fmt(receipt.total - receipt.avoirPaid)}</span></div>}
-            <div className="flex justify-between text-[11.5px] mt-1" style={{ color: "#854F0B" }}><span>Avoir restant · {receipt.avoirClientName || "Client"}</span><span className="font-mono font-bold">{fmt(receipt.avoirLeft || 0)}</span></div>
-          </div>
-        )}
-        {!receipt.isProductAvoir && !(receipt.avoirPaid >= receipt.total) && (
+        {!receipt.isProductAvoir && (
           <div className="flex justify-between text-[11px] font-mono mt-2 opacity-60">
             <span>{PAYMENT_LABELS[receipt.paymentMethod]}</span>
             {receipt.paymentMethod === "credit" && <span>{receipt.clientName}</span>}
@@ -2343,7 +2154,7 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
         </div>
       </div>
 
-      <div className="px-5 pt-3 no-print" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="px-5 pt-3 no-print" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(18px, env(safe-area-inset-bottom))" }}>
         <div className="flex gap-2">
           <button onClick={onClose} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Fermer</button>
           <button onClick={handlePrintReceipt} disabled={printing} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold text-white flex items-center justify-center gap-1.5 disabled:opacity-60" style={{ background: "var(--glass)" }}>
@@ -2383,7 +2194,7 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
   );
 }
 
-function SellScreen({ shop, categories, products, sales, clients, avoirs, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash }) {
+function SellScreen({ shop, categories, products, sales, clients, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash }) {
   const fmt = useFmt();
   const [barcode, setBarcode] = useState("");
   const [query, setQuery] = useState("");
@@ -2396,8 +2207,6 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
   const [avoirMonnaie, setAvoirMonnaie] = useState(false);
   const [avoirProduit, setAvoirProduit] = useState(false);
   const [avoirClientName, setAvoirClientName] = useState("");
-  const [payAvoirId, setPayAvoirId] = useState(null);
-  const [avoirPickerOpen, setAvoirPickerOpen] = useState(false);
   const [clientFocusSignal, setClientFocusSignal] = useState(0);
   const [receipt, setReceipt] = useState(null);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -2527,32 +2336,12 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
   // - "Avoir produit" exige un montant reçu saisi en espèces, OU simplement
   //   le mode Mobile Money (le client a payé intégralement par mobile,
   //   seuls les produits restent à remettre plus tard).
-  // Paiement avec un avoir monnaie existant : l'avoir couvre tout ou partie
-  // du total ; le complément se paie en espèces ou Mobile Money ; ce qui
-  // reste sur l'avoir reste disponible pour un prochain achat.
-  const openMoneyAvoirs = (avoirs || []).filter((a) => a.type === "monnaie" && !a.settled && avoirRemaining(a) > 0).sort((a, b) => new Date(b.date) - new Date(a.date));
-  const payAvoir = payAvoirId ? openMoneyAvoirs.find((a) => a.id === payAvoirId) || null : null;
-  const payAvoirAvail = payAvoir ? avoirRemaining(payAvoir) : 0;
-  const payAvoirUsed = payAvoir ? Math.min(payAvoirAvail, total) : 0;
-  const due = Math.max(0, total - payAvoirUsed);
-  const payAvoirLeft = Math.max(0, payAvoirAvail - payAvoirUsed);
-  const avoirFit = payAvoir && due > 0 ? fitCartToBudget(cartItems, payAvoirAvail) : null;
-  const buyWithAvoirOnly = () => {
-    if (!avoirFit || avoirFit.kept.length === 0) return;
-    setCart(avoirFit.kept.map((l) => ({ id: l.id, qty: l.keptQty })));
-    setAmountReceived("");
-    pushToast(`Panier ajusté à l'avoir : ${avoirFit.count} article${avoirFit.count > 1 ? "s" : ""} pour ${fmt(avoirFit.total)}`, "ok");
-  };
-  const suggestedAvoir = !payAvoir && clientName.trim() ? openMoneyAvoirs.find((a) => (a.clientName || "").trim().toLowerCase() === clientName.trim().toLowerCase()) : null;
-  useEffect(() => { if (payAvoirId && !payAvoir) setPayAvoirId(null); }, [payAvoirId, payAvoir]);
-  useEffect(() => { if (payAvoir && payment === "credit") setPayment("especes"); }, [payAvoir, payment]);
-
-  const canAvoirMonnaie = payment === "especes" && amountReceived !== "" && Number(amountReceived) > (payAvoir ? due : total) && (!payAvoir || due > 0);
-  const canAvoirProduit = !payAvoir && (payment === "especes" ? amountReceived !== "" : payment === "mobile");
+  const canAvoirMonnaie = payment === "especes" && amountReceived !== "" && Number(amountReceived) > total;
+  const canAvoirProduit = payment === "especes" ? amountReceived !== "" : payment === "mobile";
   // Vente en espèces avec un montant reçu insuffisant : au lieu de bloquer,
   // on propose d'enregistrer automatiquement la différence en crédit client
   // (dès lors qu'un client est renseigné et qu'aucune puce avoir n'est active).
-  const cashShortfall = !payAvoir && payment === "especes" && amountReceived !== "" && Number(amountReceived) < total;
+  const cashShortfall = payment === "especes" && amountReceived !== "" && Number(amountReceived) < total;
 
   // Si les conditions ne sont plus réunies (changement de mode de paiement,
   // montant reçu effacé ou modifié), on désactive automatiquement la puce
@@ -2579,28 +2368,6 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
     // Le fond de caisse du jour doit être renseigné avant toute vente —
     // vérifié ici en tout premier, avant n'importe quelle autre validation.
     if (!hasCashToday) { onRequireCash?.(); return; }
-    if (payAvoir) {
-      // L'avoir ne couvre pas tout : le client DOIT compléter — le montant
-      // reçu est obligatoire et doit couvrir le complément.
-      if (due > 0 && amountReceived === "") { pushToast(`Saisissez le montant reçu : le client doit compléter ${fmt(due)}`, "error"); return; }
-      if (due > 0 && payment === "especes" && Number(amountReceived) < due) { pushToast(`Montant insuffisant : il manque ${fmt(due - Number(amountReceived))}`, "error"); return; }
-      if (due > 0 && payment === "mobile" && Math.round(Number(amountReceived)) !== Math.round(due)) { pushToast(`Le montant Mobile Money doit être exactement ${fmt(due)}`, "error"); return; }
-      const method = due > 0 ? payment : "especes";
-      const received = due > 0 && payment === "especes" && amountReceived !== "" ? Number(amountReceived) : null;
-      // Espèces au-delà du complément : par défaut la monnaie est rendue (et
-      // figure sur le reçu) ; si « Avoir monnaie » est activé, elle est mise
-      // en avoir pour le client au lieu d'être rendue.
-      const change = received != null ? Math.max(0, received - due) : 0;
-      const changeToAvoir = avoirMonnaie && change > 0 ? change : 0;
-      const changeClient = avoirClientName.trim() || payAvoir.clientName || clientName.trim() || "Client";
-      const sale = onCheckout(cartItems, total, method, clientId, clientName || payAvoir.clientName, received, undefined, { avoirId: payAvoir.id, amount: payAvoirUsed, changeToAvoir, changeClient });
-      playSound("sale", shop.soundsEnabled);
-      speak(due > 0 ? `Vente enregistrée. ${spokenAmount(fmt(payAvoirUsed))} payés avec l'avoir, ${spokenAmount(fmt(due))} en complément.` : `Vente payée avec l'avoir de ${payAvoir.clientName}.`, voiceOn(shop, "sale"));
-      setReceipt(sale);
-      setShowCart(false);
-      resetCheckoutFields();
-      return;
-    }
     if (payment === "credit" && !clientId) { pushToast("Sélectionnez ou ajoutez un client pour le crédit", "error"); setClientFocusSignal((n) => n + 1); return; }
     if (avoirMonnaie && !canAvoirMonnaie) { pushToast("Le montant reçu doit être supérieur au total pour l'avoir monnaie", "error"); return; }
     if (avoirProduit && !canAvoirProduit) { pushToast("Saisissez le montant reçu du client pour l'avoir produit", "error"); return; }
@@ -2692,8 +2459,6 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
     resetCheckoutFields();
   };
   const resetCheckoutFields = () => {
-    setPayAvoirId(null);
-    setAvoirPickerOpen(false);
     setPayment("especes");
     setClientName("");
     setClientId(null);
@@ -2871,7 +2636,7 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
       {showCart && (
         <div className="fixed inset-0 z-40 flex items-end no-print">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowCart(false)} />
-          <div className="relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+          <div className="relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col" style={{ background: "var(--card)", paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
             <div className="flex items-center justify-between gap-2 mb-3">
               <h2 className="font-display font-bold text-[20px]">Panier · {count} article{count > 1 ? "s" : ""}</h2>
               <div className="flex items-center gap-2 shrink-0">
@@ -2903,88 +2668,13 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
 
               {cartItems.length > 0 && (
                 <div className="pt-3">
-                {payAvoir ? (
-                  <div className="rounded-2xl p-3.5 mb-3 gb-slide-up" style={{ background: "#FFF6E6", border: "1.5px solid #F2C77A" }}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "#FAE3B8" }}><Coins size={19} color="#854F0B" /></div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11.5px] font-semibold" style={{ color: "#9A6A1E" }}>Payé avec l'avoir de</p>
-                        <p className="text-[15px] font-bold truncate" style={{ color: "#5A3500" }}>{payAvoir.clientName || "Client"}</p>
-                      </div>
-                      <button onClick={() => setPayAvoirId(null)} className="gb-focus min-h-[36px] px-3 rounded-xl text-[12.5px] font-bold" style={{ background: "#fff", color: "#854F0B", border: "1px solid #F2C77A" }}>Retirer</button>
-                    </div>
-                    <div className="mt-3 rounded-xl p-2.5 flex flex-col gap-1.5" style={{ background: "#fff" }}>
-                      <div className="flex justify-between text-[12.5px]"><span style={{ color: "#66707A" }}>Avoir disponible</span><span className="font-mono font-semibold">{fmt(payAvoirAvail)}</span></div>
-                      <div className="flex justify-between text-[12.5px]"><span style={{ color: "#66707A" }}>Utilisé pour cet achat</span><span className="font-mono font-bold" style={{ color: "#854F0B" }}>- {fmt(payAvoirUsed)}</span></div>
-                      <div className="flex justify-between text-[12.5px] pt-1.5" style={{ borderTop: "1px dashed #EADFC8" }}><span style={{ color: "#66707A" }}>Reste sur l'avoir</span><span className="font-mono font-bold" style={{ color: payAvoirLeft > 0 ? "#1E7A46" : "#66707A" }}>{fmt(payAvoirLeft)}</span></div>
-                    </div>
-                    {due > 0 ? (
-                      <>
-                        <p className="text-[11.5px] font-bold uppercase tracking-wide mt-3 mb-1.5" style={{ color: "#9A6A1E" }}>Articles et avoir</p>
-                        <div className="rounded-xl overflow-hidden" style={{ background: "#fff" }}>
-                          {avoirFit.lines.map((l, idx) => {
-                            const full = l.keptQty === l.qty, none = l.keptQty === 0;
-                            return (
-                              <div key={l.id} className="flex items-center gap-2 px-2.5 py-2" style={{ borderTop: idx ? "1px solid #F1E8D6" : "none" }}>
-                                <span className="flex-1 min-w-0 text-[12.5px] font-semibold truncate">{l.qty} × {l.name}</span>
-                                <span className="font-mono text-[11.5px] opacity-60 shrink-0">{fmt(l.fullCost)}</span>
-                                <span className="shrink-0 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={full ? { background: "#E6F4EC", color: "#1E7A46" } : none ? { background: "#FCEBEA", color: "#B3261E" } : { background: "#FFF1D6", color: "#9A5B00" }}>{full ? "Couvert" : none ? "À compléter" : `${l.keptQty}/${l.qty} couvert${l.keptQty > 1 ? "s" : ""}`}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <p className="text-[12.5px] font-bold mt-3 mb-1.5" style={{ color: "#5A3500" }}>L'avoir ne suffit pas. Le client choisit :</p>
-                        <div className="flex flex-col gap-2">
-                          <div className="rounded-xl p-3" style={{ background: "#1F2A33", color: "#fff" }}>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[13px] font-bold flex items-center gap-1.5"><Banknote size={15} /> Compléter la différence</span>
-                              <span className="font-display font-bold text-[17px]">{fmt(due)}</span>
-                            </div>
-                            <p className="text-[11.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>Il achète tout le panier : saisissez ci-dessous le montant qu'il donne.</p>
-                          </div>
-                          <button onClick={buyWithAvoirOnly} disabled={avoirFit.kept.length === 0} className="gb-focus w-full rounded-xl p-3 text-left disabled:opacity-50" style={{ background: "#fff", border: "1.5px solid #F2C77A" }}>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "#5A3500" }}><Coins size={15} color="#854F0B" /> Acheter seulement avec l'avoir</span>
-                              {avoirFit.kept.length > 0 && <ChevronRight size={16} color="#854F0B" />}
-                            </div>
-                            <p className="text-[11.5px] mt-0.5" style={{ color: "#9A6A1E" }}>
-                              {avoirFit.kept.length === 0
-                                ? "L'avoir ne suffit pour aucun article du panier — le client doit compléter."
-                                : `Garde ${avoirFit.count} article${avoirFit.count > 1 ? "s" : ""} (${avoirFit.kept.map((l) => `${l.keptQty} × ${l.name}`).join(", ")}) pour ${fmt(avoirFit.total)} — sans rien payer.`}
-                            </p>
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="mt-2.5 rounded-xl px-3 py-2.5 flex items-center gap-2" style={{ background: "#E6F4EC", color: "#1E7A46" }}>
-                        <Check size={16} strokeWidth={2.6} /><span className="text-[12.5px] font-bold">Réglé entièrement par l'avoir — rien à encaisser</span>
-                      </div>
-                    )}
-                  </div>
-                ) : openMoneyAvoirs.length > 0 && (
-                  suggestedAvoir ? (
-                    <button onClick={() => setPayAvoirId(suggestedAvoir.id)} className="gb-focus w-full rounded-2xl p-3 mb-3 flex items-center gap-3 text-left" style={{ background: "#FFF6E6", border: "1.5px dashed #F2C77A" }}>
-                      <div className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "#FAE3B8" }}><Coins size={17} color="#854F0B" /></div>
-                      <div className="flex-1 min-w-0"><p className="text-[13px] font-bold" style={{ color: "#5A3500" }}>{suggestedAvoir.clientName} a {fmt(avoirRemaining(suggestedAvoir))} d'avoir</p><p className="text-[11.5px]" style={{ color: "#9A6A1E" }}>Touchez pour l'utiliser sur cet achat</p></div>
-                      <ChevronRight size={17} color="#854F0B" />
-                    </button>
-                  ) : (
-                    <button onClick={() => setAvoirPickerOpen(true)} className="gb-focus w-full min-h-[48px] rounded-2xl px-3 mb-3 flex items-center gap-2.5 text-left" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-                      <Coins size={17} color="#854F0B" />
-                      <span className="flex-1 text-[13.5px] font-semibold">Payer avec un avoir monnaie</span>
-                      <span className="text-[11.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#FAEEDA", color: "#854F0B" }}>{openMoneyAvoirs.length}</span>
-                      <ChevronRight size={16} className="opacity-50" />
-                    </button>
-                  )
-                )}
-                {due > 0 && (<>
-                <p className="text-xs font-semibold opacity-60 mb-2">{payAvoir ? "Payer le complément par" : "Mode de paiement"}</p>
-                <div className={`grid ${payAvoir ? "grid-cols-2" : "grid-cols-3"} gap-2 mb-3`}>
-                  {PAYMENT_METHODS.filter((m) => !payAvoir || m.id !== "credit").map((m) => {
+                <p className="text-xs font-semibold opacity-60 mb-2">Mode de paiement</p>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {PAYMENT_METHODS.map((m) => {
                     const on = payment === m.id;
                     const Icon = m.id === "especes" ? Banknote : m.id === "mobile" ? Smartphone : UserPlus;
                     return (
-                      <button key={m.id} onClick={() => { setPayment(m.id); if (m.id !== "especes" || payAvoir) setAmountReceived(""); }} aria-pressed={on} className="gb-focus min-w-0 min-h-[64px] px-1 py-2 rounded-2xl text-[12.5px] font-bold flex flex-col items-center justify-center gap-1.5 text-center transition-colors" style={on ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>
+                      <button key={m.id} onClick={() => { setPayment(m.id); if (m.id !== "especes") setAmountReceived(""); }} aria-pressed={on} className="gb-focus min-w-0 min-h-[64px] px-1 py-2 rounded-2xl text-[12.5px] font-bold flex flex-col items-center justify-center gap-1.5 text-center transition-colors" style={on ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>
                         <Icon size={20} />{m.label}
                       </button>
                     );
@@ -2992,10 +2682,10 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
                 </div>
                 {payment === "especes" && (
                   <div className="mb-3 gb-slide-up">
-                    <p className="text-xs font-semibold mb-2" style={payAvoir ? { color: "#B3261E" } : { opacity: 0.6 }}>{payAvoir ? `Montant reçu du client (obligatoire · au moins ${fmt(due)})` : "Montant reçu du client (optionnel)"}</p>
-                    {due > 0 && (
+                    <p className="text-xs font-semibold opacity-60 mb-2">Montant reçu du client (optionnel)</p>
+                    {total > 0 && (
                       <div className="grid grid-cols-3 gap-1.5 mb-2">
-                        {[...new Set([due, ...[500, 1000, 2000, 5000, 10000].map((step) => Math.ceil(due / step) * step)])].slice(0, 6).map((v, idx) => (
+                        {[...new Set([total, ...[500, 1000, 2000, 5000, 10000].map((step) => Math.ceil(total / step) * step)])].slice(0, 6).map((v, idx) => (
                           <button key={v} onClick={() => setAmountReceived(String(v))} className="gb-focus min-w-0 min-h-[42px] px-1 rounded-xl text-[13px] font-bold" style={Number(amountReceived) === v ? { background: "#1E8E50", color: "#fff", border: "1px solid #1E8E50" } : { background: "var(--paper-dim)", color: "var(--ink)", border: "1px solid var(--line)" }}>{idx === 0 ? "Compte juste" : fmt(v)}</button>
                         ))}
                       </div>
@@ -3005,53 +2695,32 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
                       inputMode="decimal"
                       value={amountReceived}
                       onChange={(e) => setAmountReceived(e.target.value)}
-                      placeholder={`${fmt(due)}`}
+                      placeholder={`${fmt(total)}`}
                       className="gb-focus w-full rounded-xl px-3 py-2.5 text-sm border font-mono mb-2"
                       style={{ borderColor: "var(--line)" }}
                     />
                     {amountReceived !== "" && (
-                      Number(amountReceived) >= due ? (
+                      Number(amountReceived) >= total ? (
                         <div className="rounded-xl px-3 py-2.5 flex items-center justify-between" style={{ background: "#E7F7EE" }}>
-                          <span className="text-xs font-semibold" style={{ color: "#1CA857" }}>{avoirMonnaie ? "Mise en avoir monnaie" : "Monnaie à rendre"}</span>
-                          <span className="font-mono font-bold text-sm" style={{ color: "#1CA857" }}>{fmt(Number(amountReceived) - due)}</span>
+                          <span className="text-xs font-semibold" style={{ color: "#1CA857" }}>Monnaie à rendre</span>
+                          <span className="font-mono font-bold text-sm" style={{ color: "#1CA857" }}>{fmt(Number(amountReceived) - total)}</span>
                         </div>
                       ) : (
                         <div className="rounded-xl px-3 py-2.5" style={{ background: "#FCEBE8" }}>
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-semibold" style={{ color: "var(--danger)" }}>Montant insuffisant</span>
-                            <span className="font-mono font-bold text-sm" style={{ color: "var(--danger)" }}>- {fmt(due - Number(amountReceived))}</span>
+                            <span className="font-mono font-bold text-sm" style={{ color: "var(--danger)" }}>- {fmt(total - Number(amountReceived))}</span>
                           </div>
-                          <p className="text-[10px] mt-1" style={{ color: "var(--danger)" }}>{payAvoir ? "Le complément doit être payé en entier." : "Sera enregistré en crédit client pour la différence — indiquez le nom du client ci-dessous."}</p>
+                          <p className="text-[10px] mt-1" style={{ color: "var(--danger)" }}>Sera enregistré en crédit client pour la différence — indiquez le nom du client ci-dessous.</p>
                         </div>
                       )
                     )}
                   </div>
                 )}
-                {payAvoir && payment === "mobile" && (
-                  <div className="mb-3 gb-slide-up">
-                    <p className="text-xs font-semibold mb-2" style={{ color: "#B3261E" }}>Montant reçu par Mobile Money (obligatoire · {fmt(due)})</p>
-                    <div className="flex gap-2">
-                      <input type="number" inputMode="decimal" value={amountReceived} onChange={(e) => setAmountReceived(e.target.value)} placeholder={`${fmt(due)}`} className="gb-focus flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm border font-mono" style={{ borderColor: amountReceived !== "" && Math.round(Number(amountReceived)) !== Math.round(due) ? "#E7A29B" : "var(--line)" }} />
-                      <button onClick={() => setAmountReceived(String(due))} className="gb-focus px-3 rounded-xl text-[12.5px] font-bold shrink-0" style={Number(amountReceived) === due ? { background: "#1E8E50", color: "#fff" } : { background: "var(--paper-dim)", border: "1px solid var(--line)" }}>Compte juste</button>
-                    </div>
-                  </div>
-                )}
-                </>)}
                 <p className="text-xs font-semibold opacity-60 mb-2">Client {(payment === "credit" || cashShortfall) ? "(requis)" : "(optionnel)"}</p>
                 <ClientPicker clients={clients} value={clientId} onChange={(id, name) => { setClientId(id); setClientName(name); }} onCreateClient={onCreateClient} focusSignal={clientFocusSignal} />
 
-                {payAvoir && due > 0 && payment === "especes" && amountReceived !== "" && Number(amountReceived) > due && (
-                  <div className="flex flex-col gap-2 mt-3">
-                    <button onClick={toggleAvoirMonnaie} className="gb-focus w-full flex items-center justify-between px-3 py-2.5 rounded-xl" style={{ background: "#FAEEDA" }}>
-                      <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#854F0B" }}><Coins size={13} /> Garder la monnaie ({fmt(Number(amountReceived) - due)}) en avoir monnaie</span>
-                      <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: avoirMonnaie ? "#EF9F27" : "var(--line)" }}>
-                        <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: avoirMonnaie ? 18 : 2 }} />
-                      </span>
-                    </button>
-                    <p className="text-[10.5px] opacity-60 -mt-1 px-1">{avoirMonnaie ? "La monnaie n'est pas rendue : elle est enregistrée en nouvel avoir monnaie." : "Désactivé : la monnaie est rendue au client et indiquée sur le reçu."}</p>
-                  </div>
-                )}
-                {!payAvoir && payment !== "credit" && (payment === "mobile" || (amountReceived !== "" && Number(amountReceived) >= total)) && (
+                {payment !== "credit" && (payment === "mobile" || (amountReceived !== "" && Number(amountReceived) >= total)) && (
                   <div className="flex flex-col gap-2 mt-3">
                     {payment !== "mobile" && (
                       <>
@@ -3092,7 +2761,7 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
                     <input
                       value={avoirClientName}
                       onChange={(e) => setAvoirClientName(e.target.value)}
-                      placeholder={payAvoir?.clientName || clientName || "Ex : Edouard"}
+                      placeholder={clientName || "Ex : Edouard"}
                       className="gb-focus w-full rounded-lg px-3 py-2 text-sm border"
                       style={{ borderColor: avoirProduit ? "#AFA9EC" : "#FAC775", background: "var(--card)" }}
                     />
@@ -3104,81 +2773,19 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
 
             <div className="pt-2 mt-1 border-t" style={{ borderColor: "var(--line)" }}>
               <div className="flex items-center justify-between mb-3 mt-3">
-                <span className="text-sm opacity-60">Total{payAvoir ? <span className="ml-1.5 text-[12px] font-semibold" style={{ color: "#854F0B" }}>· avoir - {fmt(payAvoirUsed)}</span> : null}</span>
+                <span className="text-sm opacity-60">Total</span>
                 <span className="font-display font-bold text-xl">{fmt(total)}</span>
               </div>
               <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : "0 10px 22px rgba(30,142,80,0.3)" }}>
                 <Check size={19} />
-                {payAvoir ? (due > 0 ? `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}` : `Valider · payé par l'avoir`) : avoirProduit ? (avoirMonnaie ? "Enregistrer l'avoir produit + monnaie" : "Enregistrer l'avoir produit") : (cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
+                {avoirProduit ? (avoirMonnaie ? "Enregistrer l'avoir produit + monnaie" : "Enregistrer l'avoir produit") : (cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {avoirPickerOpen && (
-        <AvoirPickerSheet avoirs={openMoneyAvoirs} total={total} onPick={(a) => { setPayAvoirId(a.id); setAvoirPickerOpen(false); if (!clientName && !clientId) setClientName(""); }} onClose={() => setAvoirPickerOpen(false)} />
-      )}
       {receipt && <SaleReceiptModal receipt={receipt} shop={shop} clients={clients} onClose={() => setReceipt(null)} pushToast={pushToast} />}
-    </div>
-  );
-}
-
-// Articles du panier achetables avec le seul avoir : on garde les lignes
-// dans l'ordre du panier, en réduisant la quantité si besoin, tant que le
-// total reste couvert par le montant disponible.
-function fitCartToBudget(cartItems, budget) {
-  let left = budget;
-  const lines = cartItems.map((i) => {
-    let q = 0;
-    for (let k = i.qty; k >= 1; k--) { if (computeItemTotal(i.product, k) <= left + 0.001) { q = k; break; } }
-    const cost = q > 0 ? computeItemTotal(i.product, q) : 0;
-    left -= cost;
-    return { id: i.id, name: i.product.name, qty: i.qty, keptQty: q, cost, fullCost: computeItemTotal(i.product, i.qty) };
-  });
-  const kept = lines.filter((l) => l.keptQty > 0);
-  return { lines, kept, total: kept.reduce((t, l) => t + l.cost, 0), count: kept.reduce((t, l) => t + l.keptQty, 0) };
-}
-
-// Choix de l'avoir monnaie à utiliser pour payer le panier en cours.
-function AvoirPickerSheet({ avoirs, total, onPick, onClose }) {
-  const fmt = useFmt();
-  const [q, setQ] = useState("");
-  const list = avoirs.filter((a) => !q.trim() || (a.clientName || "").toLowerCase().includes(q.trim().toLowerCase()) || receiptNumber(a.id).toLowerCase().includes(q.trim().toLowerCase()));
-  return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
-      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-5 gb-slide-up max-h-[85vh] flex flex-col" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <h2 className="font-display font-bold text-[19px]">Payer avec un avoir</h2>
-          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
-        </div>
-        <p className="text-[12.5px] opacity-60 mb-3">Panier : {fmt(total)} · choisissez l'avoir monnaie du client</p>
-        <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px] mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-          <Search size={16} className="opacity-50" />
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nom du client ou N° d'avoir" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
-        </div>
-        <div className="flex-1 overflow-y-auto gb-scroll flex flex-col gap-2">
-          {list.length === 0 && <p className="text-center text-sm opacity-50 py-6">Aucun avoir monnaie trouvé.</p>}
-          {list.map((a) => {
-            const avail = avoirRemaining(a);
-            const used = Math.min(avail, total);
-            const covers = avail >= total;
-            return (
-              <button key={a.id} onClick={() => onPick(a)} className="gb-focus w-full rounded-2xl p-3 flex items-center gap-3 text-left" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-                <div className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0 font-bold text-[12px]" style={{ background: "#FAEEDA", color: "#854F0B" }}>{initials(a.clientName)}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[14.5px] font-bold truncate">{a.clientName || "Client"}</p>
-                  <p className="text-[11.5px] opacity-60 truncate">N° {receiptNumber(a.id)} · {new Date(a.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="font-display font-bold text-[15px]" style={{ color: "#854F0B" }}>{fmt(avail)}</p>
-                  <span className="inline-block mt-0.5 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={covers ? { background: "#E6F4EC", color: "#1E7A46" } : { background: "#FFF1D6", color: "#9A5B00" }}>{covers ? "Couvre tout" : `+ ${fmt(total - used)} à payer`}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
@@ -3326,7 +2933,7 @@ function AddLotModal({ products, onSave, onClose }) {
   const matches = products.filter((p) => !q || (p.name || "").toLowerCase().includes(q) || (p.barcode || "").toLowerCase().includes(q)).slice(0, 8);
   const ok = product && Number(qty) > 0 && expiry;
   return (
-    <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(40px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
+    <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(24px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
       <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0" style={{ borderBottom: "1px solid var(--line)" }}>
           <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px]">Ajouter un lot daté</p><p className="text-[12.5px] opacity-60">Produit, quantité et date de péremption</p></div>
@@ -3358,7 +2965,7 @@ function AddLotModal({ products, onSave, onClose }) {
             <span className="w-12 h-7 rounded-full relative shrink-0" style={{ background: inStock ? "#1E8E50" : "#C9C6BC" }}><span className="absolute top-0.5 w-6 h-6 rounded-full bg-white shadow" style={{ left: inStock ? 22 : 2 }} /></span>
           </button>
         </div>
-        <div className="px-5 pt-3 shrink-0" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <div className="px-5 pt-3 shrink-0" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(18px, calc(env(safe-area-inset-bottom) + 12px))" }}>
           <button disabled={!ok} onClick={() => onSave({ productId, qty: Number(qty), expiry, addToStock: !inStock })} className="gb-focus w-full min-h-[52px] rounded-2xl text-white font-bold text-[15px] flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: "#0F6E56" }}><CalendarCheck size={18} /> Enregistrer le lot</button>
         </div>
       </div>
@@ -3785,84 +3392,7 @@ function SalesPdfPreview({ shop, sales, vendorFilter, onClose, pushToast }) {
   );
 }
 
-function DeleteSaleSheet({ sale, impact, currency, onCancel, onConfirm }) {
-  const fmt = (n) => formatMoney(n, currency);
-  const rows = [];
-  const restoredRow = impact?.restored ? { key: "restored", Icon: Coins, color: "#1E7A46", bg: "#E6F4EC", title: `Avoir de ${impact.restored.avoir.clientName || "client"} recrédité`, sub: `+ ${fmt(impact.restored.amount)} rendus sur son avoir monnaie` } : null;
-  if (impact?.credit) {
-    const c = impact.credit;
-    rows.push({ key: "credit", Icon: Wallet, color: "#B26A00", bg: "#FFF3DC", title: `Crédit client${sale.clientName ? ` · ${sale.clientName}` : ""}`,
-      sub: c.settled ? `Soldé · ${fmt(c.total)} encaissés` : c.paid > 0 ? `${fmt(c.paid)} encaissés · reste ${fmt(c.remaining)}` : `${fmt(c.total)} à encaisser`,
-      warn: c.paid > 0 });
-  }
-  (impact?.avoirs || []).forEach(({ avoir: a, remaining, started, settled }) => {
-    if (a.type === "monnaie") {
-      rows.push({ key: a.id, Icon: Coins, color: "#0C447C", bg: "#E6F1FB", title: `Avoir monnaie · ${a.clientName || "Client"}`,
-        sub: settled ? `${fmt(Number(a.amount) || 0)} · déjà rendu` : started ? `${fmt(Number(a.amount) || 0)} · reste ${fmt(remaining)} à rendre` : `${fmt(Number(a.amount) || 0)} à rendre`,
-        warn: started });
-    } else {
-      const qty = (a.items || []).reduce((t, i) => t + i.qty, 0);
-      rows.push({ key: a.id, Icon: Boxes, color: "#3C3489", bg: "#F0EDFE", title: `Avoir produit · ${a.clientName || "Client"}`,
-        sub: `${(a.items || []).map((i) => `${i.qty}× ${i.name}`).join(", ")}${settled ? " · déjà remis" : started ? ` · reste ${remaining}/${qty} à remettre` : ""}`,
-        warn: started });
-    }
-  });
-  const extra = [impact?.returns ? `${impact.returns} retour${impact.returns > 1 ? "s" : ""}` : null, impact?.invoices ? `${impact.invoices} document${impact.invoices > 1 ? "s" : ""} (facture, proforma…)` : null].filter(Boolean);
-  return (
-    <div className="fixed inset-0 z-[90] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onCancel}>
-      <div className="w-full max-w-[430px] rounded-t-3xl px-5 pt-5 gb-slide-up max-h-[88vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
-        <div className="w-11 h-11 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "#FCEBE8" }}><Trash2 size={19} color="var(--danger)" /></div>
-        <p className="font-display font-bold text-base text-center">Supprimer la vente N° {receiptNumber(sale.id)} ?</p>
-        <p className="text-xs opacity-60 text-center mt-1 mb-4">{fmt(Number(sale.total) || 0)} · {new Date(sale.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} à {new Date(sale.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{sale.vendor ? ` · ${sale.vendor}` : ""}</p>
-
-        {restoredRow && (
-          <div className="rounded-2xl p-3 mb-3 flex items-start gap-2.5" style={{ background: restoredRow.bg }}>
-            <div className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#fff" }}><restoredRow.Icon size={15} color={restoredRow.color} /></div>
-            <div className="flex-1 min-w-0"><p className="text-[13px] font-semibold" style={{ color: restoredRow.color }}>{restoredRow.title}</p><p className="text-[11.5px]" style={{ color: restoredRow.color }}>{restoredRow.sub}</p></div>
-          </div>
-        )}
-        {rows.length > 0 && (
-          <div className="rounded-2xl p-3 mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-            <p className="text-[11px] font-bold uppercase tracking-wide opacity-50 mb-2">Supprimé avec la vente</p>
-            <div className="flex flex-col gap-2">
-              {rows.map((r) => (
-                <div key={r.key} className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: r.bg }}><r.Icon size={15} color={r.color} /></div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold truncate">{r.title}</p>
-                    <p className="text-[11.5px] opacity-60 break-words">{r.sub}</p>
-                  </div>
-                  {r.warn && <AlertTriangle size={14} color="#B26A00" className="shrink-0 mt-1" />}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="rounded-2xl p-3 mb-3 flex flex-col gap-1.5" style={{ background: "var(--paper-dim)" }}>
-          <p className="text-[12px] flex items-center gap-2"><Undo2 size={13} className="shrink-0 opacity-60" /> Le stock vendu est restitué automatiquement</p>
-          {extra.length > 0 && <p className="text-[12px] flex items-center gap-2"><FileText size={13} className="shrink-0 opacity-60" /> {extra.join(" et ")} {extra.length > 1 || impact.returns > 1 || impact.invoices > 1 ? "sont aussi effacés" : "est aussi effacé"}</p>}
-          <p className="text-[12px] flex items-center gap-2"><ShieldCheck size={13} className="shrink-0 opacity-60" /> L'opération est tracée dans le journal d'activité</p>
-        </div>
-
-        {impact?.hasStarted && (
-          <div className="rounded-2xl p-3 mb-3 flex items-start gap-2.5" style={{ background: "#FFF3DC" }}>
-            <AlertTriangle size={15} color="#8A5A00" className="shrink-0 mt-0.5" />
-            <p className="text-[12px]" style={{ color: "#8A5A00" }}>Une partie a déjà été encaissée ou remise au client. Ces montants disparaîtront aussi du point de caisse — vérifiez avec le client avant de supprimer.</p>
-          </div>
-        )}
-
-        <p className="text-[11.5px] opacity-50 text-center mb-3">Cette action est irréversible.</p>
-        <div className="flex gap-2">
-          <button onClick={onCancel} className="gb-focus flex-1 min-h-[48px] rounded-2xl font-semibold text-sm" style={{ background: "var(--paper-dim)" }}>Annuler</button>
-          <button onClick={onConfirm} className="gb-focus flex-[1.4] min-h-[48px] rounded-2xl font-semibold text-sm text-white flex items-center justify-center gap-1.5" style={{ background: "var(--danger)" }}><Trash2 size={15} /> {rows.length ? "Tout supprimer" : "Supprimer"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, onReturnSale, onSaveInvoice, pushToast }) {
+function HistoryScreen({ shop, sales, products, clients, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, onReturnSale, onSaveInvoice, pushToast }) {
   const fmt = useFmt();
   const [open, setOpen] = useState(null);
   const [returningSale, setReturningSale] = useState(null);
@@ -4088,13 +3618,17 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
       )}
 
       {confirmDelete && (
-        <DeleteSaleSheet
-          sale={confirmDelete}
-          impact={saleDeletionImpact(confirmDelete, avoirs)}
-          currency={shop?.currency}
-          onCancel={() => setConfirmDelete(null)}
-          onConfirm={() => { onDeleteSale(confirmDelete.id); setConfirmDelete(null); }}
-        />
+        <div className="fixed inset-0 z-[90] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={() => setConfirmDelete(null)}>
+          <div className="w-full max-w-[430px] rounded-t-3xl p-5 gb-slide-up" style={{ background: "var(--paper)" }} onClick={(e) => e.stopPropagation()}>
+            <div className="w-11 h-11 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><AlertTriangle size={20} color="var(--danger)" /></div>
+            <p className="font-display font-bold text-base text-center mb-1">Supprimer cette vente ?</p>
+            <p className="text-xs opacity-60 text-center mb-5">Le stock vendu sera restitué automatiquement. Cette action est irréversible.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDelete(null)} className="gb-focus flex-1 rounded-2xl py-3 font-semibold text-sm" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+              <button onClick={() => { onDeleteSale(confirmDelete.id); setConfirmDelete(null); }} className="gb-focus flex-1 rounded-2xl py-3 font-semibold text-sm text-white" style={{ background: "var(--danger)" }}>Supprimer</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -4317,7 +3851,7 @@ function ReturnSaleModal({ sale, onConfirm, onClose }) {
     { id: "avoir", label: "Avoir client", Icon: Coins, hint: "À rendre plus tard" },
   ];
   return (
-    <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(40px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
+    <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(24px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
       <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0" style={{ borderBottom: "1px solid var(--line)" }}>
           <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "#E1F5EE" }}><Undo2 size={20} color="#0F6E56" /></div>
@@ -4398,7 +3932,7 @@ function ReturnSaleModal({ sale, onConfirm, onClose }) {
           )}
         </div>
 
-        <div className="px-5 pt-3 shrink-0" style={{ borderTop: "1px solid var(--line)", background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <div className="px-5 pt-3 shrink-0" style={{ borderTop: "1px solid var(--line)", background: "var(--paper)", paddingBottom: "max(18px, calc(env(safe-area-inset-bottom) + 12px))" }}>
           {!reason && count > 0 && <p className="text-[12px] text-center mb-2" style={{ color: "#8A4B00" }}>Choisissez le motif du retour</p>}
           <button onClick={confirm} disabled={!canConfirm} className="gb-focus w-full min-h-[54px] rounded-2xl text-white font-bold text-[15px] flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: "#0F6E56" }}>
             <Check size={18} /> {count === 0 ? "Sélectionnez les articles rendus" : `Valider le retour${refund > 0 ? ` · ${fmt(refund)}` : ""}`}
@@ -4436,8 +3970,8 @@ function ReturnReceiptModal({ ret, sale, shop, onClose, pushToast }) {
     setBusy(false);
   };
   return (
-    <div className="fixed inset-0 z-[94] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(40px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
-      <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[94] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(24px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
+      <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%", paddingBottom: "max(18px, calc(env(safe-area-inset-bottom) + 12px))" }} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0">
           <div className="flex-1 min-w-0">
             <p className="text-[12px] font-bold uppercase tracking-wider opacity-60">Retour enregistré</p>
@@ -4508,8 +4042,8 @@ function ReturnFinderModal({ sales, onPick, onClose }) {
   };
   const recent = [...sales].filter((s) => s.items?.length).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
   return (
-    <div className="fixed inset-0 z-[92] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(40px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
-      <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[92] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(24px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
+      <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%", paddingBottom: "max(18px, calc(env(safe-area-inset-bottom) + 12px))" }} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-4 pb-2 flex items-center gap-3 shrink-0">
           <div className="flex-1 min-w-0">
             <p className="font-display font-bold text-[18px] leading-tight">Retour produit</p>
@@ -4565,7 +4099,7 @@ function SettleCreditModal({ sale, onConfirm, onClose }) {
   return (
     <div className="fixed inset-0 z-[85] flex items-end no-print">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(28px, env(safe-area-inset-bottom))" }}>
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-display font-bold text-lg">Encaisser un crédit</h2>
           <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
@@ -4688,7 +4222,7 @@ function CreditReceiptModal({ sale, shop, onClose, pushToast }) {
           <p className="text-[11px] italic opacity-55 mt-1.5 leading-snug">Merci pour votre confiance.<br />À très bientôt !</p>
         </div>
       </div>
-      <div className="px-5 pt-3" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="px-5 pt-3" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(18px, env(safe-area-inset-bottom))" }}>
         <div className="flex gap-2">
           <button onClick={onClose} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Fermer</button>
           <button onClick={handlePrint} disabled={printing} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold text-white flex items-center justify-center gap-1.5 disabled:opacity-60" style={{ background: "var(--glass)" }}>
@@ -4701,180 +4235,98 @@ function CreditReceiptModal({ sale, shop, onClose, pushToast }) {
   );
 }
 
-const CR = { card: "#FFFFFF", line: "#E6E3DB", ink: "#16202A", mut: "#66707A", soft: "#F5F4F0", red: "#B3261E", redBg: "#FCEBEA", amber: "#9A5B00", amberBg: "#FFF1D6", green: "#1E7A46", greenBg: "#E6F4EC", blue: "#1D5FA8" };
-function creditAge(dateStr) { return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / MS_DAY)); }
-function creditAgeMeta(days) {
-  if (days >= 30) return { label: `${days} j`, full: `En retard · ${days} jours`, color: CR.red, bg: CR.redBg };
-  if (days >= 7) return { label: `${days} j`, full: `${days} jours`, color: CR.amber, bg: CR.amberBg };
-  return { label: days === 0 ? "Aujourd'hui" : `${days} j`, full: days === 0 ? "Aujourd'hui" : days === 1 ? "Hier" : `${days} jours`, color: CR.mut, bg: CR.soft };
-}
-
-function CreditsScreen({ shop, sales, clients, onSettle, pushToast }) {
+function CreditsScreen({ shop, sales, onSettle, pushToast }) {
   const fmt = useFmt();
   const [settling, setSettling] = useState(null);
   const [confirmReceipt, setConfirmReceipt] = useState(null);
   const [periodFilter, setPeriodFilter] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState("recent"); // recent | amount | oldest
-  const [showAllSettled, setShowAllSettled] = useState(false);
 
-  const allOutstanding = [...sales].filter((s) => s.paymentMethod === "credit" && !s.paid);
+  const allOutstanding = [...sales].filter((s) => s.paymentMethod === "credit" && !s.paid).sort((a, b) => new Date(b.date) - new Date(a.date));
   const settled = [...sales].filter((s) => s.paymentMethod === "credit" && s.paid).sort((a, b) => new Date(b.paidDate || b.date) - new Date(a.paidDate || a.date));
-  const q = query.trim().toLowerCase();
-  const outstanding = allOutstanding
-    .filter((s) => inPeriod(s.date, periodFilter, customFrom, customTo))
-    .filter((s) => !q || (s.clientName || "").toLowerCase().includes(q) || receiptNumber(s.id).toLowerCase().includes(q))
-    .sort((a, b) => sort === "amount" ? (b.total - creditPaidSoFar(b)) - (a.total - creditPaidSoFar(a)) : sort === "oldest" ? new Date(a.date) - new Date(b.date) : new Date(b.date) - new Date(a.date));
-  const periodOutstanding = allOutstanding.filter((s) => inPeriod(s.date, periodFilter, customFrom, customTo));
-  const totalOutstanding = periodOutstanding.reduce((s, x) => s + Math.max(0, x.total - creditPaidSoFar(x)), 0);
-  const totalGranted = periodOutstanding.reduce((s, x) => s + (Number(x.total) || 0), 0);
-  const alreadyPaid = totalGranted - totalOutstanding;
-  const clientCount = new Set(periodOutstanding.map((s) => (s.clientId || s.clientName || "").toString().toLowerCase())).size;
-  const overdue = periodOutstanding.filter((s) => creditAge(s.date) >= 30);
-  const overdueAmount = overdue.reduce((s, x) => s + Math.max(0, x.total - creditPaidSoFar(x)), 0);
+  const outstanding = allOutstanding.filter((s) => inPeriod(s.date, periodFilter, customFrom, customTo));
+  const totalOutstanding = outstanding.reduce((s, x) => s + (x.total - creditPaidSoFar(x)), 0);
 
   // Crédits encaissés sur la période : chaque règlement (même partiel) compte
-  // à la date où il a réellement été encaissé.
+  // à la date où il a réellement été encaissé — même logique que la recette
+  // dans l'historique des ventes — pas seulement les crédits totalement
+  // soldés à la date de la vente d'origine.
   const collectedPaymentsInPeriod = sales
     .filter((s) => s.paymentMethod === "credit")
     .flatMap((s) => creditPaymentsOf(s).filter((p) => inPeriod(p.date, periodFilter, customFrom, customTo)));
   const totalCollected = collectedPaymentsInPeriod.reduce((s, p) => s + p.amount, 0);
 
+  // Un reçu est proposé après CHAQUE encaissement, partiel ou total — pas
+  // seulement quand le crédit est soldé — pour que le vendeur puisse toujours
+  // remettre une preuve de paiement au client.
   const handleConfirmSettle = (amount) => {
     const updated = onSettle(settling.id, amount);
     setSettling(null);
     if (updated) setConfirmReceipt(updated);
   };
-  const phoneOf = (s) => (clients || []).find((c) => c.id === s.clientId)?.phone || (clients || []).find((c) => c.name && s.clientName && c.name.toLowerCase() === s.clientName.toLowerCase())?.phone || "";
-  const remind = (s) => {
-    const remaining = Math.max(0, s.total - creditPaidSoFar(s));
-    const phone = phoneOf(s) || window.prompt("Numéro WhatsApp du client (avec indicatif pays) :");
-    if (!phone) return;
-    const text = `Bonjour ${s.clientName || ""},\nPetit rappel de ${shop?.name || "votre boutique"} : il reste ${fmt(remaining)} à régler sur votre achat du ${new Date(s.date).toLocaleDateString("fr-FR")} (N° ${receiptNumber(s.id)}).\nMerci pour votre confiance !`;
-    window.open(`https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`, "_blank");
-  };
-  const paidPct = totalGranted > 0 ? Math.round((alreadyPaid / totalGranted) * 100) : 0;
-  const SORTS = [["recent", "Récents"], ["amount", "Montant"], ["oldest", "Anciens"]];
-  const settledList = showAllSettled ? settled.slice(0, 40) : settled.slice(0, 5);
 
   return (
-    <div className="px-4 pt-4" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))", color: CR.ink }}>
-      <div className="flex items-end justify-between mb-3">
-        <div>
-          <h2 className="font-display font-bold text-[22px] leading-tight">Crédits clients</h2>
-          <p className="text-[12.5px] mt-0.5" style={{ color: CR.mut }}>Suivi des ventes à crédit et des règlements</p>
-        </div>
-      </div>
+    <div className="px-4 pt-4 pb-28">
+      <h2 className="font-display font-bold text-lg mb-3">Crédits clients</h2>
 
       <PeriodFilterBar value={periodFilter} onChange={setPeriodFilter} customFrom={customFrom} customTo={customTo} onCustomFrom={setCustomFrom} onCustomTo={setCustomTo} />
 
-      {/* Synthèse */}
-      <div className="rounded-[22px] p-4 mb-3 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", boxShadow: "0 12px 28px -12px rgba(0,0,0,0.45)" }}>
-        <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
-        <p className="text-[12px] font-semibold uppercase tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.65)" }}>Reste à encaisser</p>
-        <p className="font-display font-bold text-[30px] leading-tight mt-1">{fmt(totalOutstanding)}</p>
-        <p className="text-[12.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>
-          {periodOutstanding.length} crédit{periodOutstanding.length > 1 ? "s" : ""} ouvert{periodOutstanding.length > 1 ? "s" : ""} · {clientCount} client{clientCount > 1 ? "s" : ""}
-        </p>
-        {totalGranted > 0 && (
-          <div className="mt-3">
-            <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.14)" }}>
-              <div className="h-full rounded-full" style={{ width: `${paidPct}%`, background: "var(--cap)" }} />
-            </div>
-            <div className="flex justify-between text-[11.5px] mt-1.5" style={{ color: "rgba(255,255,255,0.7)" }}>
-              <span>Déjà réglé {fmt(alreadyPaid)}</span>
-              <span>{paidPct} %</span>
-            </div>
+      <div className="grid grid-cols-3 gap-2 mb-5">
+        <div className="rounded-2xl p-2.5" style={{ background: "var(--glass)" }}>
+          <div className="flex items-center gap-1 mb-2">
+            <Receipt size={13} color="var(--cap)" />
+            <span className="text-[9px]" style={{ color: "var(--cap)" }}>en cours</span>
           </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2.5 mb-4">
-        <div className="rounded-[18px] p-3.5" style={{ background: CR.card, border: `1px solid ${CR.line}` }}>
-          <div className="flex items-center gap-1.5 mb-1.5"><span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: CR.greenBg }}><CheckSquare size={13} color={CR.green} /></span><span className="text-[11.5px] font-semibold" style={{ color: CR.mut }}>Encaissé</span></div>
-          <p className="font-display font-bold text-[17px]" style={{ color: CR.green }}>{fmt(totalCollected)}</p>
-          <p className="text-[11px]" style={{ color: CR.mut }}>{collectedPaymentsInPeriod.length} règlement{collectedPaymentsInPeriod.length > 1 ? "s" : ""}</p>
+          <div className="font-mono font-bold text-base leading-tight text-white">{outstanding.length}</div>
+          <div className="text-[9px] mt-0.5" style={{ color: "#ffffffb0" }}>Crédits en cours</div>
         </div>
-        <div className="rounded-[18px] p-3.5" style={{ background: CR.card, border: `1px solid ${overdue.length ? "#F2C9C5" : CR.line}` }}>
-          <div className="flex items-center gap-1.5 mb-1.5"><span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: overdue.length ? CR.redBg : CR.soft }}><Clock size={13} color={overdue.length ? CR.red : CR.mut} /></span><span className="text-[11.5px] font-semibold" style={{ color: CR.mut }}>Plus de 30 jours</span></div>
-          <p className="font-display font-bold text-[17px]" style={{ color: overdue.length ? CR.red : CR.ink }}>{fmt(overdueAmount)}</p>
-          <p className="text-[11px]" style={{ color: CR.mut }}>{overdue.length ? `${overdue.length} crédit${overdue.length > 1 ? "s" : ""} à relancer` : "Aucun retard"}</p>
+        <div className="rounded-2xl p-2.5" style={{ background: "#FCEBEB" }}>
+          <div className="flex items-center gap-1 mb-2">
+            <AlertTriangle size={13} color="#A32D2D" />
+            <span className="text-[9px]" style={{ color: "#A32D2D" }}>{outstanding.length} crédit{outstanding.length > 1 ? "s" : ""}</span>
+          </div>
+          <div className="font-mono font-bold text-[15px] leading-tight" style={{ color: "#A32D2D" }}>{fmt(totalOutstanding)}</div>
+          <div className="text-[9px] mt-0.5" style={{ color: "#A32D2D" }}>Total dû</div>
+        </div>
+        <div className="rounded-2xl p-2.5" style={{ background: "#EAF3DE" }}>
+          <div className="flex items-center gap-1 mb-2">
+            <CheckSquare size={13} color="#3B6D11" />
+            <span className="text-[9px]" style={{ color: "#3B6D11" }}>{collectedPaymentsInPeriod.length} paiement{collectedPaymentsInPeriod.length > 1 ? "s" : ""}</span>
+          </div>
+          <div className="font-mono font-bold text-[15px] leading-tight" style={{ color: "#27500A" }}>{fmt(totalCollected)}</div>
+          <div className="text-[9px] mt-0.5" style={{ color: "#3B6D11" }}>Crédits encaissés</div>
         </div>
       </div>
 
-      {/* Recherche + tri */}
-      {allOutstanding.length > 0 && (
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex-1 flex items-center gap-2 px-3 min-h-[44px] rounded-[14px]" style={{ background: CR.card, border: `1px solid ${CR.line}` }}>
-            <Search size={16} color={CR.mut} />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Client ou N° de reçu" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
-            {query && <button onClick={() => setQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={14} color={CR.mut} /></button>}
-          </div>
-        </div>
-      )}
-      {allOutstanding.length > 0 && (
-        <div className="flex items-center justify-between mb-2.5">
-          <p className="text-[13px] font-bold">Crédits ouverts <span style={{ color: CR.mut, fontWeight: 600 }}>· {outstanding.length}</span></p>
-          <div className="flex p-0.5 rounded-[11px]" style={{ background: CR.soft, border: `1px solid ${CR.line}` }}>
-            {SORTS.map(([id, label]) => (
-              <button key={id} onClick={() => setSort(id)} className="gb-focus px-2.5 py-1 rounded-[9px] text-[11.5px] font-semibold" style={{ background: sort === id ? CR.card : "transparent", color: sort === id ? CR.ink : CR.mut, boxShadow: sort === id ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>{label}</button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {outstanding.length === 0 && (
-        <div className="rounded-[20px] py-8 px-5 text-center mb-5" style={{ background: CR.card, border: `1px dashed ${CR.line}` }}>
-          <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: CR.greenBg }}><Check size={22} color={CR.green} /></div>
-          <p className="font-semibold text-[14px]">{q ? "Aucun crédit ne correspond" : "Aucun crédit en cours"}</p>
-          <p className="text-[12px] mt-0.5" style={{ color: CR.mut }}>{q ? "Vérifiez le nom ou le numéro du reçu." : "Tous les clients sont à jour sur cette période."}</p>
-        </div>
-      )}
-
+      {outstanding.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun crédit en cours sur cette période.</p>}
       <div className="flex flex-col gap-2.5 mb-6">
         {outstanding.map((s) => {
           const paidSoFar = creditPaidSoFar(s);
-          const remaining = Math.max(0, s.total - paidSoFar);
+          const remaining = s.total - paidSoFar;
           const hasPartial = paidSoFar > 0;
-          const pct = s.total > 0 ? Math.min(100, (paidSoFar / s.total) * 100) : 0;
-          const age = creditAgeMeta(creditAge(s.date));
           return (
-            <div key={s.id} className="rounded-[20px] p-3.5" style={{ background: CR.card, border: `1px solid ${CR.line}`, boxShadow: "0 4px 14px rgba(22,32,42,0.05)" }}>
-              <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0 font-bold text-[13px]" style={{ background: CR.redBg, color: CR.red }}>{initials(s.clientName)}</div>
+            <div key={s.id} className="rounded-2xl p-3.5" style={{ background: "var(--card)", boxShadow: "0 2px 10px rgba(15,27,22,0.07)" }}>
+              <div className="flex items-center gap-3 mb-2.5">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px]" style={{ background: "#FCEBEB", color: "#A32D2D" }}>{initials(s.clientName)}</div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-bold truncate">{s.clientName || "Client"}</p>
-                  <p className="text-[11.5px] truncate" style={{ color: CR.mut }}>N° {receiptNumber(s.id)} · {new Date(s.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} · {s.vendor}</p>
+                  <div className="text-sm font-semibold truncate">{s.clientName || "Client"}</div>
+                  <div className="text-xs opacity-50">{new Date(s.date).toLocaleDateString("fr-FR")} · {s.vendor}</div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="font-display font-bold text-[17px] leading-tight" style={{ color: CR.red }}>{fmt(remaining)}</p>
-                  <span className="inline-block mt-1 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: age.bg, color: age.color }}>{age.full}</span>
-                </div>
+                <span className="font-mono font-bold text-sm shrink-0" style={{ color: "var(--danger)" }}>{fmt(remaining)}</span>
               </div>
-              <div className="mt-3">
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: CR.soft }}>
-                  <div className="h-full rounded-full" style={{ width: `${pct}%`, background: CR.blue }} />
+              {hasPartial && (
+                <div className="mb-2.5">
+                  <div className="flex justify-between text-[11px] opacity-50 mb-1">
+                    <span>{fmt(paidSoFar)} réglés</span>
+                    <span>sur {fmt(s.total)}</span>
+                  </div>
+                  <div className="h-[5px] rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}>
+                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, (paidSoFar / s.total) * 100)}%`, background: "#185FA5" }} />
+                  </div>
                 </div>
-                <div className="flex justify-between text-[11.5px] mt-1.5" style={{ color: CR.mut }}>
-                  <span>{hasPartial ? `${fmt(paidSoFar)} réglés` : "Aucun règlement"}</span>
-                  <span>Total {fmt(s.total)}</span>
-                </div>
-              </div>
-              <div className="flex gap-2 mt-3">
-                <button onClick={() => setSettling(s)} className="gb-focus flex-1 min-h-[44px] rounded-[13px] text-[13.5px] font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "#0F6E56" }}>
-                  <Banknote size={16} /> {hasPartial ? "Encaisser le solde" : "Encaisser"}
-                </button>
-                <button onClick={() => remind(s)} className="gb-focus min-h-[44px] px-3 rounded-[13px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#EAF6EF", color: "#0F4F2B" }} aria-label={`Relancer ${s.clientName || "le client"} sur WhatsApp`}>
-                  <MessageCircle size={16} color="#1E8E50" /> Relancer
-                </button>
-                {hasPartial && (
-                  <button onClick={() => setConfirmReceipt(s)} className="gb-focus w-11 min-h-[44px] rounded-[13px] flex items-center justify-center" style={{ background: CR.soft, border: `1px solid ${CR.line}` }} aria-label="Historique des règlements">
-                    <History size={16} color={CR.ink} />
-                  </button>
-                )}
-              </div>
+              )}
+              <button onClick={() => setSettling(s)} className="gb-focus w-full rounded-xl py-2.5 text-xs font-semibold text-white" style={{ background: "#0F6E56" }}>{hasPartial ? "Encaisser le solde" : "Encaisser ce crédit"}</button>
             </div>
           );
         })}
@@ -4882,22 +4334,20 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast }) {
 
       {settled.length > 0 && (
         <>
-          <div className="flex items-center justify-between mb-2.5">
-            <p className="text-[13px] font-bold">Récemment soldés</p>
-            {settled.length > 5 && (
-              <button onClick={() => setShowAllSettled((v) => !v)} className="gb-focus text-[12px] font-semibold" style={{ color: "#0F6E56" }}>{showAllSettled ? "Réduire" : `Tout voir (${settled.length})`}</button>
-            )}
-          </div>
-          <div className="rounded-[20px] overflow-hidden" style={{ background: CR.card, border: `1px solid ${CR.line}` }}>
-            {settledList.map((s, i) => (
-              <button key={s.id} onClick={() => setConfirmReceipt(s)} className="gb-focus w-full px-3.5 py-3 flex items-center gap-3 text-left" style={{ borderTop: i ? `1px solid ${CR.line}` : "none" }}>
-                <div className="w-9 h-9 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: CR.greenBg }}><Check size={16} color={CR.green} strokeWidth={2.6} /></div>
+          <h3 className="font-display font-bold text-base mb-2">Récemment encaissés</h3>
+
+          <div className="flex flex-col gap-2">
+            {settled.slice(0, 10).map((s) => (
+              <button key={s.id} onClick={() => setConfirmReceipt(s)} className="gb-focus w-full rounded-xl p-3 flex items-center gap-3 text-left" style={{ background: "var(--card)", boxShadow: "0 2px 8px rgba(15,27,22,0.06)" }}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px]" style={{ background: "#EAF3DE", color: "#27500A" }}>{initials(s.clientName)}</div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-semibold truncate">{s.clientName || "Client"}</p>
-                  <p className="text-[11.5px] truncate" style={{ color: CR.mut }}>Soldé{s.paidDate ? ` le ${new Date(s.paidDate).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}{s.paidBy ? ` · ${s.paidBy}` : ""}</p>
+                  <div className="text-sm font-medium truncate">{s.clientName || "Client"}</div>
+                  <div className="text-[11px] opacity-50">Encaissé par {s.paidBy}{s.paidDate ? " · " + new Date(s.paidDate).toLocaleDateString("fr-FR") : ""}</div>
                 </div>
-                <span className="font-display font-bold text-[14px] shrink-0" style={{ color: CR.green }}>{fmt(s.total)}</span>
-                <Printer size={14} color={CR.mut} className="shrink-0" />
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <span className="font-mono text-sm font-semibold opacity-60">{fmt(s.total)}</span>
+                  <Printer size={13} className="opacity-40" />
+                </div>
               </button>
             ))}
           </div>
@@ -4952,7 +4402,7 @@ function RedeemProductAvoirModal({ avoir, onConfirm, onClose }) {
   return (
     <div className="fixed inset-0 z-[85] flex items-end no-print">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(28px, env(safe-area-inset-bottom))" }}>
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-display font-bold text-lg">Remettre les produits</h2>
           <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
@@ -5008,7 +4458,7 @@ function RedeemMoneyAvoirModal({ avoir, onConfirm, onClose }) {
   return (
     <div className="fixed inset-0 z-[85] flex items-end no-print">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(28px, env(safe-area-inset-bottom))" }}>
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-display font-bold text-lg">Rendre la monnaie</h2>
           <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
@@ -5164,7 +4614,7 @@ function CombinedAvoirReceiptModal({ produit, monnaie, shop, onClose, pushToast 
             <p className="text-[11px] italic opacity-55 mt-1.5 leading-snug">Merci pour votre confiance.<br />À très bientôt !</p>
           </div>
         </div>
-        <div className="px-5 pt-3" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <div className="px-5 pt-3" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(18px, env(safe-area-inset-bottom))" }}>
           <div className="flex gap-2">
             <button onClick={onClose} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Fermer</button>
             <button onClick={handlePrint} disabled={printing} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold text-white flex items-center justify-center gap-1.5 disabled:opacity-60" style={{ background: "var(--glass)" }}>
@@ -5262,7 +4712,7 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
                   ))
                 ) : (
                   <div className="flex justify-between text-xs font-semibold">
-                    <span>{e.kind === "achat" ? `Utilisé pour un achat${e.saleId ? ` · N° ${receiptNumber(e.saleId)}` : ""}` : "Monnaie rendue"}</span>
+                    <span>Monnaie rendue</span>
                     <span className="font-mono">{fmt(e.amount)}</span>
                   </div>
                 )}
@@ -5294,7 +4744,7 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
             <p className="text-[11px] italic opacity-55 mt-1.5 leading-snug">Merci pour votre confiance.<br />À très bientôt !</p>
           </div>
         </div>
-        <div className="px-5 pt-3" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <div className="px-5 pt-3" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(18px, env(safe-area-inset-bottom))" }}>
           <div className="flex gap-2">
             <button onClick={onClose} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Fermer</button>
             <button onClick={handlePrint} disabled={printing} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold text-white flex items-center justify-center gap-1.5 disabled:opacity-60" style={{ background: "var(--glass)" }}>
@@ -5671,7 +5121,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast, on
   return (
     <div className="fixed inset-0 z-[92] flex items-end no-print">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(28px, env(safe-area-inset-bottom))" }}>
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-display font-bold text-lg">Scanner un reçu</h2>
           <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
@@ -5764,7 +5214,7 @@ function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeem
         </button>
       </div>
       {sub === "credit" ? (
-        <CreditsScreen shop={shop} sales={sales} clients={clients} onSettle={onSettleCredit} pushToast={pushToast} />
+        <CreditsScreen shop={shop} sales={sales} onSettle={onSettleCredit} pushToast={pushToast} />
       ) : (
         <AvoirsScreen shop={shop} avoirs={avoirs} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} pushToast={pushToast} />
       )}
@@ -6351,7 +5801,7 @@ function InvoiceModal({ sale, sales, shop, onSaveInvoice, onClose, pushToast }) 
   };
   const missingShopInfo = !shop?.taxId && !shop?.rccm;
   return (
-    <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(40px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
+    <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(24px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
       <div className="w-full max-w-[460px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0" style={{ borderBottom: "1px solid var(--line)" }}>
           <div className="flex-1 min-w-0">
@@ -6410,7 +5860,7 @@ function InvoiceModal({ sale, sales, shop, onSaveInvoice, onClose, pushToast }) 
           </div>
           {existing && <p className="text-[12px] opacity-60 mt-2">Ce document a déjà le numéro {existing.number} : il garde le même numéro à chaque réédition.</p>}
         </div>
-        <div className="px-5 pt-3 grid grid-cols-2 gap-2 shrink-0" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <div className="px-5 pt-3 grid grid-cols-2 gap-2 shrink-0" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(18px, calc(env(safe-area-inset-bottom) + 12px))" }}>
           <button onClick={doPdf} disabled={!!busy} className="gb-focus min-h-[52px] rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#fff", border: "1px solid var(--line)" }}><Download size={17} />{busy ? "…" : "PDF"}</button>
           <button onClick={share} className="gb-focus min-h-[52px] rounded-2xl text-white text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: "#1F2A33" }}><Send size={17} /> Envoyer</button>
         </div>
@@ -7653,8 +7103,8 @@ function CashReportModal({ shop, report, onClose, pushToast }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[97] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(40px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
-      <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[97] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(24px, env(safe-area-inset-top)) 0 0" }} onClick={onClose}>
+      <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%", paddingBottom: "max(18px, env(safe-area-inset-bottom))" }} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0">
           <div className="flex-1 min-w-0">
             <p className="text-[12px] font-bold uppercase tracking-wider opacity-60">{closed ? "Clôture de caisse" : "Point de caisse"}</p>
@@ -8402,7 +7852,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
         </section>
       </div>
 
-      <div className="shrink-0 px-5 pt-4 flex flex-col gap-2.5" style={{ background: "#fff", borderTop: "1px solid #E6E4DD", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="shrink-0 px-5 pt-4 flex flex-col gap-2.5" style={{ background: "#fff", borderTop: "1px solid #E6E4DD", paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
         <div className="grid grid-cols-2 gap-2.5">
           <button onClick={() => setConfirmDelete(true)} className="gb-focus min-h-[50px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ border: "1px solid #E3B3AC", color: "#9B2C1F", background: "#fff" }}><Trash2 size={17} /> Supprimer</button>
           <button onClick={save} disabled={!dirty || items.length === 0} className="gb-focus min-h-[50px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: dirty && items.length ? "#1F2A33" : "#D9DCDF", color: dirty && items.length ? "#fff" : "#4A525C" }}><Check size={17} /> Enregistrer</button>
@@ -8413,7 +7863,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
       {adding && (
         <div className="fixed inset-0 z-[96] flex flex-col justify-end" style={{ background: "rgba(22,32,42,0.45)" }}>
           <button className="flex-1" onClick={() => setAdding(false)} aria-label="Fermer" />
-          <div className="rounded-t-3xl px-5 pt-2.5 flex flex-col gap-3" style={{ background: "#fff", maxHeight: "80vh", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+          <div className="rounded-t-3xl px-5 pt-2.5 flex flex-col gap-3" style={{ background: "#fff", maxHeight: "80vh", paddingBottom: "max(22px, env(safe-area-inset-bottom))" }}>
             <div className="w-10 h-1 rounded-full self-center" style={{ background: "#D5D2C8" }} />
             <div className="flex justify-between items-center gap-2">
               <span className="font-display font-bold text-[19px]">Ajouter des produits</span>
@@ -8465,7 +7915,7 @@ function ReceivedOrderModal({ order, supplier, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end no-print">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      <div className="relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col" style={{ background: "var(--card)", paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
         <div className="flex items-center justify-between mb-1 shrink-0">
           <h2 className="font-display font-bold text-lg">Commande reçue</h2>
           <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
@@ -8604,7 +8054,7 @@ function SupplierOrdersModal({ supplier, ordersForSupplier, onNewOrder, onOpenOr
         })}
       </div>
 
-      <div className="absolute left-0 right-0 bottom-0 px-5 pt-3.5" style={{ paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))", background: "linear-gradient(rgba(244,243,239,0), #F4F3EF 30%)" }}>
+      <div className="absolute left-0 right-0 bottom-0 px-5 pt-3.5" style={{ paddingBottom: "max(20px, env(safe-area-inset-bottom))", background: "linear-gradient(rgba(244,243,239,0), #F4F3EF 30%)" }}>
         <button onClick={onNewOrder} className="gb-focus w-full min-h-[54px] rounded-2xl text-white text-[16px] font-bold flex items-center justify-center gap-2" style={{ background: "#1F2A33", boxShadow: "0 8px 20px rgba(31,42,51,0.25)" }}><Plus size={18} /> Nouvelle commande</button>
       </div>
     </div>
@@ -8798,7 +8248,7 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
       {menuFor && (
         <div className="fixed inset-0 z-[90] flex flex-col justify-end no-print" style={{ background: "rgba(22,32,42,0.45)" }}>
           <button className="flex-1" onClick={() => setMenuFor(null)} aria-label="Fermer" />
-          <div className="rounded-t-3xl px-5 pt-2.5 flex flex-col gap-1.5" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+          <div className="rounded-t-3xl px-5 pt-2.5 flex flex-col gap-1.5" style={{ background: "var(--card)", paddingBottom: "max(26px, env(safe-area-inset-bottom))" }}>
             <div className="w-10 h-1 rounded-full self-center mb-2" style={{ background: "var(--line)" }} />
             <span className="font-display font-bold text-[18px] mb-1.5 break-words">{menuFor.name}</span>
             <button onClick={() => { setEditing(menuFor.id); setAdding(false); setMenuFor(null); }} className="gb-focus min-h-[52px] px-3.5 rounded-2xl text-[15px] font-semibold flex items-center gap-3" style={{ background: "var(--paper-dim)" }}><Pencil size={18} /> Modifier le fournisseur</button>
@@ -9715,7 +9165,7 @@ function VendorPerformanceSection({ shop, sales, vendors, saveShopMeta }) {
       </div>
       <button onClick={() => { setDraft(Object.fromEntries(people.map((n) => [n, goals[n] ? String(goals[n]) : ""]))); setEditGoals(true); }} className="gb-focus w-full mt-4 min-h-[52px] rounded-2xl text-white text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: "#1F2A33" }}><Star size={17} /> Fixer les objectifs de la semaine</button>
       {editGoals && (
-        <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(40px, env(safe-area-inset-top)) 0 0" }} onClick={() => setEditGoals(false)}>
+        <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.55)", padding: "max(24px, env(safe-area-inset-top)) 0 0" }} onClick={() => setEditGoals(false)}>
           <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] flex flex-col gb-slide-up" style={{ background: "var(--paper)", maxHeight: "100%" }} onClick={(e) => e.stopPropagation()}>
             <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0" style={{ borderBottom: "1px solid var(--line)" }}>
               <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px]">Objectifs de la semaine</p><p className="text-[12.5px] opacity-60">Chiffre d'affaires à atteindre du lundi au dimanche</p></div>
@@ -9730,7 +9180,7 @@ function VendorPerformanceSection({ shop, sales, vendors, saveShopMeta }) {
               ))}
               <p className="text-[12px] opacity-55">Chaque vendeur voit sa progression dans son historique des ventes.</p>
             </div>
-            <div className="px-5 pt-3 shrink-0" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+            <div className="px-5 pt-3 shrink-0" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(18px, calc(env(safe-area-inset-bottom) + 12px))" }}>
               <button onClick={() => { const g = {}; Object.entries(draft).forEach(([k, v]) => { if (Number(v) > 0) g[k] = Number(v); }); saveShopMeta({ ...shop, vendorGoals: g }); setEditGoals(false); }} className="gb-focus w-full min-h-[52px] rounded-2xl text-white font-bold text-[15px]" style={{ background: "#0F6E56" }}>Enregistrer les objectifs</button>
             </div>
           </div>
@@ -10272,132 +9722,176 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
 }
 
 function LicenseSection({ license, licenseStatus, onActivate, pushToast, shopName }) {
-  const [pricingStep, setPricingStep] = useState(null); // null | "offers" | "activate"
+  const [showRenew, setShowRenew] = useState(false);
+  const [showPricing, setShowPricing] = useState(false);
   const plan = ACTIVATION_PLANS.find((p) => p.id === license?.planId);
-  const pricing = LICENSE_PLANS_PRICING.find((p) => p.id === license?.planId);
   const isTrial = !license?.lifetime && !plan;
-  // Durée totale réelle = écart entre activation et expiration (une licence
-  // prolongée avant sa fin garde un total cohérent avec les jours restants).
+  // Durée totale réelle = écart entre activation et expiration, pas juste le
+  // nombre de jours nominal du plan — sinon une licence prolongée (nouveau
+  // code activé avant la fin de la précédente) affiche un total incohérent
+  // avec le nombre de jours restants affiché juste à côté.
   const totalDays = license?.lifetime
     ? null
     : license?.activatedAt && license?.expiresAt
-      ? Math.max(1, Math.round((new Date(license.expiresAt) - new Date(license.activatedAt)) / MS_DAY))
+      ? Math.round((new Date(license.expiresAt) - new Date(license.activatedAt)) / MS_DAY)
       : plan ? plan.days : TRIAL_DAYS;
   const daysLeft = license && !license.lifetime && license.expiresAt ? Math.ceil((new Date(license.expiresAt) - Date.now()) / MS_DAY) : null;
-  const left = daysLeft !== null ? Math.max(0, daysLeft) : 0;
-  const ratio = totalDays ? Math.min(1, left / totalDays) : 1;
-  const fmtDate = (d) => new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-  const reminderAt = license?.expiresAt ? new Date(new Date(license.expiresAt).getTime() - 7 * MS_DAY) : null;
+  const daysUsed = totalDays !== null && daysLeft !== null ? Math.min(totalDays, Math.max(0, totalDays - daysLeft)) : null;
+  const progressPct = totalDays && daysUsed !== null ? Math.min(100, Math.round((daysUsed / totalDays) * 100)) : 0;
 
-  const STATUS = {
-    lifetime: { label: "Licence à vie", color: LIC.ok, bg: LIC.okBg, Icon: Crown },
-    active: { label: "Licence active", color: LIC.ok, bg: LIC.okBg, Icon: ShieldCheck },
-    expiring: { label: "Expire bientôt", color: "#B26A00", bg: "#FFF3DC", Icon: Clock },
-    expired: { label: "Licence expirée", color: "#C0392B", bg: "#FCEBE8", Icon: AlertTriangle },
-    none: { label: "Non activée", color: "#C0392B", bg: "#FCEBE8", Icon: AlertTriangle },
+  const STATUS_META = {
+    lifetime: { label: "Licence à vie", color: "#1CA857", icon: Crown },
+    active: { label: "Licence active", color: "#1CA857", icon: Check },
+    expiring: { label: "Expire bientôt", color: "var(--cap)", icon: Clock },
+    expired: { label: "Licence expirée", color: "var(--danger)", icon: AlertTriangle },
+    none: { label: "Non activée", color: "var(--danger)", icon: AlertTriangle },
   };
-  const st = isTrial && licenseStatus === "active" ? { ...STATUS.active, label: "Essai en cours", Icon: Gift } : STATUS[licenseStatus] || STATUS.none;
-  const StIcon = st.Icon;
-  const ringColor = licenseStatus === "expiring" ? LIC.gold : licenseStatus === "expired" || licenseStatus === "none" ? "#C0392B" : LIC.pri;
-  const R = 44, C = 2 * Math.PI * R;
-  const planName = license?.lifetime ? "Accès à vie" : isTrial ? "Essai gratuit" : `${pricing?.name || plan?.label || "Licence"}${plan ? ` · ${plan.label}` : ""}`;
-
-  const Row = ({ Icon, label, value, tone }) => (
-    <div className="flex items-center gap-3 py-2.5" style={{ borderTop: `1px solid ${LIC.line}` }}>
-      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: LIC.bg }}><Icon size={15} color={tone || LIC.pri} /></div>
-      <p className="flex-1 text-[12.5px]" style={{ color: LIC.mut }}>{label}</p>
-      <p className="text-[13px] font-semibold text-right" style={{ color: tone || LIC.ink }}>{value}</p>
-    </div>
-  );
+  const meta = STATUS_META[licenseStatus] || STATUS_META.none;
+  const StatusIcon = meta.icon;
+  const barColor = licenseStatus === "expired" || licenseStatus === "none" ? "var(--danger)" : licenseStatus === "expiring" ? "var(--cap)" : "#1CA857";
 
   return (
     <div>
-      <h3 className="font-display font-bold text-base mb-3">Licence{shopName ? ` · ${shopName}` : ""}</h3>
+      <h3 className="font-display font-bold text-base mb-3">Licence de l'entreprise{shopName ? ` ${shopName}` : ""}</h3>
 
-      <div className="rounded-[22px] p-4 mb-3" style={{ background: LIC.card, border: `1px solid ${LIC.line}`, boxShadow: "0 8px 24px rgba(18,32,43,0.06)", color: LIC.ink }}>
+      <div className="rounded-2xl p-4 mb-4" style={{ background: "var(--glass)" }}>
         <div className="flex items-center justify-between mb-3">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-bold" style={{ background: st.bg, color: st.color }}>
-            <StIcon size={13} strokeWidth={2.5} /> {st.label}
-          </span>
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.12)" }}>
+            <StatusIcon size={13} color={meta.color} strokeWidth={2.5} />
+            <span className="text-[11px] font-bold text-white">{meta.label}</span>
+          </div>
+          {licenseStatus !== "lifetime" && (
+            <button onClick={() => setShowPricing(true)} className="gb-focus flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold active:scale-95 transition-transform" style={{ background: "var(--cap)", color: "var(--glass)", boxShadow: "0 2px 8px rgba(0,0,0,0.18)" }}>
+              <ShoppingCart size={12} strokeWidth={2.5} /> Acheter une licence
+            </button>
+          )}
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="relative w-[104px] h-[104px] shrink-0">
-            <svg width="104" height="104" viewBox="0 0 104 104">
-              <circle cx="52" cy="52" r={R} fill="none" stroke={LIC.bg} strokeWidth="9" />
-              <circle cx="52" cy="52" r={R} fill="none" stroke={ringColor} strokeWidth="9" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - ratio)} transform="rotate(-90 52 52)" style={{ transition: "stroke-dashoffset .6s ease" }} />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              {license?.lifetime ? (
-                <Infinity size={30} color={LIC.pri} />
-              ) : (
-                <>
-                  <p className="font-display font-bold text-[26px] leading-none" style={{ color: ringColor }}>{left}</p>
-                  <p className="text-[10.5px] mt-1" style={{ color: LIC.mut }}>jour{left > 1 ? "s" : ""}</p>
-                </>
+        <div className="flex items-center gap-2 mb-1">
+          {isTrial && <Gift size={16} color="#fff" className="opacity-80" />}
+          <p className="font-display font-bold text-lg text-white">{license?.lifetime ? "Accès à vie" : plan ? plan.label : "Essai gratuit"}</p>
+        </div>
+
+        {!license?.lifetime && daysLeft !== null && (
+          <>
+            {daysLeft >= 0 ? (
+              <p className="text-white/85 text-2xl font-display font-bold mt-1">
+                {daysLeft}
+                <span className="text-white/50 text-xs font-sans font-semibold ml-1.5">
+                  jour{daysLeft > 1 ? "s" : ""} restant{daysLeft > 1 ? "s" : ""} sur {totalDays}
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs mt-1 font-semibold" style={{ color: "#FF8A80" }}>
+                Expirée depuis {Math.abs(daysLeft)} jour{Math.abs(daysLeft) > 1 ? "s" : ""}
+              </p>
+            )}
+
+            <div className="h-1.5 rounded-full overflow-hidden mt-2.5 mb-3" style={{ background: "rgba(255,255,255,0.15)" }}>
+              <div className="h-full rounded-full transition-all" style={{ width: `${daysLeft >= 0 ? progressPct : 100}%`, background: daysLeft >= 0 ? "#fff" : "#FF8A80" }} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                <p className="text-white/50 text-[10px] mb-0.5">Plan activé</p>
+                <p className="text-white text-[13px] font-semibold">{plan ? plan.label : "Essai gratuit"}</p>
+              </div>
+              {license?.activatedAt && (
+                <div className="rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                  <p className="text-white/50 text-[10px] mb-0.5">Date d'activation</p>
+                  <p className="text-white text-[13px] font-semibold">{new Date(license.activatedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</p>
+                </div>
+              )}
+              {daysUsed !== null && (
+                <div className="rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                  <p className="text-white/50 text-[10px] mb-0.5">Jours écoulés</p>
+                  <p className="text-white text-[13px] font-semibold">{daysUsed} jour{daysUsed > 1 ? "s" : ""}</p>
+                </div>
+              )}
+              <div className="rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                <p className="text-white/50 text-[10px] mb-0.5">Jours restants</p>
+                <p className="text-white text-[13px] font-semibold">{daysLeft >= 0 ? daysLeft : 0} jour{daysLeft > 1 ? "s" : ""}</p>
+              </div>
+              {license?.expiresAt && (
+                <div className="rounded-xl px-3 py-2 col-span-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                  <p className="text-white/50 text-[10px] mb-0.5">{daysLeft >= 0 ? "Date d'expiration" : "A expiré le"}</p>
+                  <p className="text-white text-[13px] font-semibold flex items-center gap-1.5"><CalendarCheck size={13} color={daysLeft >= 0 ? "#97C459" : "#FF8A80"} />{new Date(license.expiresAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</p>
+                </div>
               )}
             </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11.5px]" style={{ color: LIC.mut }}>Formule</p>
-            <p className="font-display font-bold text-[17px] leading-tight mb-1.5">{planName}</p>
-            {license?.lifetime ? (
-              <p className="text-[12.5px]" style={{ color: LIC.mut }}>Aucun renouvellement nécessaire.</p>
-            ) : daysLeft !== null && daysLeft >= 0 ? (
-              <p className="text-[12.5px]" style={{ color: LIC.mut }}>{left} jour{left > 1 ? "s" : ""} restant{left > 1 ? "s" : ""} sur {totalDays}</p>
-            ) : daysLeft !== null ? (
-              <p className="text-[12.5px] font-semibold" style={{ color: "#C0392B" }}>Expirée depuis {Math.abs(daysLeft)} jour{Math.abs(daysLeft) > 1 ? "s" : ""}</p>
-            ) : null}
-          </div>
-        </div>
+          </>
+        )}
 
-        <div className="mt-3">
-          {license?.activatedAt && <Row Icon={CalendarCheck} label="Activée le" value={fmtDate(license.activatedAt)} />}
-          {!license?.lifetime && license?.expiresAt && (
-            <Row Icon={Clock} label={daysLeft >= 0 ? "Expire le" : "A expiré le"} value={fmtDate(license.expiresAt)} tone={daysLeft < 0 ? "#C0392B" : undefined} />
-          )}
-          {!license?.lifetime && reminderAt && reminderAt.getTime() > Date.now() && (
-            <Row Icon={Bell} label="Rappel automatique" value={fmtDate(reminderAt)} />
-          )}
-        </div>
+        {license?.lifetime && license?.activatedAt && (
+          <div className="rounded-xl px-3 py-2 mt-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+            <p className="text-white/50 text-[10px] mb-0.5">Activée le</p>
+            <p className="text-white text-[13px] font-semibold">{new Date(license.activatedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</p>
+          </div>
+        )}
       </div>
 
-      {(licenseStatus === "expired" || licenseStatus === "none") && (
-        <div className="rounded-2xl p-3.5 mb-3 flex items-start gap-2.5" style={{ background: "#FCEBE8" }}>
-          <AlertTriangle size={16} color="#C0392B" className="shrink-0 mt-0.5" />
-          <p className="text-xs" style={{ color: "#C0392B" }}>Votre licence est expirée. Les nouvelles ventes sont bloquées jusqu'à l'activation d'un nouveau code — le reste de l'application reste accessible.</p>
-        </div>
-      )}
-      {licenseStatus === "expiring" && (
-        <div className="rounded-2xl p-3.5 mb-3 flex items-start gap-2.5" style={{ background: "#FFF3DC" }}>
-          <Clock size={16} color="#8A5A00" className="shrink-0 mt-0.5" />
-          <p className="text-xs" style={{ color: "#8A5A00" }}>Pensez à prolonger maintenant : le nouveau code s'ajoute aux jours qu'il vous reste.</p>
+      {licenseStatus === "expired" && (
+        <div className="rounded-2xl p-3.5 mb-4 flex items-start gap-2.5" style={{ background: "#FCEBE8" }}>
+          <AlertTriangle size={16} color="var(--danger)" className="shrink-0 mt-0.5" />
+          <p className="text-xs" style={{ color: "var(--danger)" }}>Votre licence est expirée. Les nouvelles ventes sont bloquées jusqu'au renouvellement — le reste de l'application reste accessible.</p>
         </div>
       )}
 
-      {!license?.lifetime && (
-        <div className="mb-2.5">
-          <LicPrimaryButton onClick={() => setPricingStep("offers")} Icon={ChevronRight}>
-            {isTrial || licenseStatus === "expired" || licenseStatus === "none" ? "Choisir une formule" : "Prolonger et économiser"}
-          </LicPrimaryButton>
-        </div>
-      )}
-      <button onClick={() => setPricingStep("activate")} className="gb-focus w-full min-h-[50px] rounded-[18px] text-[14.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform" style={{ background: LIC.card, border: `1.5px solid ${LIC.line}`, color: LIC.pri }}>
-        <KeyRound size={16} /> J'ai un code d'activation
+      <button onClick={() => setShowRenew(true)} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(135deg, var(--cap), #C9770E)", boxShadow: "0 4px 14px -4px rgba(0,0,0,0.35)" }}>
+        <KeyRound size={16} />
+        {licenseStatus === "expired" || licenseStatus === "none" ? "Activer un nouveau code" : "Entrer un code pour prolonger"}
       </button>
-      <p className="text-center text-[11.5px] mt-3" style={{ color: LIC.mut }}>Aucun paiement dans l'application : vous recevez votre code après votre commande.</p>
 
-      {pricingStep && (
-        <PricingScreen
-          registeredAdmin={null}
-          onClose={() => setPricingStep(null)}
-          pushToast={pushToast}
-          shopName={shopName}
-          license={license}
-          onActivate={onActivate}
-          initialStep={pricingStep}
-        />
+      {showRenew && <RenewLicenseModal onActivate={onActivate} onClose={() => setShowRenew(false)} pushToast={pushToast} />}
+      {showPricing && (
+        <div className="fixed inset-0 z-50 overflow-y-auto no-print">
+          <PricingScreen registeredAdmin={null} onClose={() => setShowPricing(false)} pushToast={pushToast} shopName={shopName} />
+        </div>
       )}
+
+      <div className="mt-5">
+        <p className="text-xs font-semibold opacity-60 mb-2">Plans disponibles</p>
+        <div className="flex flex-col gap-2">
+          {ACTIVATION_PLANS.map((p) => {
+            const pricing = LICENSE_PLANS_PRICING.find((lp) => lp.id === p.id) || {};
+            const ICONS = { Zap, Rocket, Crown, Building2, Infinity };
+            const PlanIcon = ICONS[pricing.icon] || Clock;
+            const isLifetime = p.id === "lifetime";
+            return (
+              <div
+                key={p.id}
+                className={`relative flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 ${pricing.popular ? "gb-pulse" : ""}`}
+                style={{
+                  border: pricing.popular ? "2px solid var(--cap)" : "1px solid var(--line)",
+                  background: isLifetime ? "#FBEAF0" : "var(--card)",
+                }}
+              >
+                {pricing.popular && (
+                  <span className="absolute -top-2.5 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--cap)", color: "var(--glass)" }}>Populaire</span>
+                )}
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: isLifetime ? "var(--card)" : (pricing.iconBg || "var(--paper-dim)") }}>
+                  <PlanIcon size={16} color={isLifetime ? "#993556" : (pricing.iconColor || "var(--ink)")} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold truncate mb-1" style={{ color: isLifetime ? "#993556" : "inherit" }}>{pricing.name || p.label}</p>
+                  <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide" style={{ background: isLifetime ? "#993556" : pricing.popular ? (pricing.iconColor || "var(--glass)") : (pricing.iconBg || "var(--paper-dim)"), color: isLifetime || pricing.popular ? "#fff" : (pricing.iconColor || "var(--ink)") }}>{p.label.toUpperCase()}</span>
+                  <p className="font-mono text-[10px] mt-1" style={{ color: isLifetime ? "#993556" : "var(--ink)", opacity: 0.4 }}>{p.code}-XXXXXXXXXX-X</p>
+                </div>
+                <div className="text-right shrink-0">
+                  {pricing.price ? (
+                    <>
+                      <p className="text-[13px] font-bold" style={{ color: isLifetime ? "#993556" : "inherit" }}>{pricing.price.toLocaleString("fr-FR")} FCFA</p>
+                      {pricing.oldPrice && <p className="text-[10px] opacity-40 line-through">{pricing.oldPrice.toLocaleString("fr-FR")} FCFA</p>}
+                    </>
+                  ) : (
+                    <p className="text-[13px] font-bold" style={{ color: "#993556" }}>Sur devis</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -11182,10 +10676,8 @@ function AppInner() {
       if (shop?.backendLinked) api.syncLicenseToShop(next).catch(() => {});
       const planLabel = ACTIVATION_PLANS.find((p) => p.id === data.plan)?.label || data.plan;
       pushToast(data.lifetime ? "Licence à vie activée !" : `Licence activée — ${planLabel}`, "ok");
-      return true;
     } catch (e) {
       pushToast(e.message || "Code invalide", "error");
-      return false;
     }
   };
 
@@ -12306,7 +11798,7 @@ function AppInner() {
   // encaissé est enregistré comme premier règlement du crédit (voir
   // SellScreen.confirmCheckout), le solde restant apparaissant dans
   // CreditsScreen comme pour tout crédit partiellement réglé.
-  const handleCheckout = (cartItems, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment, avoirPay) => {
+  const handleCheckout = (cartItems, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment) => {
     const nextProducts = products.map((p) => { const line = cartItems.find((i) => i.id === p.id); return line ? { ...p, stock: p.stock - line.qty } : p; });
     const paidNow = initialCashPayment > 0 ? initialCashPayment : 0;
     const payments = paidNow > 0 ? [{ amount: paidNow, date: new Date().toISOString(), by: currentVendorName }] : undefined;
@@ -12317,40 +11809,6 @@ function AppInner() {
       changeDue: amountReceived != null ? Math.max(0, amountReceived - total) : null,
       payments,
     };
-    // Paiement avec un avoir monnaie (total ou partiel) : la part d'avoir est
-    // déduite de l'avoir du client (journalisée comme "achat", pas comme de
-    // la monnaie rendue) et le reste de l'avoir reste disponible.
-    let avoirLeft = 0;
-    if (avoirPay?.avoirId) {
-      const av = avoirs.find((a) => a.id === avoirPay.avoirId);
-      const avail = av ? avoirRemaining(av) : 0;
-      const used = Math.min(avail, Number(avoirPay.amount) || 0, total);
-      if (used > 0) {
-        const now = sale.date;
-        const redemptions = [...(av.redemptions || []), { amount: used, date: now, by: currentVendorName || shop?.adminDisplayName || "Administrateur", kind: "achat", saleId: sale.id }];
-        avoirLeft = Math.max(0, avail - used);
-        const updated = avoirs.map((a) => (a.id === av.id ? { ...a, redemptions, settled: avoirLeft <= 0.5, settledDate: avoirLeft <= 0.5 ? now : a.settledDate } : a));
-        // Monnaie du complément gardée en avoir : nouvel avoir monnaie
-        // rattaché à cette vente, enregistré dans le même appel.
-        const changeToAvoir = Math.max(0, Number(avoirPay.changeToAvoir) || 0);
-        if (changeToAvoir > 0) {
-          const newAvoir = { id: uid(), type: "monnaie", clientName: avoirPay.changeClient || av.clientName || "Client", amount: changeToAvoir, date: now, vendor: currentVendorName || shop?.adminDisplayName || "Administrateur", settled: false, saleId: sale.id, redemptions: [] };
-          updated.unshift(newAvoir);
-          sale.avoirMonnaie = true;
-          sale.avoirAmount = changeToAvoir;
-          pushNotification?.({ type: "avoir_created", avoirType: "monnaie", clientName: newAvoir.clientName, amount: changeToAvoir });
-        }
-        saveAvoirs(updated);
-        sale.avoirPaid = used;
-        sale.avoirId = av.id;
-        sale.avoirClientName = av.clientName;
-        sale.avoirLeft = avoirLeft;
-        if (!sale.clientName) sale.clientName = av.clientName;
-        const due = total - used;
-        sale.changeDue = amountReceived != null ? (sale.avoirMonnaie ? 0 : Math.max(0, amountReceived - due)) : null;
-        logAudit("vente", `Achat payé avec l'avoir de ${av.clientName || "un client"} : ${formatMoney(used, shop?.currency)}${due > 0 ? ` + ${formatMoney(due, shop?.currency)} en ${PAYMENT_LABELS[paymentMethod]}` : ""} · reste sur l'avoir ${formatMoney(avoirLeft, shop?.currency)}`, { amount: used, saleId: sale.id });
-      }
-    }
     saveProducts(nextProducts);
     saveSales([...sales, sale]);
     const saleMovements = cartItems.map((i) => {
@@ -12361,7 +11819,7 @@ function AppInner() {
     setCart([]);
     setNotifications((prev) => [{ id: sale.id, vendor: sale.vendor, total: sale.total, date: sale.date, paymentMethod: sale.paymentMethod }, ...prev].slice(0, 30));
     setUnreadCount((c) => c + 1);
-    pushSaleToast(sale.total, sale.avoirPaid >= sale.total ? "Avoir" : sale.avoirPaid > 0 ? `Avoir + ${PAYMENT_LABELS[sale.paymentMethod]}` : PAYMENT_LABELS[sale.paymentMethod]);
+    pushSaleToast(sale.total, PAYMENT_LABELS[sale.paymentMethod]);
     return sale;
   };
 
@@ -12615,36 +12073,10 @@ function AppInner() {
     saveProducts(nextProducts);
     saveMovements([...cancelMovements, ...movements]);
     saveSales(sales.filter((s) => s.id !== saleId));
-    // Suppression en cascade : le crédit disparaît avec la vente (il est porté
-    // par elle), les avoirs rattachés sont retirés en un seul enregistrement.
-    const impact = saleDeletionImpact(sale, avoirs);
-    if (impact.avoirIds.length || impact.restored) {
-      const ids = new Set(impact.avoirIds);
-      saveAvoirs(avoirs.filter((a) => !ids.has(a.id)).map((a) => {
-        if (!impact.restored || a.id !== impact.restored.avoir.id) return a;
-        const redemptions = (a.redemptions || []).filter((r) => r.saleId !== sale.id);
-        return { ...a, redemptions, settled: false, settledDate: undefined };
-      }));
-    }
-    const cascade = [
-      impact.restored ? `avoir de ${impact.restored.avoir.clientName || "client"} recrédité de ${formatMoney(impact.restored.amount, shop?.currency)}` : null,
-      impact.credit ? `crédit ${formatMoney(impact.credit.total, shop?.currency)}${impact.credit.paid > 0 ? ` (dont ${formatMoney(impact.credit.paid, shop?.currency)} déjà encaissés)` : ""}` : null,
-      ...impact.avoirs.map(({ avoir: a, remaining }) => a.type === "monnaie"
-        ? `avoir monnaie ${formatMoney(Number(a.amount) || 0, shop?.currency)} · ${a.clientName}${remaining < (Number(a.amount) || 0) ? ` (reste ${formatMoney(remaining, shop?.currency)})` : ""}`
-        : `avoir produit ${(a.items || []).map((i) => `${i.qty}× ${i.name}`).join(", ")} · ${a.clientName}`),
-    ].filter(Boolean);
-    logAudit("vente", `Vente N° ${receiptNumber(saleId)} supprimée (${sale.items.map((i) => `${i.qty}× ${i.product?.name || "?"}`).join(", ")})${cascade.length ? ` · supprimés avec elle : ${cascade.join(" ; ")}` : ""}`, { amount: -(Number(sale.total) || 0), saleId });
+    logAudit("vente", `Vente N° ${receiptNumber(saleId)} supprimée (${sale.items.map((i) => `${i.qty}× ${i.product?.name || "?"}`).join(", ")})`, { amount: -(Number(sale.total) || 0), saleId });
     setNotifications((prev) => [{ id: `del-${saleId}-${Date.now()}`, type: "sale_deleted", receiptNumber: saleId.slice(0, 6).toUpperCase(), total: sale.total, date: new Date().toISOString() }, ...prev].slice(0, 30));
     setUnreadCount((c) => c + 1);
-    {
-      const parts = [];
-      if (impact.credit) parts.push("crédit");
-      const nm = impact.avoirs.filter((l) => l.avoir.type === "monnaie").length;
-      const np = impact.avoirs.filter((l) => l.avoir.type === "produit").length;
-      if (nm) parts.push(nm > 1 ? `${nm} avoirs monnaie` : "avoir monnaie");
-      if (np) parts.push(np > 1 ? `${np} avoirs produit` : "avoir produit");
-      pushToast(parts.length ? `Vente supprimée avec ${parts.join(", ")} · stock restitué` : "Vente supprimée, stock restitué", "ok");
-    }
+    pushToast("Vente supprimée, stock restitué", "ok");
   };
 
   // Modifie une vente déjà enregistrée (quantités, articles retirés, mode de
@@ -13084,11 +12516,11 @@ function AppInner() {
                 ) : (
                   <>
                     {view === "sell" && (
-                      <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={handleCheckout} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
+                      <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={handleCheckout} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
                     )}
                     {view === "stock" && <StockScreen products={products} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
                     {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} onReturnSale={handleReturnSale} pushToast={pushToast} />}
-                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
+                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
                     {view === "expenses" && role === "vendeur" && (
                       <VendorExpensesScreen expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} vendorName={currentVendorName} />
                     )}
