@@ -200,16 +200,17 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
   push(ESC, 0x45, 0x01);
   line(twoCol(receipt.isProductAvoir ? "VALEUR EN AVOIR" : "TOTAL", fmt(receipt.total)));
   push(ESC, 0x45, 0x00);
+  const creditRest = Math.max(0, (Number(receipt.total) || 0) - (Number(receipt.avoirPaid) || 0) - (Number(receipt.amountReceived) || 0));
   if (receipt.avoirPaid > 0) {
     line(twoCol("Paye avec avoir", "-" + fmt(receipt.avoirPaid)));
-    if (receipt.total - receipt.avoirPaid > 0) line(twoCol("Complement " + PAYMENT_LABEL(receipt.paymentMethod), fmt(receipt.total - receipt.avoirPaid)));
+    if (receipt.total - receipt.avoirPaid > 0) line(twoCol(receipt.paymentMethod === "credit" ? "Complement" : "Complement " + PAYMENT_LABEL(receipt.paymentMethod), fmt(receipt.total - receipt.avoirPaid)));
     line(twoCol("Avoir restant", fmt(receipt.avoirLeft || 0)));
   } else if (!receipt.isProductAvoir) line(PAYMENT_LABEL(receipt.paymentMethod));
   if (receipt.amountReceived != null) {
     line(twoCol("Recu", fmt(receipt.amountReceived)));
-    if (receipt.paymentMethod === "credit" && receipt.total > receipt.amountReceived) {
+    if (receipt.paymentMethod === "credit" && creditRest > 0) {
       push(ESC, 0x45, 0x01);
-      line(twoCol("Reste a payer", fmt(receipt.total - receipt.amountReceived)));
+      line(twoCol("Reste a payer", fmt(creditRest)));
       push(ESC, 0x45, 0x00);
     } else if (!receipt.avoirMonnaie) {
       line(twoCol("Rendu", fmt(receipt.changeDue)));
@@ -217,9 +218,9 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
   }
   // Blocs d'avis — mêmes conditions et mêmes montants que les encarts
   // affichés à l'écran (solde en crédit, avoir monnaie, avoir produit).
-  if (receipt.paymentMethod === "credit" && receipt.total > (receipt.amountReceived || 0)) {
+  if (receipt.paymentMethod === "credit" && creditRest > 0) {
     line("");
-    line(`Solde en credit : ${fmt(receipt.total - (receipt.amountReceived || 0))}`);
+    line(`Solde en credit : ${fmt(creditRest)}`);
     line(`Client : ${clientName || "Client"} - visible dans`);
     line("Credits clients jusqu'au reglement complet.");
   }
@@ -231,7 +232,7 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
   }
   if (hasProductAvoir) {
     line("");
-    line(`Client : ${clientName || "Client"}`);
+    line(receipt.productAvoirFor && receipt.productAvoirFor !== receipt.avoirClientName ? `Offert a : ${receipt.productAvoirFor}` : `Client : ${receipt.productAvoirFor || clientName || "Client"}`);
     line("Produits en avoir (a retirer ou consommer");
     line("sur place lors d'un prochain passage) :");
     receipt.items.forEach((i) => line(twoCol(`  ${i.qty} x ${i.product.name}`, fmt(i.qty * i.product.price))));

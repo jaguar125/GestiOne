@@ -236,6 +236,11 @@ function creditPaymentsOf(sale) {
   if (sale.paid && sale.paidDate) return [{ amount: sale.total, date: sale.paidDate, by: sale.paidBy }];
   return [];
 }
+// Solde d'une vente à crédit au moment du reçu : total moins la part payée
+// avec un avoir et moins les espèces reçues.
+function creditRestOf(r) {
+  return Math.max(0, (Number(r.total) || 0) - (Number(r.avoirPaid) || 0) - (Number(r.amountReceived) || 0));
+}
 function creditPaidSoFar(sale) {
   return creditPaymentsOf(sale).reduce((sum, p) => sum + p.amount, 0);
 }
@@ -2408,7 +2413,7 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
         {receipt.avoirPaid > 0 && (
           <div className="rounded-xl p-3 mt-3" style={{ background: "#FAEEDA" }}>
             <div className="flex justify-between text-[12px] font-bold" style={{ color: "#854F0B" }}><span className="flex items-center gap-1.5"><Coins size={13} /> Payé avec l'avoir</span><span className="font-mono">- {fmt(receipt.avoirPaid)}</span></div>
-            {receipt.total - receipt.avoirPaid > 0 && <div className="flex justify-between text-[11.5px] mt-1" style={{ color: "#854F0B" }}><span>Complément payé ({PAYMENT_LABELS[receipt.paymentMethod]})</span><span className="font-mono">{fmt(receipt.total - receipt.avoirPaid)}</span></div>}
+            {receipt.total - receipt.avoirPaid > 0 && <div className="flex justify-between text-[11.5px] mt-1" style={{ color: "#854F0B" }}><span>{receipt.paymentMethod === "credit" ? "Complément" : `Complément payé (${PAYMENT_LABELS[receipt.paymentMethod]})`}</span><span className="font-mono">{fmt(receipt.total - receipt.avoirPaid)}</span></div>}
             <div className="flex justify-between text-[11.5px] mt-1" style={{ color: "#854F0B" }}><span>Avoir restant · {receipt.avoirClientName || "Client"}</span><span className="font-mono font-bold">{fmt(receipt.avoirLeft || 0)}</span></div>
           </div>
         )}
@@ -2424,10 +2429,10 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
               <span>Montant reçu</span>
               <span>{fmt(receipt.amountReceived)}</span>
             </div>
-            {receipt.paymentMethod === "credit" && receipt.total > receipt.amountReceived ? (
+            {receipt.paymentMethod === "credit" && creditRestOf(receipt) > 0 ? (
               <div className="flex justify-between text-[12px] font-mono font-bold mt-1" style={{ color: "var(--danger)" }}>
                 <span>Reste à payer</span>
-                <span>{fmt(receipt.total - receipt.amountReceived)}</span>
+                <span>{fmt(creditRestOf(receipt))}</span>
               </div>
             ) : !receipt.avoirMonnaie ? (
               <div className="flex justify-between text-[12px] font-mono font-bold mt-1">
@@ -2437,9 +2442,9 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
             ) : null}
           </>
         )}
-        {receipt.paymentMethod === "credit" && receipt.total > (receipt.amountReceived || 0) && (
+        {receipt.paymentMethod === "credit" && creditRestOf(receipt) > 0 && (
           <div className="rounded-xl p-3 mt-3 gb-slide-up" style={{ background: "#FCEBE8" }}>
-            <p className="text-[12px] font-bold" style={{ color: "var(--danger)" }}>Solde en crédit : {fmt(receipt.total - (receipt.amountReceived || 0))}</p>
+            <p className="text-[12px] font-bold" style={{ color: "var(--danger)" }}>Solde en crédit : {fmt(creditRestOf(receipt))}</p>
             <p className="text-[11px] mt-0.5" style={{ color: "#8C3A2C" }}>Client : {receipt.clientName || "Client"} — visible dans Crédits clients jusqu'au règlement complet.</p>
           </div>
         )}
@@ -2452,7 +2457,7 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
         )}
         {(receipt.isProductAvoir || receipt.hasProductAvoir) && (
           <div className="rounded-xl p-3 mt-3 gb-slide-up" style={{ background: "#EEEDFE" }}>
-            <p className="text-[12px] font-bold" style={{ color: "#26215C" }}>Client : {receipt.avoirClientName || receipt.clientName || "Client"}</p>
+            <p className="text-[12px] font-bold" style={{ color: "#26215C" }}>{receipt.productAvoirFor && receipt.productAvoirFor !== receipt.avoirClientName ? `Offert à : ${receipt.productAvoirFor}` : `Client : ${receipt.productAvoirFor || receipt.avoirClientName || receipt.clientName || "Client"}`}</p>
             <p className="text-[11px] mt-0.5" style={{ color: "#3C3489" }}>Ces produits sont en avoir : à retirer ou à consommer sur place lors d'un prochain passage.</p>
           </div>
         )}
@@ -2694,10 +2699,11 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   };
   const suggestedAvoir = !payAvoir && clientName.trim() ? openMoneyAvoirs.find((a) => (a.clientName || "").trim().toLowerCase() === clientName.trim().toLowerCase()) : null;
   useEffect(() => { if (payAvoirId && !payAvoir) setPayAvoirId(null); }, [payAvoirId, payAvoir]);
-  useEffect(() => { if (payAvoir && payment === "credit") setPayment("especes"); }, [payAvoir, payment]);
+  // Avoir insuffisant : ce que le client ne complète pas passe en crédit.
+  const avoirShortfall = payAvoir && due > 0 ? (payment === "credit" ? due : payment === "especes" && amountReceived !== "" ? Math.max(0, due - (Number(amountReceived) || 0)) : 0) : 0;
 
   const canAvoirMonnaie = payment === "especes" && amountReceived !== "" && Number(amountReceived) > (payAvoir ? due : total) && (!payAvoir || due > 0);
-  const canAvoirProduit = !payAvoir && (payment === "especes" ? amountReceived !== "" : payment === "mobile");
+  const canAvoirProduit = payAvoir ? true : (payment === "especes" ? amountReceived !== "" : payment === "mobile");
   // Vente en espèces avec un montant reçu insuffisant : au lieu de bloquer,
   // on propose d'enregistrer automatiquement la différence en crédit client
   // (dès lors qu'un client est renseigné et qu'aucune puce avoir n'est active).
@@ -2731,20 +2737,21 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     if (payAvoir) {
       // L'avoir ne couvre pas tout : le client DOIT compléter — le montant
       // reçu est obligatoire et doit couvrir le complément.
-      if (due > 0 && amountReceived === "") { pushToast(`Saisissez le montant reçu : le client doit compléter ${fmt(due)}`, "error"); return; }
-      if (due > 0 && payment === "especes" && Number(amountReceived) < due) { pushToast(`Montant insuffisant : il manque ${fmt(due - Number(amountReceived))}`, "error"); return; }
+      if (due > 0 && payment === "especes" && amountReceived === "") { pushToast(`Saisissez le montant reçu (0 si le client ne donne rien : ${fmt(due)} passeront en crédit)`, "error"); return; }
       if (due > 0 && payment === "mobile" && Math.round(Number(amountReceived)) !== Math.round(due)) { pushToast(`Le montant Mobile Money doit être exactement ${fmt(due)}`, "error"); return; }
-      const method = due > 0 ? payment : "especes";
       const received = due > 0 && payment === "especes" && amountReceived !== "" ? Number(amountReceived) : null;
+      const shortfall = avoirShortfall;
+      const method = due > 0 ? (shortfall > 0 ? "credit" : payment) : "especes";
       // Espèces au-delà du complément : par défaut la monnaie est rendue (et
       // figure sur le reçu) ; si « Avoir monnaie » est activé, elle est mise
       // en avoir pour le client au lieu d'être rendue.
-      const change = received != null ? Math.max(0, received - due) : 0;
+      const change = received != null && shortfall === 0 ? Math.max(0, received - due) : 0;
       const changeToAvoir = avoirMonnaie && change > 0 ? change : 0;
       const changeClient = avoirClientName.trim() || payAvoir.clientName || clientName.trim() || "Client";
-      const sale = onCheckout(cartItems, total, method, clientId, clientName || payAvoir.clientName, received, undefined, { avoirId: payAvoir.id, amount: payAvoirUsed, changeToAvoir, changeClient });
+      const productAvoirFor = avoirProduit ? (avoirClientName.trim() || payAvoir.clientName || clientName.trim() || "Client") : null;
+      const sale = onCheckout(cartItems, total, method, clientId, clientName || payAvoir.clientName, shortfall > 0 ? (received || null) : received, shortfall > 0 ? (received || 0) : undefined, { avoirId: payAvoir.id, amount: payAvoirUsed, changeToAvoir, changeClient, productAvoirFor });
       playSound("sale", shop.soundsEnabled);
-      speak(due > 0 ? `Vente enregistrée. ${spokenAmount(fmt(payAvoirUsed))} payés avec l'avoir, ${spokenAmount(fmt(due))} en complément.` : `Vente payée avec l'avoir de ${payAvoir.clientName}.`, voiceOn(shop, "sale"));
+      speak(shortfall > 0 ? `Vente enregistrée. ${spokenAmount(fmt(payAvoirUsed))} payés avec l'avoir, ${spokenAmount(fmt(shortfall))} en crédit.` : due > 0 ? `Vente enregistrée. ${spokenAmount(fmt(payAvoirUsed))} payés avec l'avoir, ${spokenAmount(fmt(due))} en complément.` : `Vente payée avec l'avoir de ${payAvoir.clientName}.`, voiceOn(shop, "sale"));
       setReceipt(sale);
       setShowCart(false);
       resetCheckoutFields();
@@ -3091,6 +3098,13 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                             </div>
                             <p className="text-[11.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>Il achète tout le panier : saisissez ci-dessous le montant qu'il donne.</p>
                           </div>
+                          <button onClick={() => { setPayment("credit"); setAmountReceived(""); setAvoirMonnaie(false); }} className="gb-focus w-full rounded-xl p-3 text-left" style={payment === "credit" ? { background: "#FCEBEA", border: "1.5px solid #B3261E" } : { background: "#fff", border: "1.5px solid #F0C4BF" }}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "#8A2419" }}><Wallet size={15} color="#B3261E" /> Payer le reste plus tard (crédit)</span>
+                              {payment === "credit" ? <Check size={16} color="#B3261E" strokeWidth={2.6} /> : <span className="font-mono font-bold text-[13px]" style={{ color: "#B3261E" }}>{fmt(due)}</span>}
+                            </div>
+                            <p className="text-[11.5px] mt-0.5" style={{ color: "#8A2419", opacity: 0.8 }}>Il emporte tout le panier ; {fmt(due)} passent en crédit à son nom. S'il donne une partie en espèces, seul le manque passe en crédit.</p>
+                          </button>
                           <button onClick={buyWithAvoirOnly} disabled={avoirFit.kept.length === 0} className="gb-focus w-full rounded-xl p-3 text-left disabled:opacity-50" style={{ background: "#fff", border: "1.5px solid #F2C77A" }}>
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "#5A3500" }}><Coins size={15} color="#854F0B" /> Acheter seulement avec l'avoir</span>
@@ -3128,8 +3142,8 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                 )}
                 {due > 0 && (<>
                 <p className="text-xs font-semibold opacity-60 mb-2">{payAvoir ? "Payer le complément par" : "Mode de paiement"}</p>
-                <div className={`grid ${payAvoir ? "grid-cols-2" : "grid-cols-3"} gap-2 mb-3`}>
-                  {PAYMENT_METHODS.filter((m) => !payAvoir || m.id !== "credit").map((m) => {
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {PAYMENT_METHODS.map((m) => {
                     const on = payment === m.id;
                     const Icon = m.id === "especes" ? Banknote : m.id === "mobile" ? Smartphone : UserPlus;
                     return (
@@ -3139,9 +3153,15 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                     );
                   })}
                 </div>
+                {payAvoir && payment === "credit" && (
+                  <div className="mb-3 rounded-xl p-3 gb-slide-up" style={{ background: "#FCEBEA" }}>
+                    <div className="flex items-center justify-between"><span className="text-[12.5px] font-bold" style={{ color: "#8A2419" }}>Reste en crédit</span><span className="font-display font-bold text-[18px]" style={{ color: "#B3261E" }}>{fmt(due)}</span></div>
+                    <p className="text-[11px] mt-0.5" style={{ color: "#8A2419" }}>Au nom de {clientName || payAvoir.clientName || "Client"} · visible dans Crédits clients jusqu'au règlement.</p>
+                  </div>
+                )}
                 {payment === "especes" && (
                   <div className="mb-3 gb-slide-up">
-                    <p className="text-xs font-semibold mb-2" style={payAvoir ? { color: "#B3261E" } : { opacity: 0.6 }}>{payAvoir ? `Montant reçu du client (obligatoire · au moins ${fmt(due)})` : "Montant reçu du client (optionnel)"}</p>
+                    <p className="text-xs font-semibold mb-2" style={payAvoir ? { color: "#B3261E" } : { opacity: 0.6 }}>{payAvoir ? `Montant reçu du client (obligatoire · complément ${fmt(due)})` : "Montant reçu du client (optionnel)"}</p>
                     {due > 0 && (
                       <div className="grid grid-cols-3 gap-1.5 mb-2">
                         {[...new Set([due, ...[500, 1000, 2000, 5000, 10000].map((step) => Math.ceil(due / step) * step)])].slice(0, 6).map((v, idx) => (
@@ -3170,7 +3190,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                             <span className="text-xs font-semibold" style={{ color: "var(--danger)" }}>Montant insuffisant</span>
                             <span className="font-mono font-bold text-sm" style={{ color: "var(--danger)" }}>- {fmt(due - Number(amountReceived))}</span>
                           </div>
-                          <p className="text-[10px] mt-1" style={{ color: "var(--danger)" }}>{payAvoir ? "Le complément doit être payé en entier." : "Sera enregistré en crédit client pour la différence — indiquez le nom du client ci-dessous."}</p>
+                          <p className="text-[10px] mt-1" style={{ color: "var(--danger)" }}>{payAvoir ? `Le manque passera en crédit au nom de ${clientName || payAvoir.clientName || "client"}.` : "Sera enregistré en crédit client pour la différence — indiquez le nom du client ci-dessous."}</p>
                         </div>
                       )
                     )}
@@ -3186,7 +3206,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                   </div>
                 )}
                 </>)}
-                <p className="text-xs font-semibold opacity-60 mb-2">Client {(payment === "credit" || cashShortfall) ? "(requis)" : "(optionnel)"}</p>
+                <p className="text-xs font-semibold opacity-60 mb-2">Client {((payment === "credit" && !payAvoir) || cashShortfall) ? "(requis)" : "(optionnel)"}</p>
                 <ClientPicker clients={clients} value={clientId} onChange={(id, name) => { setClientId(id); setClientName(name); }} onCreateClient={onCreateClient} focusSignal={clientFocusSignal} />
 
                 {payAvoir && due > 0 && payment === "especes" && amountReceived !== "" && Number(amountReceived) > due && (
@@ -3198,6 +3218,17 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                       </span>
                     </button>
                     <p className="text-[10.5px] opacity-60 -mt-1 px-1">{avoirMonnaie ? "La monnaie n'est pas rendue : elle est enregistrée en nouvel avoir monnaie." : "Désactivé : la monnaie est rendue au client et indiquée sur le reçu."}</p>
+                  </div>
+                )}
+                {payAvoir && (
+                  <div className="flex flex-col gap-1 mt-3">
+                    <button onClick={toggleAvoirProduit} className="gb-focus w-full flex items-center justify-between px-3 py-2.5 rounded-xl" style={{ background: "#EEEDFE" }}>
+                      <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#26215C" }}><PackageX size={13} /> Avoir produit (garder ou offrir les articles)</span>
+                      <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: avoirProduit ? "#7F77DD" : "var(--line)" }}>
+                        <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: avoirProduit ? 18 : 2 }} />
+                      </span>
+                    </button>
+                    <p className="text-[10.5px] opacity-60 px-1">{avoirProduit ? "Les articles restent au magasin et seront remis plus tard à la personne indiquée ci-dessous." : "Activez si le client ne prend pas les articles maintenant, ou les offre à quelqu'un."}</p>
                   </div>
                 )}
                 {!payAvoir && payment !== "credit" && (payment === "mobile" || (amountReceived !== "" && Number(amountReceived) >= total)) && (
@@ -3237,7 +3268,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
 
                 {(avoirMonnaie || avoirProduit) && (
                   <div className="mt-2.5 p-3 rounded-xl gb-slide-up" style={{ background: avoirProduit ? "#EEEDFE" : "#FAEEDA" }}>
-                    <p className="text-[11px] font-semibold mb-1.5" style={{ color: avoirProduit ? "#26215C" : "#854F0B" }}>Nom du client (avoir)</p>
+                    <p className="text-[11px] font-semibold mb-1.5" style={{ color: avoirProduit ? "#26215C" : "#854F0B" }}>{payAvoir && avoirProduit ? "Pour qui ? (le client, ou la personne à qui il offre)" : "Nom du client (avoir)"}</p>
                     <input
                       value={avoirClientName}
                       onChange={(e) => setAvoirClientName(e.target.value)}
@@ -3258,7 +3289,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
               </div>
               <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : "0 10px 22px rgba(30,142,80,0.3)" }}>
                 <Check size={19} />
-                {payAvoir ? (due > 0 ? `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}` : `Valider · payé par l'avoir`) : avoirProduit ? (avoirMonnaie ? "Enregistrer l'avoir produit + monnaie" : "Enregistrer l'avoir produit") : (cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
+                {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit ? (avoirMonnaie ? "Enregistrer l'avoir produit + monnaie" : "Enregistrer l'avoir produit") : (cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
               </button>
             </div>
           </div>
@@ -6068,7 +6099,9 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
   // la fiche reflète immédiatement un encaissement ou une remise.
   const sale = found?.kind === "sale" ? sales.find((s) => s.id === found.id) : null;
   const avoirDirect = found?.kind === "avoir" ? avoirs.find((a) => a.id === found.id) : null;
-  const linkedAvoirs = sale ? avoirs.filter((a) => a.saleId === sale.id || avoirs.some((b) => b.saleId === sale.id && a.saleId === b.id)) : avoirDirect ? [avoirDirect, ...avoirs.filter((a) => a.saleId === avoirDirect.id)] : [];
+  // Avoirs liés à la vente : ceux qu'elle a créés, et celui qui a servi à la
+  // payer (le client peut réclamer ce qu'il en reste).
+  const linkedAvoirs = sale ? avoirs.filter((a) => a.saleId === sale.id || (sale.avoirId && a.id === sale.avoirId) || avoirs.some((b) => b.saleId === sale.id && a.saleId === b.id)) : avoirDirect ? [avoirDirect, ...avoirs.filter((a) => a.saleId === avoirDirect.id)] : [];
 
   // Crédits et avoirs encore ouverts : ce que la caisse doit pouvoir retrouver
   // en un geste, même sans le bon numéro.
@@ -6155,6 +6188,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
   );
   const AvoirBlock = ({ a }) => {
     const isP = a.type === "produit";
+    const usedHere = sale && sale.avoirId === a.id;
     const prog = isP ? avoirProductProgress(a) : avoirMoneyProgress(a);
     const done = a.settled;
     return (
@@ -6167,13 +6201,23 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
           </div>
           <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full shrink-0" style={done ? { background: "#fff", color: "#1E7A46" } : { background: "#fff", color: isP ? "#5B3FB0" : "#9A5B00" }}>{done ? "SOLDÉ" : "EN COURS"}</span>
         </div>
+        {usedHere && (
+          <p className="text-[11.5px] mt-2 px-2.5 py-1.5 rounded-[10px]" style={{ background: "rgba(255,255,255,0.7)", color: isP ? "#4E3597" : "#6E4300" }}>
+            {fmt(sale.avoirPaid || 0)} de cet avoir ont servi à payer cette vente{done ? "." : " — le reste appartient toujours au client."}
+          </p>
+        )}
         {!done && (
           <>
             <div className="flex justify-between items-baseline mt-2.5">
               <span className="text-[12.5px] font-semibold" style={{ color: isP ? "#4E3597" : "#6E4300" }}>{isP ? "Encore à remettre" : "Monnaie encore due"}</span>
               <span className="font-display font-bold text-[20px]" style={{ color: isP ? "#4E3597" : "#6E4300" }}>{isP ? `${prog.remainingQty} article${prog.remainingQty > 1 ? "s" : ""}` : fmt(prog.remaining)}</span>
             </div>
-            {!isP && prog.remaining < (Number(a.amount) || 0) && <p className="text-[11.5px] opacity-70">Déjà rendu : {fmt((Number(a.amount) || 0) - prog.remaining)} sur {fmt(a.amount)}</p>}
+            {!isP && prog.remaining < (Number(a.amount) || 0) && (() => {
+              const reds = a.redemptions || [];
+              const bought = reds.filter((r) => r.kind === "achat").reduce((t, r) => t + (Number(r.amount) || 0), 0);
+              const given = Math.max(0, (Number(a.amount) || 0) - prog.remaining - bought);
+              return <p className="text-[11.5px] opacity-70">Avoir de {fmt(a.amount)}{bought > 0 ? ` · ${fmt(bought)} utilisés en achat` : ""}{given > 0 ? ` · ${fmt(given)} déjà rendus` : ""}</p>;
+            })()}
             <div className="mt-2.5">
               {isP
                 ? (onRedeemProduct && <Btn tone="violet" Icon={Boxes} onClick={() => setRedeemProduct(a)}>Remettre les produits</Btn>)
@@ -13737,6 +13781,25 @@ function AppInner() {
           sale.avoirAmount = changeToAvoir;
           pushNotification?.({ type: "avoir_created", avoirType: "monnaie", clientName: newAvoir.clientName, amount: changeToAvoir });
         }
+        // Avoir produit : les articles achetés restent au magasin, pour le
+        // client ou pour la personne à qui il les offre.
+        if (avoirPay.productAvoirFor) {
+          const pa = {
+            id: uid(), type: "produit", clientName: avoirPay.productAvoirFor,
+            items: cartItems.map((i) => ({ productId: i.product.id, name: i.product.name, qty: i.qty, price: i.product.price })),
+            date: now, vendor: currentVendorName || shop?.adminDisplayName || "Administrateur", settled: false, saleId: sale.id, history: [],
+          };
+          updated.unshift(pa);
+          sale.hasProductAvoir = true;
+          sale.productAvoirFor = pa.clientName;
+          pushNotification?.({ type: "avoir_created", avoirType: "produit", clientName: pa.clientName, itemCount: cartItems.length });
+        }
+        // Complément non payé : il passe en crédit client. La part d'avoir
+        // compte comme un premier règlement, les espèces reçues aussi.
+        if (paymentMethod === "credit") {
+          sale.payments = [{ amount: used, date: now, by: currentVendorName || shop?.adminDisplayName || "Administrateur", kind: "avoir" }, ...(sale.payments || [])];
+          sale.paid = sale.payments.reduce((t, p) => t + p.amount, 0) >= total - 0.5;
+        }
         saveAvoirs(updated);
         sale.avoirPaid = used;
         sale.avoirId = av.id;
@@ -13744,8 +13807,10 @@ function AppInner() {
         sale.avoirLeft = avoirLeft;
         if (!sale.clientName) sale.clientName = av.clientName;
         const due = total - used;
-        sale.changeDue = amountReceived != null ? (sale.avoirMonnaie ? 0 : Math.max(0, amountReceived - due)) : null;
-        logAudit("vente", `Achat payé avec l'avoir de ${av.clientName || "un client"} : ${formatMoney(used, shop?.currency)}${due > 0 ? ` + ${formatMoney(due, shop?.currency)} en ${PAYMENT_LABELS[paymentMethod]}` : ""} · reste sur l'avoir ${formatMoney(avoirLeft, shop?.currency)}`, { amount: used, saleId: sale.id });
+        sale.changeDue = amountReceived != null ? (sale.avoirMonnaie || paymentMethod === "credit" ? 0 : Math.max(0, amountReceived - due)) : null;
+        const cashIn = paymentMethod === "credit" ? (Number(amountReceived) || 0) : due;
+        const creditPart = paymentMethod === "credit" ? Math.max(0, due - cashIn) : 0;
+        logAudit("vente", `Achat payé avec l'avoir de ${av.clientName || "un client"} : ${formatMoney(used, shop?.currency)}${cashIn > 0 ? ` + ${formatMoney(cashIn, shop?.currency)} en ${paymentMethod === "credit" ? "espèces" : PAYMENT_LABELS[paymentMethod]}` : ""}${creditPart > 0 ? ` + ${formatMoney(creditPart, shop?.currency)} en crédit` : ""}${sale.hasProductAvoir ? ` · articles en avoir produit pour ${sale.productAvoirFor}` : ""} · reste sur l'avoir ${formatMoney(avoirLeft, shop?.currency)}`, { amount: used, saleId: sale.id });
       }
     }
     saveProducts(nextProducts);
