@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useContext, createContext, Component, useMemo } from "react";
+import { useState, useEffect, useRef, useContext, createContext, Component, useMemo, Fragment } from "react";
 import {
   ScanLine, ShoppingCart, Boxes, History, ShieldCheck, Plus, Minus,
   Trash2, X, Check, AlertTriangle, LogOut, Search, TrendingUp,
@@ -6,7 +6,7 @@ import {
   Wallet, CreditCard, Truck, Users, Download, Printer, Store, ChevronDown, ChevronLeft, ChevronRight,
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
-  Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
+  Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
   Phone, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
@@ -128,6 +128,12 @@ const ICON_OPTIONS = [
   { id: "croissant", Icon: Croissant },
   { id: "cookie", Icon: Cookie },
   { id: "popcorn", Icon: Popcorn },
+  { id: "shirt", Icon: Shirt },
+  { id: "footprints", Icon: Footprints },
+  { id: "shoppingbag", Icon: ShoppingBag },
+  { id: "watch", Icon: Watch },
+  { id: "gem", Icon: Gem },
+  { id: "sparkles", Icon: Sparkles },
 ];
 const ICON_MAP = Object.fromEntries(ICON_OPTIONS.map((o) => [o.id, o.Icon]));
 const COLOR_OPTIONS = ["#E8A33D", "#2C7DA0", "#3FB8C4", "#E76F3C", "#8B5CF6", "#EC4899", "#22C55E", "#14B8A6"];
@@ -182,10 +188,12 @@ const SNACK_PRODUCTS = [
     variants: [{ id: "fourre", name: "Pain fourré", price: 500 }, { id: "fourre-oeuf", name: "Pain fourré + œuf", price: 700 }] },
 ];
 const BOUTIQUE_CATEGORIES = [
-  { id: "entretien", label: "Entretien", color: "#2C7DA0", icon: "droplets" },
-  { id: "alimentation", label: "Alimentation", color: "#E8A33D", icon: "cookie" },
-  { id: "hygiene", label: "Hygiène", color: "#EC4899", icon: "milk" },
-  { id: "divers", label: "Divers", color: "#8B5CF6", icon: "popcorn" },
+  { id: "vetements", label: "Vêtements", color: "#8C3B6E", icon: "shirt" },
+  { id: "chaussures", label: "Chaussures", color: "#E4572E", icon: "footprints" },
+  { id: "sacs", label: "Sacs", color: "#8B4A2B", icon: "shoppingbag" },
+  { id: "accessoires", label: "Accessoires", color: "#1F3A68", icon: "watch" },
+  { id: "bijoux", label: "Bijoux", color: "#C9A14A", icon: "gem" },
+  { id: "beaute", label: "Beauté", color: "#EC4899", icon: "sparkles" },
 ];
 function seedFor(type) {
   const prof = shopProfile({ type });
@@ -196,14 +204,67 @@ function seedFor(type) {
 // Vocabulaire selon le profil : casier/bouteille pour les boissons, lot/pain
 // pour un snack, carton/pièce pour une boutique.
 const VOCAB = {
-  boissons: { pack: "casier", packs: "casiers", Pack: "Casier", unit: "bouteille", units: "bouteilles", Unit: "Bouteille" },
-  snack: { pack: "lot", packs: "lots", Pack: "Lot", unit: "pain", units: "pains", Unit: "Pain" },
-  boutique: { pack: "carton", packs: "cartons", Pack: "Carton", unit: "pièce", units: "pièces", Unit: "Pièce" },
-  autre: { pack: "lot", packs: "lots", Pack: "Lot", unit: "unité", units: "unités", Unit: "Unité" },
+  boissons: { profile: "boissons", pack: "casier", packs: "casiers", Pack: "Casier", unit: "bouteille", units: "bouteilles", Unit: "Bouteille" },
+  snack: { profile: "snack", pack: "lot", packs: "lots", Pack: "Lot", unit: "pain", units: "pains", Unit: "Pain" },
+  boutique: { profile: "boutique", pack: "carton", packs: "cartons", Pack: "Carton", unit: "pièce", units: "pièces", Unit: "Pièce" },
+  autre: { profile: "autre", pack: "lot", packs: "lots", Pack: "Lot", unit: "unité", units: "unités", Unit: "Unité" },
 };
 const VocabContext = createContext(VOCAB.boissons);
 function useVocab() { return useContext(VocabContext); }
 const plural = (n, one, many) => (n > 1 ? many : one);
+
+// ---------- Boutique : tailles, couleurs, prix promo ----------
+// Un article de boutique peut avoir des tailles (vêtements, pointures) et des
+// couleurs ; son stock est suivi par variante (couleur × taille) dans
+// product.boutique.stockBy, et product.stock reste le total (pour tous les
+// écrans existants : alertes, inventaire, valeur du stock…).
+const BOUTIQUE_KINDS = [
+  { id: "vetement", label: "Vêtement", Icon: Shirt, sizes: ["XS", "S", "M", "L", "XL", "XXL", "3XL"] },
+  { id: "chaussure", label: "Chaussure", Icon: Footprints, sizes: ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46"] },
+  { id: "sac", label: "Sac", Icon: ShoppingBag, sizes: [] },
+  { id: "autre", label: "Autre", Icon: Sparkles, sizes: [] },
+];
+const BOUTIQUE_COLORS = [
+  { name: "Noir", hex: "#17191F" }, { name: "Blanc", hex: "#FFFFFF" }, { name: "Gris", hex: "#9AA0A6" }, { name: "Beige", hex: "#D8C3A5" },
+  { name: "Marron", hex: "#8B4A2B" }, { name: "Rouge", hex: "#D7263D" }, { name: "Bordeaux", hex: "#6D1A36" }, { name: "Rose", hex: "#F28DB2" },
+  { name: "Orange", hex: "#F7A072" }, { name: "Jaune", hex: "#F2C14E" }, { name: "Vert", hex: "#2FA565" }, { name: "Kaki", hex: "#7C7A4A" },
+  { name: "Bleu", hex: "#3B7DD8" }, { name: "Bleu marine", hex: "#1F3A68" }, { name: "Violet", hex: "#7B4FB8" }, { name: "Doré", hex: "#C9A14A" },
+];
+const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+function promoActive(p) {
+  const pp = Number(p?.promoPrice) || 0;
+  if (!(pp > 0) || pp >= (Number(p.price) || 0)) return false;
+  if (p.promoUntil && todayIso() > p.promoUntil) return false;
+  return true;
+}
+function effPrice(p) { return promoActive(p) ? Number(p.promoPrice) : Number(p?.price) || 0; }
+function promoPct(p) { return Math.round((1 - Number(p.promoPrice) / Math.max(1, Number(p.price))) * 100); }
+const bvKey = (color, size) => `${color || ""}|${size || ""}`;
+const bvLabel = (bv) => [bv?.color, bv?.size].filter(Boolean).join(" · ");
+function hasVariants(p) { const b = p?.boutique; return !!b && ((b.sizes || []).length > 0 || (b.colors || []).length > 0); }
+function variantStock(p, color, size) { return Math.max(0, Number(p?.boutique?.stockBy?.[bvKey(color, size)]) || 0); }
+function variantTotal(p) { return Object.values(p?.boutique?.stockBy || {}).reduce((t, n) => t + (Number(n) || 0), 0); }
+function isNewArticle(p) { return !!p?.createdAt && Date.now() - new Date(p.createdAt).getTime() < 21 * MS_DAY; }
+// Ajoute (sign +1) ou retire (sign -1) les quantités vendues au stock des
+// variantes concernées (vente, suppression, modification, retour).
+function adjustVariantStock(list, items, sign) {
+  const delta = {};
+  (items || []).forEach((i) => {
+    if (!i?.bv) return;
+    const pid = i.productId || i.stockId || i.id;
+    const k = bvKey(i.bv.color, i.bv.size);
+    delta[pid] = delta[pid] || {};
+    delta[pid][k] = (delta[pid][k] || 0) + sign * (Number(i.qty) || 0);
+  });
+  if (!Object.keys(delta).length) return list;
+  return list.map((p) => {
+    const d = delta[p.id];
+    if (!d || !p.boutique) return p;
+    const stockBy = { ...(p.boutique.stockBy || {}) };
+    Object.entries(d).forEach(([k, v]) => { stockBy[k] = Math.max(0, (Number(stockBy[k]) || 0) + v); });
+    return { ...p, boutique: { ...p.boutique, stockBy } };
+  });
+}
 
 // Stock partagé : un produit « formule » (ex : Pain fourré) se vend à partir
 // du stock d'un autre produit (Pain) — 1 vente retire 1 unité de ce stock.
@@ -281,6 +342,8 @@ const SHOP_META_SYNC_FIELDS = [
   "taxId", "rccm", "invoiceAddress", "invoicePhone", "invoiceEmail", "vatRate", "invoiceFooter",
   // Équipe
   "vendorGoals",
+  // Boutique
+  "banners",
 ];
 function pickShopMeta(shop) {
   const out = {};
@@ -313,6 +376,7 @@ const THEME_PRESETS = [
   { id: "ambre", label: "Ambre", glass: "#4A2E12", glassLight: "#6B451E", cap: "#F2C14E" },
   { id: "violet", label: "Violet", glass: "#2E1A47", glassLight: "#432764", cap: "#C9A6FF" },
   { id: "ardoise", label: "Ardoise", glass: "#1E2A32", glassLight: "#2C3E49", cap: "#7FD1D9" },
+  { id: "prune", label: "Prune & corail", glass: "#4B2142", glassLight: "#6A2E5C", cap: "#F07A55" },
 ];
 function getTheme(id) { return THEME_PRESETS.find((t) => t.id === id) || THEME_PRESETS[0]; }
 
@@ -2541,12 +2605,401 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
   );
 }
 
+
+// Bannières de la vitrine : défilent seules de la gauche vers la droite,
+// toutes les 4,5 s, et se balaient au doigt. Si l'administrateur n'en a pas
+// créé, elles se remplissent avec les articles en promo et les nouveautés.
+const BANNER_GRADIENTS = [
+  "linear-gradient(120deg, #4B2142 0%, #8C3B6E 60%, #E4572E 140%)",
+  "linear-gradient(120deg, #17191F 0%, #3A3F4B 100%)",
+  "linear-gradient(120deg, #0B3B5C 0%, #1D6FA3 100%)",
+  "linear-gradient(120deg, #6B2D13 0%, #D9772B 100%)",
+  "linear-gradient(120deg, #1E4D3A 0%, #2FA565 120%)",
+];
+function BoutiqueBanners({ shop, products, onPick }) {
+  const fmt = useFmt();
+  const custom = (shop?.banners || []).filter((b) => b && (b.title || b.image) && b.active !== false);
+  let slides = custom;
+  if (!slides.length) {
+    const promos = products.filter((p) => promoActive(p) && p.stock > 0).slice(0, 5).map((p) => ({ id: `promo-${p.id}`, kicker: `PROMO −${promoPct(p)} %`, title: p.name, subtitle: `${fmt(effPrice(p))} au lieu de ${fmt(p.price)}`, image: p.image, productId: p.id }));
+    const news = products.filter((p) => isNewArticle(p) && p.stock > 0 && !promoActive(p)).slice(0, 3).map((p) => ({ id: `new-${p.id}`, kicker: "NOUVEAUTÉ", title: p.name, subtitle: fmt(effPrice(p)), image: p.image, productId: p.id }));
+    slides = [...promos, ...news];
+  }
+  if (!slides.length) slides = [{ id: "welcome", kicker: "BIENVENUE", title: shop?.name || "Ma boutique", subtitle: "Ajoutez vos bannières dans Admin › Vitrine" }];
+  const n = slides.length;
+  const [i, setI] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const touch = useRef(null);
+  useEffect(() => { if (i >= n) setI(0); }, [n, i]);
+  useEffect(() => {
+    if (n < 2 || paused) return undefined;
+    const t = setInterval(() => setI((x) => (x + 1) % n), 4500);
+    return () => clearInterval(t);
+  }, [n, paused]);
+  // Les slides sont posées dans l'ordre inverse : en avançant, la bande se
+  // décale vers la droite (la nouvelle image arrive par la gauche).
+  const order = [...slides].reverse();
+  const offset = (n - 1 - (i % n)) * 100;
+  return (
+    <div className="mx-3 mt-3">
+      <div className="relative overflow-hidden rounded-[24px]" style={{ height: 158 }}
+        onTouchStart={(e) => { touch.current = e.touches[0].clientX; setPaused(true); }}
+        onTouchEnd={(e) => { const dx = (e.changedTouches[0].clientX - (touch.current ?? 0)); if (Math.abs(dx) > 40) setI((x) => (dx > 0 ? (x + 1) % n : (x - 1 + n) % n)); touch.current = null; setTimeout(() => setPaused(false), 2500); }}>
+        <div className="flex h-full" style={{ width: `${n * 100}%`, transform: `translateX(-${offset / n}%)`, transition: "transform .7s cubic-bezier(.22,.8,.2,1)" }}>
+          {order.map((s, idx) => {
+            const g = BANNER_GRADIENTS[(n - 1 - idx) % BANNER_GRADIENTS.length];
+            const product = s.productId ? products.find((p) => p.id === s.productId) : null;
+            return (
+              <div key={s.id} className="relative h-full overflow-hidden text-white" style={{ width: `${100 / n}%`, background: s.color || g }}>
+                {s.image && <img src={s.image} alt="" className="absolute right-0 top-0 h-full object-cover" style={{ width: "55%", maskImage: "linear-gradient(90deg, transparent 0%, #000 45%)", WebkitMaskImage: "linear-gradient(90deg, transparent 0%, #000 45%)" }} />}
+                <div className="relative h-full flex flex-col justify-center px-5" style={{ maxWidth: s.image ? "62%" : "100%" }}>
+                  {s.kicker && <span className="text-[10.5px] font-bold tracking-[0.14em]" style={{ color: "#F9D29A" }}>{s.kicker}</span>}
+                  <span className="font-display font-bold text-[21px] leading-tight mt-1 break-words" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.title}</span>
+                  {s.subtitle && <span className="text-[12.5px] mt-1 opacity-85 leading-snug">{s.subtitle}</span>}
+                  {product && product.stock > 0 && (
+                    <button onClick={() => onPick?.(product)} className="gb-focus self-start mt-2.5 h-8 px-3.5 rounded-full text-[12px] font-bold" style={{ background: "#fff", color: "#4B2142" }}>Voir l'article</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {n > 1 && (
+        <div className="flex justify-center gap-1.5 mt-2">
+          {slides.map((s, k) => <button key={s.id} onClick={() => setI(k)} aria-label={`Bannière ${k + 1}`} className="h-1.5 rounded-full transition-all" style={{ width: k === i % n ? 22 : 6, background: k === i % n ? "var(--ink)" : "var(--line)" }} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BoutiqueCard({ p, inCart, onOpen, categories }) {
+  const fmt = useFmt();
+  const out = p.stock <= 0;
+  const promo = promoActive(p);
+  const b = p.boutique || {};
+  const sizes = b.sizes || [];
+  const colors = b.colors || [];
+  return (
+    <button onClick={() => onOpen(p)} disabled={out} aria-label={`${p.name} — choisir`} className="gb-focus min-w-0 text-left rounded-[20px] overflow-hidden flex flex-col active:scale-[0.97] transition-transform disabled:opacity-55" style={{ background: "var(--card)", border: inCart ? "2px solid var(--glass)" : "1px solid var(--line)" }}>
+      <span className="relative w-full flex items-center justify-center overflow-hidden" style={{ height: 138, background: `${getCategory(categories, p.category).color}1a` }}>
+        {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={34} />}
+        {promo ? <span className="absolute left-2 top-2 h-[22px] px-2 rounded-lg text-[11px] font-bold flex items-center text-white" style={{ background: "#E4572E" }}>−{promoPct(p)} %</span>
+          : isNewArticle(p) ? <span className="absolute left-2 top-2 h-[22px] px-2 rounded-lg text-[10.5px] font-bold flex items-center text-white" style={{ background: "#17191F" }}>Nouveau</span> : null}
+        {out && <span className="absolute inset-x-0 bottom-0 py-1 text-center text-[11px] font-bold text-white" style={{ background: "rgba(23,25,31,.75)" }}>Épuisé</span>}
+        {inCart > 0 && <span className="absolute right-2 top-2 min-w-[26px] h-[26px] px-1.5 rounded-full text-white text-[12px] font-bold flex items-center justify-center" style={{ background: "var(--glass)" }}>×{inCart}</span>}
+        {!out && <span className="absolute right-2 bottom-2 w-[34px] h-[34px] rounded-xl flex items-center justify-center" style={{ background: "#17191F" }}><Plus size={16} color="#fff" /></span>}
+      </span>
+      <span className="px-3 pt-2 pb-3 flex flex-col gap-0.5 w-full">
+        <span className="text-[13.5px] font-bold leading-tight truncate" style={{ color: "var(--ink)" }}>{p.name}</span>
+        <span className="flex items-baseline gap-1.5 flex-wrap">
+          <span className="font-display font-bold text-[16px]" style={{ color: promo ? "#D9491F" : "var(--ink)" }}>{fmt(effPrice(p))}</span>
+          {promo && <span className="text-[11px] line-through opacity-50">{fmt(p.price)}</span>}
+        </span>
+        {(sizes.length > 0 || colors.length > 0) && (
+          <span className="flex items-center justify-between gap-1.5 mt-1">
+            <span className="text-[10.5px] opacity-60 truncate">{sizes.length ? (sizes.length > 4 ? `${sizes[0]} → ${sizes[sizes.length - 1]}` : sizes.join(" · ")) : "Taille unique"}</span>
+            <span className="flex -space-x-1 shrink-0">{colors.slice(0, 4).map((c) => <span key={c.name} className="w-3 h-3 rounded-full" style={{ background: c.hex, border: "1.5px solid #fff", boxShadow: "0 0 0 1px var(--line)" }} />)}</span>
+          </span>
+        )}
+        {!hasVariants(p) && <span className="text-[10.5px] font-semibold mt-0.5" style={{ color: out ? "#8A2419" : p.stock <= p.minStock ? "#9A5B00" : "#1E7A46" }}>{out ? "Épuisé" : `${p.stock} en stock`}</span>}
+      </span>
+    </button>
+  );
+}
+
+// Fiche article : couleur, taille, stock de la variante, quantité.
+function BoutiqueProductSheet({ product, inCartFor, onAdd, onClose }) {
+  const fmt = useFmt();
+  const b = product.boutique || {};
+  const colors = b.colors || [];
+  const sizes = b.sizes || [];
+  const avail = (c, s) => variantStock(product, c, s) - inCartFor(bvKey(c, s));
+  const firstColor = colors.find((c) => (sizes.length ? sizes.some((s) => avail(c.name, s) > 0) : avail(c.name, "") > 0))?.name || colors[0]?.name || "";
+  const [color, setColor] = useState(firstColor);
+  const firstSize = (c) => sizes.find((s) => avail(c, s) > 0) || "";
+  const [size, setSize] = useState(sizes.length ? firstSize(firstColor) : "");
+  const [qty, setQty] = useState(1);
+  const left = avail(color, size);
+  const promo = promoActive(product);
+  const price = effPrice(product);
+  const pick = (c) => { setColor(c); if (sizes.length && avail(c, size) <= 0) setSize(firstSize(c)); setQty(1); };
+  const ready = (!colors.length || color) && (!sizes.length || size) && left > 0;
+  const colorHex = colors.find((c) => c.name === color)?.hex;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end no-print">
+      <div className="absolute inset-0 bg-black/45" onClick={onClose} />
+      <div className="relative w-full rounded-t-[30px] px-5 pt-2.5 gb-slide-up max-h-[92vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <div className="w-11 h-1.5 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+        <div className="relative rounded-[24px] overflow-hidden flex items-center justify-center" style={{ height: 230, background: colorHex ? `${colorHex}22` : "var(--paper-dim)" }}>
+          {product.image ? <img src={product.image} alt="" className="w-full h-full object-cover" /> : <ShoppingBag size={64} color={colorHex || "#9AA0A6"} />}
+          {promo && <span className="absolute left-3 top-3 h-7 px-2.5 rounded-xl text-[12px] font-bold flex items-center text-white" style={{ background: "#E4572E" }}>−{promoPct(product)} %{product.promoUntil ? ` · jusqu'au ${new Date(product.promoUntil).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}` : ""}</span>}
+          <button onClick={onClose} className="gb-focus absolute right-3 top-3 w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(255,255,255,.92)" }} aria-label="Fermer"><X size={18} /></button>
+        </div>
+        <div className="flex items-start justify-between gap-3 mt-3.5">
+          <div className="min-w-0">
+            <p className="font-display font-bold text-[21px] leading-tight break-words">{product.name}</p>
+            {b.kind && <p className="text-[12px] opacity-60 mt-0.5">{BOUTIQUE_KINDS.find((k) => k.id === b.kind)?.label}</p>}
+          </div>
+          <div className="text-right shrink-0">
+            <p className="font-display font-bold text-[22px]" style={{ color: promo ? "#D9491F" : "var(--ink)" }}>{fmt(price)}</p>
+            {promo && <p className="text-[12px] line-through opacity-50">{fmt(product.price)}</p>}
+          </div>
+        </div>
+        {colors.length > 0 && (
+          <>
+            <p className="text-[11.5px] font-bold uppercase tracking-wider opacity-60 mt-4">Couleur · <span className="normal-case tracking-normal" style={{ color: "var(--ink)", opacity: 1 }}>{color}</span></p>
+            <div className="flex flex-wrap gap-3 mt-2">
+              {colors.map((c) => {
+                const none = sizes.length ? !sizes.some((s) => avail(c.name, s) > 0) : avail(c.name, "") <= 0;
+                return <button key={c.name} onClick={() => pick(c.name)} aria-label={c.name} aria-pressed={color === c.name} className="gb-focus relative w-10 h-10 rounded-full" style={{ background: c.hex, border: "3px solid #fff", boxShadow: color === c.name ? "0 0 0 2.5px var(--ink)" : "0 0 0 1.5px var(--line)", opacity: none ? 0.35 : 1 }}>{none && <span className="absolute inset-0 flex items-center justify-center"><span className="w-full h-[2px] rotate-45" style={{ background: "#B3261E" }} /></span>}</button>;
+              })}
+            </div>
+          </>
+        )}
+        {sizes.length > 0 && (
+          <>
+            <p className="text-[11.5px] font-bold uppercase tracking-wider opacity-60 mt-4">{b.kind === "chaussure" ? "Pointure" : "Taille"}</p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {sizes.map((s) => {
+                const a = avail(color, s);
+                const on = size === s;
+                return <button key={s} onClick={() => { if (a > 0) { setSize(s); setQty(1); } }} disabled={a <= 0} className="gb-focus min-w-[50px] h-11 px-3 rounded-[14px] text-[14px] font-bold" style={on ? { background: "var(--ink)", color: "#fff" } : a <= 0 ? { background: "var(--paper-dim)", color: "#B9BCC4", textDecoration: "line-through", border: "1.5px solid var(--line)" } : { background: "var(--card)", border: "1.5px solid var(--line)" }}>{s}</button>;
+              })}
+            </div>
+          </>
+        )}
+        <p className="mt-3 text-[12.5px] font-semibold flex items-center gap-2" style={{ color: left > 0 ? "#1E7A46" : "#B3261E" }}>
+          <span className="w-2 h-2 rounded-full" style={{ background: left > 0 ? "#1E7A46" : "#B3261E" }} />
+          {left > 0 ? `${bvLabel({ color, size }) || "Article"} : ${left} en stock` : `${bvLabel({ color, size }) || "Article"} : épuisé`}
+        </p>
+        <div className="flex items-center gap-3 mt-4">
+          <div className="flex items-center rounded-[18px] h-14" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="gb-focus w-12 h-full flex items-center justify-center" aria-label="Moins"><Minus size={16} /></button>
+            <span className="font-display font-bold text-[17px] min-w-[24px] text-center">{qty}</span>
+            <button onClick={() => setQty((q) => Math.min(Math.max(1, left), q + 1))} className="gb-focus w-12 h-full flex items-center justify-center" aria-label="Plus"><Plus size={16} /></button>
+          </div>
+          <button onClick={() => ready && onAdd({ color: colors.length ? color : "", size: sizes.length ? size : "" }, qty)} disabled={!ready} className="gb-focus flex-1 h-14 rounded-[18px] text-white font-bold text-[15px] flex items-center justify-center gap-2 disabled:opacity-45" style={{ background: "linear-gradient(180deg, #EE6A42, #D9491F)", boxShadow: "0 12px 24px -10px rgba(228,87,46,.7)" }}>
+            <ShoppingBag size={18} /> Ajouter · {fmt(price * qty)}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Admin : type d'article, tailles, couleurs, stock par variante, prix promo.
+function BoutiqueProductFields({ f, set }) {
+  const fmt = useFmt();
+  const b = f.boutique || { kind: "vetement", sizes: [], colors: [], stockBy: {} };
+  const setB = (patch) => set("boutique", { ...b, ...patch });
+  const kind = BOUTIQUE_KINDS.find((k) => k.id === b.kind) || BOUTIQUE_KINDS[0];
+  const [customSize, setCustomSize] = useState("");
+  const [customColor, setCustomColor] = useState("");
+  const sizes = b.sizes || [];
+  const colors = b.colors || [];
+  const toggleSize = (s) => setB({ sizes: sizes.includes(s) ? sizes.filter((x) => x !== s) : [...kind.sizes.filter((x) => x === s || sizes.includes(x)), ...sizes.filter((x) => !kind.sizes.includes(x))] });
+  const toggleColor = (c) => setB({ colors: colors.some((x) => x.name === c.name) ? colors.filter((x) => x.name !== c.name) : [...colors, c] });
+  const rows = colors.length ? colors.map((c) => c.name) : [""];
+  const cols = sizes.length ? sizes : [""];
+  const setCell = (c, s, v) => setB({ stockBy: { ...(b.stockBy || {}), [bvKey(c, s)]: v === "" ? "" : Math.max(0, Number(v) || 0) } });
+  const total = rows.reduce((t, c) => t + cols.reduce((u, s) => u + (Number(b.stockBy?.[bvKey(c, s)]) || 0), 0), 0);
+  const promoOn = f.promoPrice !== undefined && f.promoPrice !== null && f.promoPrice !== "" || f._promoOpen;
+  const pct = Number(f.price) > 0 && Number(f.promoPrice) > 0 ? Math.round((1 - Number(f.promoPrice) / Number(f.price)) * 100) : 0;
+  return (
+    <div className="flex flex-col gap-3 mb-3">
+      <div>
+        <p className="text-[11px] font-semibold opacity-60 mb-1.5">Type d'article</p>
+        <div className="grid grid-cols-4 gap-1.5">
+          {BOUTIQUE_KINDS.map((k) => {
+            const on = b.kind === k.id;
+            return <button key={k.id} onClick={() => setB({ kind: k.id, sizes: k.id === b.kind ? sizes : [] })} className="gb-focus min-h-[60px] rounded-2xl flex flex-col items-center justify-center gap-1 text-[11.5px] font-bold" style={on ? { background: "var(--ink)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}><k.Icon size={19} />{k.label}</button>;
+          })}
+        </div>
+      </div>
+
+      {(kind.sizes.length > 0 || sizes.length > 0 || b.kind === "autre" || b.kind === "sac") && (
+        <div>
+          <p className="text-[11px] font-semibold opacity-60 mb-1.5 flex items-center gap-1.5"><Ruler size={12} /> {b.kind === "chaussure" ? "Pointures" : "Tailles"} disponibles {kind.sizes.length === 0 ? "(facultatif)" : ""}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[...kind.sizes, ...sizes.filter((s) => !kind.sizes.includes(s))].map((s) => {
+              const on = sizes.includes(s);
+              return <button key={s} onClick={() => toggleSize(s)} className="gb-focus min-w-[42px] h-9 px-2.5 rounded-xl text-[13px] font-bold" style={on ? { background: "var(--ink)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>{s}</button>;
+            })}
+            <span className="flex items-center gap-1">
+              <input value={customSize} onChange={(e) => setCustomSize(e.target.value.toUpperCase().slice(0, 8))} placeholder="Autre" className="gb-focus w-16 h-9 rounded-xl px-2 text-[13px] border" style={{ borderColor: "var(--line)" }} />
+              <button onClick={() => { const s = customSize.trim(); if (s && !sizes.includes(s)) setB({ sizes: [...sizes, s] }); setCustomSize(""); }} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Ajouter la taille"><Plus size={15} /></button>
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <p className="text-[11px] font-semibold opacity-60 mb-1.5 flex items-center gap-1.5"><Palette size={12} /> Couleurs disponibles {colors.length ? `· ${colors.map((c) => c.name).join(", ")}` : "(facultatif)"}</p>
+        <div className="flex flex-wrap gap-2">
+          {[...BOUTIQUE_COLORS, ...colors.filter((c) => !BOUTIQUE_COLORS.some((x) => x.name === c.name))].map((c) => {
+            const on = colors.some((x) => x.name === c.name);
+            return <button key={c.name} onClick={() => toggleColor(c)} aria-label={c.name} aria-pressed={on} title={c.name} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: c.hex, border: "3px solid #fff", boxShadow: on ? "0 0 0 2.5px var(--ink)" : "0 0 0 1px var(--line)" }}>{on && <Check size={15} color={["#FFFFFF", "#F2C14E", "#D8C3A5"].includes(c.hex) ? "#17191F" : "#fff"} strokeWidth={3} />}</button>;
+          })}
+        </div>
+        <div className="flex items-center gap-1.5 mt-2">
+          <input value={customColor} onChange={(e) => setCustomColor(e.target.value.slice(0, 20))} placeholder="Autre couleur (ex : Wax bleu)" className="gb-focus flex-1 min-w-0 h-9 rounded-xl px-3 text-[13px] border" style={{ borderColor: "var(--line)" }} />
+          <button onClick={() => { const n = customColor.trim(); if (n && !colors.some((c) => c.name.toLowerCase() === n.toLowerCase())) setB({ colors: [...colors, { name: n, hex: "#9AA0A6" }] }); setCustomColor(""); }} className="gb-focus h-9 px-3 rounded-xl text-[12.5px] font-bold" style={{ background: "var(--paper-dim)" }}>Ajouter</button>
+        </div>
+      </div>
+
+      {(colors.length > 0 || sizes.length > 0) && (
+        <div className="rounded-2xl p-3" style={{ background: "var(--paper-dim)" }}>
+          <p className="text-[11px] font-semibold opacity-70 mb-2 flex items-center justify-between"><span>Stock par variante</span><span className="font-bold" style={{ color: "var(--ink)" }}>Total : {total}</span></p>
+          <div className="overflow-x-auto gb-scroll">
+            <div className="grid gap-1.5 items-center" style={{ gridTemplateColumns: `minmax(64px, auto) repeat(${cols.length}, minmax(46px, 1fr))` }}>
+              <span />
+              {cols.map((s) => <span key={s || "u"} className="text-center text-[11px] font-bold opacity-60">{s || "Qté"}</span>)}
+              {rows.map((c) => (
+                <Fragment key={c || "u"}>
+                  <span className="flex items-center gap-1.5 text-[11.5px] font-semibold min-w-0">
+                    {c ? <span className="w-4 h-4 rounded-full shrink-0" style={{ background: colors.find((x) => x.name === c)?.hex, boxShadow: "0 0 0 1px var(--line)" }} /> : null}
+                    <span className="truncate">{c || "Stock"}</span>
+                  </span>
+                  {cols.map((s) => {
+                    const v = b.stockBy?.[bvKey(c, s)];
+                    return <input key={s || "u"} type="number" inputMode="numeric" value={v ?? ""} onChange={(e) => setCell(c, s, e.target.value)} placeholder="0" className="gb-focus w-full h-9 rounded-lg text-center text-[13px] font-bold border" style={{ borderColor: Number(v) === 0 && v !== "" ? "#F0C4BF" : "var(--line)", background: "var(--card)" }} />;
+                  })}
+                </Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-2xl p-3" style={{ background: "#FFF1EC", border: "1px solid #F6C9B8" }}>
+        <button onClick={() => { if (promoOn) { set("promoPrice", ""); set("promoUntil", ""); set("_promoOpen", false); } else set("_promoOpen", true); }} className="gb-focus w-full flex items-center justify-between">
+          <span className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "#B23A12" }}><Tag size={14} /> Prix promo</span>
+          <span className="w-10 h-6 rounded-full relative shrink-0 transition-colors" style={{ background: promoOn ? "#E4572E" : "var(--line)" }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: promoOn ? 18 : 2 }} /></span>
+        </button>
+        {promoOn && (
+          <div className="grid grid-cols-2 gap-2 mt-2.5 gb-slide-up">
+            <div>
+              <p className="text-[10.5px] font-semibold mb-1" style={{ color: "#B23A12" }}>Prix promo {pct > 0 ? `(−${pct} %)` : ""}</p>
+              <input type="number" value={f.promoPrice ?? ""} onChange={(e) => set("promoPrice", e.target.value)} placeholder="Ex : 9600" className="gb-focus w-full h-10 rounded-xl px-3 text-sm border font-bold" style={{ borderColor: "#F6C9B8", color: "#D9491F", background: "#fff" }} />
+            </div>
+            <div>
+              <p className="text-[10.5px] font-semibold mb-1" style={{ color: "#B23A12" }}>Jusqu'au (facultatif)</p>
+              <input type="date" value={f.promoUntil || ""} onChange={(e) => set("promoUntil", e.target.value)} className="gb-focus w-full h-10 rounded-xl px-2 text-sm border" style={{ borderColor: "#F6C9B8", background: "#fff" }} />
+            </div>
+            {Number(f.promoPrice) >= Number(f.price) && Number(f.promoPrice) > 0 && <p className="col-span-2 text-[11px]" style={{ color: "#B3261E" }}>Le prix promo doit être inférieur au prix de vente ({fmt(Number(f.price) || 0)}).</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Admin › Vitrine : bannières de la page d'accueil.
+function VitrineSection({ shop, saveShopMeta, products, pushToast }) {
+  const [banners, setBanners] = useState(shop?.banners || []);
+  const [draft, setDraft] = useState(null);
+  const fileRef = useRef(null);
+  const save = (next) => { setBanners(next); saveShopMeta({ ...shop, banners: next }); };
+  const onFile = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => { try { const small = await recompressDataUrl(reader.result, 720, 0.7); setDraft((d) => ({ ...d, image: small })); } catch { pushToast("Impossible de traiter cette photo", "error"); } };
+    reader.readAsDataURL(file);
+  };
+  const promos = products.filter((p) => promoActive(p)).length;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-[20px] p-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <p className="font-display font-bold text-[16px]">Bannières de l'accueil</p>
+        <p className="text-[12.5px] opacity-65 mt-0.5">Elles défilent automatiquement en haut de la page Boutique. {banners.length === 0 ? `Sans bannière, les articles en promo (${promos}) et les nouveautés s'affichent tout seuls.` : ""}</p>
+        <div className="mt-3 rounded-[20px] overflow-hidden"><BoutiqueBanners shop={{ ...shop, banners }} products={products} /></div>
+      </div>
+      {banners.map((b, idx) => (
+        <div key={b.id} className="rounded-[18px] p-3 flex items-center gap-3" style={{ background: "var(--card)", border: "1px solid var(--line)", opacity: b.active === false ? 0.55 : 1 }}>
+          <span className="w-16 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center" style={{ background: BANNER_GRADIENTS[idx % BANNER_GRADIENTS.length] }}>{b.image ? <img src={b.image} alt="" className="w-full h-full object-cover" /> : <ImagePlus size={18} color="#fff" />}</span>
+          <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold truncate">{b.title || "Sans titre"}</span><span className="block text-[11.5px] opacity-60 truncate">{b.subtitle || b.kicker || ""}</span></span>
+          <button onClick={() => save(banners.map((x) => (x.id === b.id ? { ...x, active: x.active === false } : x)))} className="gb-focus h-9 px-2.5 rounded-xl text-[12px] font-bold" style={{ background: "var(--paper-dim)" }}>{b.active === false ? "Afficher" : "Masquer"}</button>
+          <button onClick={() => setDraft(b)} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Modifier"><Pencil size={14} /></button>
+          <button onClick={() => save(banners.filter((x) => x.id !== b.id))} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "#FCEBEA" }} aria-label="Supprimer"><Trash2 size={14} color="var(--danger)" /></button>
+        </div>
+      ))}
+      {banners.length < 6 && <button onClick={() => setDraft({ id: uid(), kicker: "", title: "", subtitle: "", image: null })} className="gb-focus min-h-[52px] rounded-[18px] font-bold text-[14px] flex items-center justify-center gap-2" style={{ border: "1.5px dashed var(--line)" }}><Plus size={16} /> Nouvelle bannière</button>}
+      {draft && (
+        <div className="fixed inset-0 z-[70] flex items-end no-print">
+          <div className="absolute inset-0 bg-black/45" onClick={() => setDraft(null)} />
+          <div className="relative w-full rounded-t-3xl p-5 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
+            <p className="font-display font-bold text-[18px] mb-3">Bannière</p>
+            <button onClick={() => fileRef.current?.click()} className="gb-focus w-full h-28 rounded-2xl overflow-hidden flex items-center justify-center gap-2 text-[13px] font-bold mb-2.5" style={{ background: draft.image ? "#000" : "var(--paper-dim)", border: draft.image ? "none" : "1.5px dashed var(--line)" }}>
+              {draft.image ? <img src={draft.image} alt="" className="w-full h-full object-cover" /> : <><ImagePlus size={18} /> Choisir une photo</>}
+            </button>
+            <input value={draft.kicker} onChange={(e) => setDraft({ ...draft, kicker: e.target.value.toUpperCase().slice(0, 28) })} placeholder="Petit titre (ex : NOUVELLE COLLECTION)" className="gb-focus w-full h-11 rounded-xl px-3 text-sm border mb-2" style={{ borderColor: "var(--line)" }} />
+            <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value.slice(0, 40) })} placeholder="Titre (ex : Wax d'été jusqu'à −30 %)" className="gb-focus w-full h-11 rounded-xl px-3 text-sm border mb-2 font-bold" style={{ borderColor: "var(--line)" }} />
+            <input value={draft.subtitle} onChange={(e) => setDraft({ ...draft, subtitle: e.target.value.slice(0, 60) })} placeholder="Texte (facultatif)" className="gb-focus w-full h-11 rounded-xl px-3 text-sm border mb-2" style={{ borderColor: "var(--line)" }} />
+            <select value={draft.productId || ""} onChange={(e) => setDraft({ ...draft, productId: e.target.value || undefined })} className="gb-focus w-full h-11 rounded-xl px-3 text-sm border mb-3" style={{ borderColor: "var(--line)" }}>
+              <option value="">Aucun article lié</option>
+              {products.map((p) => <option key={p.id} value={p.id}>Lier à « {p.name} » (bouton Voir l'article)</option>)}
+            </select>
+            <div className="flex gap-2">
+              <button onClick={() => setDraft(null)} className="gb-focus flex-1 h-12 rounded-xl font-bold text-sm border" style={{ borderColor: "var(--line)" }}>Annuler</button>
+              <button onClick={() => { if (!draft.title.trim() && !draft.image) { pushToast("Ajoutez un titre ou une photo", "error"); return; } const exists = banners.some((x) => x.id === draft.id); save(exists ? banners.map((x) => (x.id === draft.id ? draft : x)) : [...banners, draft]); setDraft(null); }} className="gb-focus flex-1 h-12 rounded-xl font-bold text-sm text-white" style={{ background: "var(--glass)" }}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Stock › Variantes : ruptures et stocks bas par couleur × taille.
+function VariantStockView({ products }) {
+  const list = products.filter((p) => hasVariants(p));
+  if (!list.length) return <p className="text-center text-[13px] opacity-60 py-10">Aucun article avec tailles ou couleurs.</p>;
+  return (
+    <div className="flex flex-col gap-2.5">
+      {list.map((p) => {
+        const b = p.boutique;
+        const rows = (b.colors || []).length ? b.colors.map((c) => c.name) : [""];
+        const cols = (b.sizes || []).length ? b.sizes : [""];
+        const outs = rows.reduce((t, c) => t + cols.filter((s) => variantStock(p, c, s) <= 0).length, 0);
+        const lowTh = Math.max(1, Math.ceil((Number(p.minStock) || 0) / Math.max(1, rows.length * cols.length)));
+        return (
+          <div key={p.id} className="rounded-[18px] p-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <div className="flex items-center gap-2.5">
+              <span className="w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}>{p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <ShoppingBag size={18} />}</span>
+              <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold truncate">{p.name}</span><span className="block text-[11.5px] opacity-60">{variantTotal(p)} pièces · {rows[0] ? `${rows.length} couleur${rows.length > 1 ? "s" : ""}` : "sans couleur"} · {cols[0] ? `${cols.length} taille${cols.length > 1 ? "s" : ""}` : "taille unique"}</span></span>
+              <span className="text-[10.5px] font-bold px-2 py-1 rounded-lg shrink-0" style={outs ? { background: "#FCEBEA", color: "#B3261E" } : { background: "#E6F4EC", color: "#1E7A46" }}>{outs ? `${outs} rupture${outs > 1 ? "s" : ""}` : "OK"}</span>
+            </div>
+            <div className="overflow-x-auto gb-scroll mt-2.5">
+              <div className="grid gap-1 items-center" style={{ gridTemplateColumns: `minmax(24px, auto) repeat(${cols.length}, minmax(38px, 1fr))` }}>
+                <span />
+                {cols.map((s) => <span key={s || "u"} className="text-center text-[10.5px] font-bold opacity-55">{s || "Qté"}</span>)}
+                {rows.map((c) => (
+                  <Fragment key={c || "u"}>
+                    {c ? <span title={c} className="w-5 h-5 rounded-full" style={{ background: b.colors.find((x) => x.name === c)?.hex, boxShadow: "0 0 0 1px var(--line)" }} /> : <span />}
+                    {cols.map((s) => { const n = variantStock(p, c, s); return <span key={s || "u"} className="h-7 rounded-lg flex items-center justify-center text-[12.5px] font-bold" style={n <= 0 ? { background: "#FCEBEA", color: "#B3261E" } : n <= lowTh ? { background: "#FFF1D6", color: "#9A5B00" } : { background: "var(--paper-dim)" }}>{n}</span>; })}
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SellScreen({ shop, categories, products: productsRaw, sales, clients, avoirs, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash }) {
   const fmt = useFmt();
   // Les produits « formule » (ex : Pain fourré) affichent le stock du produit
   // dont ils dépendent (Pain) — un seul stock partagé.
   const products = productsRaw.map((p) => (p.stockFrom ? { ...p, stock: availableStock(p, productsRaw) } : p));
   const [optionsFor, setOptionsFor] = useState(null);
+  const isBoutique = shopProfile(shop) === "boutique";
+  const [boutiqueFor, setBoutiqueFor] = useState(null);
   const [barcode, setBarcode] = useState("");
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("all");
@@ -2628,6 +3081,23 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   // lignes qui puisent dans ce stock : pain simple + pain fourré…).
   const usedStock = (tid, lines) => (lines || cart).reduce((t, l) => (stockTargetId(products.find((x) => x.id === l.id)) === tid ? t + l.qty : t), 0);
   const addToCart = (product, silent, sel, n = 1) => {
+    // Article de boutique avec tailles / couleurs : on choisit d'abord la
+    // variante (fiche article), puis on l'ajoute avec son propre stock.
+    if (hasVariants(product) && !sel?.bv) { setBoutiqueFor(product); return; }
+    if (sel?.bv) {
+      const bv = sel.bv;
+      const key = `${product.id}~bv~${bvKey(bv.color, bv.size)}`;
+      const max = variantStock(product, bv.color, bv.size);
+      setCart((c) => {
+        const cur = c.find((i) => i.key === key)?.qty || 0;
+        if (cur + n > max) { pushToast("Stock insuffisant pour cette variante", "error"); playSound("error", shop.soundsEnabled); return c; }
+        if (cur) return c.map((i) => (i.key === key ? { ...i, qty: i.qty + n } : i));
+        return [...c, { id: product.id, key, bv, qty: n }];
+      });
+      playSound("add", shop.soundsEnabled);
+      if (!silent) pushToast(`${product.name} · ${bvLabel(bv)} ajouté`, "ok");
+      return;
+    }
     // Produit avec formules (Pain fourré…) ou suppléments : on ouvre d'abord
     // le choix, défini par le propriétaire dans la fiche produit.
     if (((product.options || []).length > 0 || (product.variants || []).length > 0) && sel === undefined) { setOptionsFor(product); return; }
@@ -2682,6 +3152,12 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const cartItems = cart.map((l) => {
     const base = products.find((p) => p.id === l.id);
     if (!base) return null;
+    // Variante boutique (couleur / taille) et prix promo en cours.
+    if (l.bv) {
+      const label = bvLabel(l.bv);
+      return { ...l, id: l.key, productId: base.id, bv: l.bv, variantName: label, product: { ...base, name: label ? `${base.name} · ${label}` : base.name, price: effPrice(base), normalPrice: Number(base.price) || 0, bulkQty: 0, bulkPrice: 0 } };
+    }
+    if (promoActive(base) && !(base.options || []).length && !(base.variants || []).length) return { ...l, key: undefined, product: { ...base, price: effPrice(base), normalPrice: Number(base.price) || 0, bulkQty: 0, bulkPrice: 0 } };
     const chosen = (base.options || []).filter((o) => (l.opts || []).includes(o.id));
     const variant = l.variant ? (base.variants || []).find((v) => v.id === l.variant) : null;
     if (!chosen.length && !variant) return { ...l, key: undefined, product: base };
@@ -2700,6 +3176,10 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       const product = products.find((p) => p.id === item.id);
       const nextQty = item.qty + delta;
       if (nextQty <= 0) return c.filter((i) => (i.key || i.id) !== id);
+      if (item.bv && product && delta > 0) {
+        if (nextQty > variantStock(product, item.bv.color, item.bv.size)) { pushToast("Stock insuffisant pour cette variante", "error"); return c; }
+        return c.map((i) => ((i.key || i.id) === id ? { ...i, qty: nextQty } : i));
+      }
       if (product && delta > 0 && usedStock(stockTargetId(product), c) + delta > product.stock) { pushToast("Stock insuffisant", "error"); return c; }
       return c.map((i) => ((i.key || i.id) === id ? { ...i, qty: nextQty } : i));
     });
@@ -2933,6 +3413,52 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const shown = filtered;
   return (
     <div style={{ paddingBottom: "calc(190px + env(safe-area-inset-bottom))" }}>
+      {isBoutique ? (<>
+        <div className="mx-3 mt-3 flex items-center gap-2">
+          <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] pl-3.5 pr-1.5 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <Search size={17} className="shrink-0 opacity-60" />
+            <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={searchKey} placeholder="Rechercher un article" aria-label="Rechercher un article" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" />
+            <button onClick={() => setScannerOpen(true)} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Scanner"><ScanLine size={16} /></button>
+          </label>
+          <button onClick={() => setShowCart(true)} className="gb-focus relative shrink-0 min-h-[50px] pl-3.5 pr-4 rounded-2xl flex items-center gap-2 text-white" style={{ background: "var(--ink)" }} aria-label={`Panier : ${count} article${count > 1 ? "s" : ""}`}>
+            <ShoppingBag size={20} />
+            <span className="flex flex-col items-start leading-none"><span className="text-[10.5px] opacity-70">Panier</span><span className="font-display font-bold text-[14px] mt-0.5">{fmt(total)}</span></span>
+            {count > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1 rounded-full text-[11px] font-bold flex items-center justify-center text-white" style={{ background: "#E4572E", border: "2px solid var(--paper)" }}>{count}</span>}
+          </button>
+        </div>
+        {scannerOpen && <CameraScanner onDetect={handleCameraDetect} onClose={() => setScannerOpen(false)} />}
+        {!query && <BoutiqueBanners shop={shop} products={products} onPick={(p) => addToCart(p)} />}
+        <div className="mx-3 mt-3 grid grid-cols-3 gap-2">
+          {[["Ventes du jour", fmt(todayTotal), "#1E7A46"], ["Tickets", todaySales.length, "var(--ink)"], ["Articles vendus", todaySales.reduce((t, x) => t + (x.items || []).reduce((u, i) => u + (Number(i.qty) || 0), 0), 0), "var(--ink)"]].map(([l, v, c]) => (
+            <div key={l} className="rounded-2xl px-3 py-2 min-w-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              <p className="text-[10.5px] opacity-60 truncate">{l}</p>
+              <p className="font-display font-bold text-[15px] truncate" style={{ color: c }}>{v}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 overflow-x-auto gb-scroll px-3 mt-3 pb-1" role="tablist" aria-label="Catégories">
+          {["all", ...categories.map((c) => c.id)].map((c) => {
+            const on = cat === c;
+            return (
+              <button key={c} onClick={() => setCat(c)} role="tab" aria-selected={on} className="gb-focus shrink-0 h-10 px-3.5 rounded-full text-[13px] font-bold flex items-center gap-1.5 whitespace-nowrap" style={on ? { background: "var(--ink)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>
+                {c === "all" ? <Layers size={15} /> : <CategoryIcon cat={c} categories={on ? [{ ...getCategory(categories, c), color: "#FFFFFF" }] : categories} size={15} />}
+                {c === "all" ? "Tout" : getCategory(categories, c).label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="px-3 mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {[...shown].sort((x, y) => (y.stock > 0) - (x.stock > 0) || (promoActive(y) - promoActive(x)) || (isNewArticle(y) - isNewArticle(x))).map((p) => (
+            <BoutiqueCard key={p.id} p={p} inCart={qtyInCart(p.id)} categories={categories} onOpen={(x) => addToCart(x)} />
+          ))}
+          {shown.length === 0 && (
+            <div className="col-span-2 sm:col-span-3 lg:col-span-4 rounded-[18px] p-7 text-center flex flex-col gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+              <span className="text-[15px] font-bold">{products.length ? "Aucun article trouvé" : "Aucun article pour l'instant"}</span>
+              <span className="text-[13px] opacity-60">{products.length ? "Vérifiez le nom ou changez de catégorie." : "Ajoutez vos articles dans Admin › Produits (tailles, couleurs, prix promo)."}</span>
+            </div>
+          )}
+        </div>
+      </>) : (<>
       <section className="mx-3 mt-3 rounded-[24px] px-4 pt-4 pb-4 flex flex-col gap-3 text-white" style={{ background: "#1F2A33" }}>
         <div className="flex items-center justify-between gap-2">
           <span className="text-[13px] capitalize" style={{ color: "#C9D1D8" }}>{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</span>
@@ -3047,6 +3573,8 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
         )}
       </div>
 
+      </>)}
+
       {!showCart && (
         <div className="fixed left-3 right-3 z-30 gb-slide-up no-print mx-auto max-w-[600px]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
           {count > 0 ? (
@@ -3061,7 +3589,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
               </span>
               <span className="shrink-0 h-12 px-4 rounded-[14px] text-[15px] font-bold flex items-center gap-1.5 whitespace-nowrap" style={{ background: "#fff", color: "#0F4F2B" }}>Voir le panier <ChevronRight size={16} /></span>
             </button>
-          ) : (
+          ) : isBoutique ? null : (
             <div className="min-h-[52px] px-4 py-2.5 rounded-[18px] flex items-center gap-2.5 text-[13.5px]" style={{ background: "var(--card)", border: "1px dashed var(--line)", color: "var(--ink)" }}>
               <ShoppingCart size={18} className="opacity-50 shrink-0" />
               <span className="opacity-70">Touchez une touche rapide ou un produit pour commencer</span>
@@ -3084,11 +3612,12 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
             <div className="flex-1 overflow-y-auto gb-scroll -mx-1 px-1">
               {cartItems.map((i) => (
                 <div key={i.id} className="flex items-center gap-3 py-2.5 border-b" style={{ borderColor: "var(--line)" }}>
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><CategoryIcon cat={i.product.category} categories={categories} size={15} /></div>
+                  {isBoutique && i.product.image ? <img src={i.product.image} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" /> : <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><CategoryIcon cat={i.product.category} categories={categories} size={15} /></div>}
                   <div className="flex-1 min-w-0">
                     <div className="text-[15px] font-semibold break-words">{i.product.name}</div>
                     <div className="font-mono text-xs opacity-50">
                       {fmt(computeItemTotal(i.product, i.qty))}
+                      {i.product.normalPrice > i.product.price && <span className="line-through ml-1.5">{fmt(i.product.normalPrice * i.qty)}</span>}
                       {i.product.bulkQty > 0 && i.product.bulkPrice > 0 && i.qty >= i.product.bulkQty && (
                         <span style={{ color: "var(--cap)" }}> · lot appliqué</span>
                       )}
@@ -3394,6 +3923,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
             </div>
 
             <div className="pt-2 mt-1 border-t" style={{ borderColor: "var(--line)" }}>
+              {(() => { const saved = cartItems.reduce((t, i) => t + Math.max(0, ((i.product.normalPrice || 0) - i.product.price) * i.qty), 0); return saved > 0 ? <div className="flex items-center justify-between mt-3 -mb-1.5 text-[13px] font-semibold" style={{ color: "#D9491F" }}><span className="flex items-center gap-1.5"><Tag size={14} /> Promotions appliquées</span><span className="font-mono">− {fmt(saved)}</span></div> : null; })()}
               <div className="flex items-center justify-between mb-3 mt-3">
                 <span className="text-sm opacity-60">Total{payAvoir ? <span className="ml-1.5 text-[12px] font-semibold" style={{ color: "#854F0B" }}>· avoir - {fmt(payAvoirUsed)}</span> : null}</span>
                 <span className="font-display font-bold text-xl">{fmt(total)}</span>
@@ -3407,6 +3937,9 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
         </div>
       )}
 
+      {boutiqueFor && (
+        <BoutiqueProductSheet product={boutiqueFor} inCartFor={(k) => cart.filter((l) => l.id === boutiqueFor.id && l.bv && bvKey(l.bv.color, l.bv.size) === k).reduce((t, l) => t + l.qty, 0)} onAdd={(bv, n) => { addToCart(boutiqueFor, false, { bv }, n); setBoutiqueFor(null); }} onClose={() => setBoutiqueFor(null)} />
+      )}
       {optionsFor && (
         <ProductOptionsSheet product={optionsFor} left={optionsFor.stock - usedStock(stockTargetId(optionsFor))} unitLabel={(productsRaw.find((x) => x.id === stockTargetId(optionsFor)) || optionsFor).name} onAdd={(opts, n) => { addToCart(optionsFor, false, opts, n); setOptionsFor(null); }} onClose={() => setOptionsFor(null)} />
       )}
@@ -4080,7 +4613,7 @@ function StockScreen({ products, categories, sales = [], movements = [], invento
   return (
     <div className="px-4 pt-4 pb-36">
       <div role="tablist" className="grid grid-cols-4 gap-1 p-1 rounded-2xl mb-4" style={{ background: "var(--paper-dim)" }}>
-        {[["etat", "État"], ["forecast", "Prévisions"], ["expiry", "Péremption"], ["pertes", "Pertes"]].map(([id, label]) => (
+        {(shopProfile(shop) === "boutique" ? [["etat", "État"], ["variantes", "Variantes"], ["forecast", "Prévisions"], ["pertes", "Pertes"]] : [["etat", "État"], ["forecast", "Prévisions"], ["expiry", "Péremption"], ["pertes", "Pertes"]]).map(([id, label]) => (
           <button key={id} role="tab" aria-selected={mode === id} onClick={() => setMode(id)} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold relative" style={{ background: mode === id ? "var(--card)" : "transparent", boxShadow: mode === id ? "0 1px 3px rgba(22,32,42,0.12)" : "none" }}>
             {label}
             {id === "expiry" && expiryAlerts > 0 && <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center" style={{ background: "#B3261E" }}>{expiryAlerts}</span>}
@@ -4088,7 +4621,9 @@ function StockScreen({ products, categories, sales = [], movements = [], invento
         ))}
       </div>
       {lossOpen && <LossModal products={products} onSave={(d) => { onRecordLoss?.(d); setLossOpen(false); }} onClose={() => setLossOpen(false)} />}
-      {mode === "pertes" ? (
+      {mode === "variantes" ? (
+        <VariantStockView products={products} />
+      ) : mode === "pertes" ? (
         <LossesView movements={movements} onDeclare={() => setLossOpen(true)} />
       ) : mode === "forecast" ? (
         <StockForecast products={products} sales={sales} suppliers={suppliers} supplierProducts={supplierProducts} isAdmin={isAdmin} onCreateOrders={onCreateOrders} />
@@ -6508,7 +7043,10 @@ function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeem
 function ProductForm({ initial, categories, products, onSave, onCancel, pushToast }) {
   const V = useVocab();
   const symbol = useCurrencySymbol();
-  const [f, setF] = useState(initial || { name: "", barcode: "", category: categories[0]?.id || "", costPrice: "", price: "", stock: "", minStock: 5, unit: V.unit, bulkQty: "", bulkPrice: "", favorite: false, image: null });
+  const isBoutique = V.profile === "boutique";
+  const [f, setF] = useState(initial || { name: "", barcode: "", category: categories[0]?.id || "", costPrice: "", price: "", stock: "", minStock: 5, unit: V.unit, bulkQty: "", bulkPrice: "", favorite: false, image: null, ...(isBoutique ? { boutique: { kind: "vetement", sizes: [], colors: [], stockBy: {} } } : {}) });
+  const variantMode = isBoutique && hasVariants(f);
+  const variantSum = variantMode ? variantTotal(f) : 0;
   const [bulkEnabled, setBulkEnabled] = useState(!!(initial && initial.bulkQty > 0));
   const [scannerOpen, setScannerOpen] = useState(false);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
@@ -6596,14 +7134,14 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
           <label className="text-[11px] font-semibold opacity-60 block mb-1">Unité</label>
           <input className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder="Unité" value={f.unit} onChange={(e) => set("unit", e.target.value)} />
         </div>
-        <div className="col-span-2">
+        {!isBoutique && <div className="col-span-2">
           <label className="text-[11px] font-semibold opacity-60 block mb-1">Stock utilisé</label>
           <select className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} value={f.stockFrom || ""} onChange={(e) => set("stockFrom", e.target.value || undefined)}>
             <option value="">Son propre stock</option>
             {products.filter((p) => !p.stockFrom && p.id !== f.id).map((p) => <option key={p.id} value={p.id}>Stock de « {p.name} » (1 vendu = 1 {p.unit || "unité"} retiré)</option>)}
           </select>
           {f.stockFrom && <p className="text-[11px] mt-1 opacity-60">Formule : chaque vente retire 1 unité du stock de « {products.find((p) => p.id === f.stockFrom)?.name} ». Le prix d'achat et le stock sont ceux de ce produit.</p>}
-        </div>
+        </div>}
         {!f.stockFrom && <div>
           <label className="text-[11px] font-semibold mb-1 flex items-center gap-1" style={{ color: "#854F0B" }}><ArrowDownCircle size={12} /> Prix d'achat ({symbol})</label>
           <input type="number" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#FAC775" }} placeholder="0" value={f.costPrice} onChange={(e) => set("costPrice", e.target.value)} />
@@ -6613,8 +7151,8 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
           <input type="number" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#9FE1CB" }} placeholder="0" value={f.price} onChange={(e) => set("price", e.target.value)} />
         </div>
         {!f.stockFrom && <div>
-          <label className="text-[11px] font-semibold opacity-60 block mb-1">Stock</label>
-          <input type="number" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder="0" value={f.stock} onChange={(e) => set("stock", e.target.value)} />
+          <label className="text-[11px] font-semibold opacity-60 block mb-1">Stock{variantMode ? " (total des variantes)" : ""}</label>
+          <input type="number" disabled={variantMode} className="gb-focus w-full rounded-xl px-3 py-2 text-sm border disabled:opacity-70" style={{ borderColor: "var(--line)" }} placeholder="0" value={variantMode ? variantSum : f.stock} onChange={(e) => set("stock", e.target.value)} />
         </div>}
         {!f.stockFrom && <div>
           <label className="text-[11px] font-semibold opacity-60 block mb-1">Seuil d'alerte</label>
@@ -6626,6 +7164,8 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
           Bénéfice unitaire : {margin >= 0 ? "+" : ""}{margin} {symbol} / {f.unit || "unité"}
         </p>
       )}
+
+      {isBoutique && <BoutiqueProductFields f={f} set={set} />}
 
       <button
         onClick={() => set("favorite", !f.favorite)}
@@ -6659,6 +7199,7 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
         </div>
       )}
 
+      {!isBoutique && <>
       <div className="rounded-xl mt-2.5 p-3" style={{ background: "#E6F4EC" }}>
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#1E7A46" }}><Layers size={13} /> Formules de vente (même stock, autre prix)</span>
@@ -6688,11 +7229,13 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
         ))}
         {!(f.options || []).length && <p className="text-[11px] mt-1" style={{ color: "#854F0B", opacity: 0.8 }}>À la vente, le vendeur cochera les suppléments demandés ; leur prix s'ajoute au prix de vente.</p>}
       </div>
+      </>}
 
       <div className="flex gap-2 mt-4">
         <button onClick={onCancel} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold border" style={{ borderColor: "var(--line)" }}>Annuler</button>
         <button onClick={async () => {
           if (!f.name || !f.price) { pushToast("Nom et prix de vente requis", "error"); return; }
+          if (isBoutique && Number(f.promoPrice) > 0 && Number(f.promoPrice) >= Number(f.price)) { pushToast("Le prix promo doit être inférieur au prix de vente", "error"); return; }
           const duplicate = !!(f.barcode || "").trim() && products.some((p) => p.barcode === f.barcode.trim() && p.id !== f.id);
           if (duplicate) { pushToast("Ce code-barre est déjà utilisé par un autre produit", "error"); return; }
           // Filet de sécurité pour les photos enregistrées avant la
@@ -6718,6 +7261,23 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
             bulkQty: bulkEnabled ? Number(f.bulkQty) || 0 : 0,
             bulkPrice: bulkEnabled ? Number(f.bulkPrice) || 0 : 0,
             favorite: !!f.favorite,
+            ...(isBoutique ? (() => {
+              const b = f.boutique || { kind: "vetement", sizes: [], colors: [], stockBy: {} };
+              const rows = (b.colors || []).length ? b.colors.map((c) => c.name) : [""];
+              const cols = (b.sizes || []).length ? b.sizes : [""];
+              const stockBy = {};
+              rows.forEach((c) => cols.forEach((z) => { stockBy[bvKey(c, z)] = Math.max(0, Number(b.stockBy?.[bvKey(c, z)]) || 0); }));
+              const vb = { kind: b.kind || "autre", sizes: b.sizes || [], colors: b.colors || [], stockBy };
+              const withVariants = vb.sizes.length > 0 || vb.colors.length > 0;
+              const promo = Number(f.promoPrice) > 0 ? Number(f.promoPrice) : undefined;
+              return {
+                boutique: vb,
+                stock: withVariants ? Object.values(stockBy).reduce((t, n) => t + n, 0) : Number(f.stock) || 0,
+                promoPrice: promo, promoUntil: promo && f.promoUntil ? f.promoUntil : undefined,
+                createdAt: f.createdAt || new Date().toISOString(),
+                _promoOpen: undefined,
+              };
+            })() : {}),
           });
         }} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold text-white" style={{ background: "linear-gradient(135deg, #1D9E75, #0F6E56)" }}>Enregistrer</button>
       </div>
@@ -6910,7 +7470,7 @@ function ShopForm({ shops, onSave, onCancel, pushToast }) {
     setLoading(true);
     try {
       await onSave(
-        { id: uid(), name: trimmed, type: finalType, currency, salesNotificationsEnabled: true, theme: "emeraude", darkMode: false, soundsEnabled: true, joinCode: generateShopJoinCode(), adminPin: DEFAULT_ADMIN_PIN },
+        { id: uid(), name: trimmed, type: finalType, currency, salesNotificationsEnabled: true, theme: shopProfile({ type: finalType, name: trimmed }) === "boutique" ? "prune" : "emeraude", darkMode: false, soundsEnabled: true, joinCode: generateShopJoinCode(), adminPin: DEFAULT_ADMIN_PIN },
         { id: uid(), name: vendorName.trim(), pin: vendorPin }
       );
     } finally {
@@ -10738,6 +11298,7 @@ const ADMIN_SECTIONS = [
   { id: "categories", desc: "Classer vos produits", label: "Catégories", Icon: ClipboardList, group: "Gestion commerciale" },
   { id: "inventaire", desc: "Comptage, caisse, versements", label: "Inventaire", Icon: ArrowUpCircle, group: "Gestion commerciale" },
   { id: "snack", desc: "Achats de pains, ingrédients, bénéfices", label: "Pains & ingrédients", Icon: Croissant, group: "Gestion commerciale", profile: "snack" },
+  { id: "vitrine", desc: "Bannières défilantes de l'accueil", label: "Vitrine", Icon: ImagePlus, group: "Gestion commerciale", profile: "boutique" },
   { id: "fournisseurs", desc: "Commandes et achats", label: "Fournisseurs", Icon: Truck, group: "Gestion commerciale" },
   { id: "depenses", desc: "Sorties d'argent du mois", label: "Dépenses", Icon: Wallet, group: "Finances" },
   { id: "export", desc: "Excel pour le comptable", label: "Export comptable", Icon: FileText, group: "Finances" },
@@ -12014,6 +12575,7 @@ function AdminScreen({
       {section === "inventaire" && <InventorySection shop={shop} expenses={expenses} vendors={vendors} cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} products={products} sales={sales} saveSales={saveSales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "produits" && <ProductsSection requireAdmin={requireAdmin} products={products} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "snack" && <SnackSection shop={shop} products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} expenses={expenses} saveExpenses={saveExpenses} sales={sales} snackLots={snackLots} saveSnackLots={saveSnackLots} pushToast={pushToast} author={shop?.adminDisplayName?.trim() || "Administrateur"} />}
+      {section === "vitrine" && <VitrineSection shop={shop} saveShopMeta={saveShopMeta} products={products} pushToast={pushToast} />}
       {section === "categories" && <CategoriesSection categories={categories} saveCategories={saveCategories} products={products} pushToast={pushToast} />}
       {section === "fournisseurs" && <SuppliersSection suppliers={suppliers} saveSuppliers={saveSuppliers} expenses={expenses} saveExpenses={saveExpenses} products={products} saveProducts={saveProducts} categories={categories} saveCategories={saveCategories} movements={movements} saveMovements={saveMovements} orders={orders} saveOrders={saveOrders} supplierProducts={supplierProducts} saveSupplierProducts={saveSupplierProducts} pushToast={pushToast} pushNotification={pushNotification} shop={shop} />}
       {section === "export" && <AccountingExportSection shop={shop} sales={sales} expenses={expenses} products={products} versements={versements} pushToast={pushToast} />}
@@ -13557,7 +14119,7 @@ function AppInner() {
   };
 
   const handleOnboardingComplete = async (shopMeta, vendor, serverShopLicense) => {
-    const newShop = { salesNotificationsEnabled: true, theme: "emeraude", darkMode: false, soundsEnabled: true, ...shopMeta };
+    const newShop = { salesNotificationsEnabled: true, theme: shopProfile(shopMeta) === "boutique" ? "prune" : "emeraude", darkMode: false, soundsEnabled: true, ...shopMeta };
     const nextShops = [newShop];
     setShops(nextShops);
     window.storage.set("shops", JSON.stringify(nextShops)).catch(() => {});
@@ -13884,7 +14446,7 @@ function AppInner() {
     });
     const qtyByStock = {};
     cartItems.forEach((i) => { qtyByStock[i.stockId] = (qtyByStock[i.stockId] || 0) + i.qty; });
-    const nextProducts = products.map((p) => (qtyByStock[p.id] ? { ...p, stock: p.stock - qtyByStock[p.id] } : p));
+    const nextProducts = adjustVariantStock(products.map((p) => (qtyByStock[p.id] ? { ...p, stock: p.stock - qtyByStock[p.id] } : p)), cartItems, -1);
     const paidNow = initialCashPayment > 0 ? initialCashPayment : 0;
     const payments = paidNow > 0 ? [{ amount: paidNow, date: new Date().toISOString(), by: currentVendorName }] : undefined;
     const sale = {
@@ -14209,7 +14771,7 @@ function AppInner() {
     if (!sale) return;
     const backByStock = {};
     sale.items.forEach((i) => { const k = itemStockId(i); backByStock[k] = (backByStock[k] || 0) + i.qty; });
-    const nextProducts = products.map((p) => (backByStock[p.id] ? { ...p, stock: p.stock + backByStock[p.id] } : p));
+    const nextProducts = adjustVariantStock(products.map((p) => (backByStock[p.id] ? { ...p, stock: p.stock + backByStock[p.id] } : p)), sale.items, 1);
     const cancelMovements = Object.entries(backByStock).filter(([pid]) => nextProducts.some((pp) => pp.id === pid)).map(([pid, q]) => {
       const p = nextProducts.find((pp) => pp.id === pid);
       const before = p ? p.stock - q : 0;
@@ -14274,11 +14836,11 @@ function AppInner() {
     const oldQtyById = sumBy(sale.items);
     const newQtyById = sumBy(newItems);
     const affectedIds = new Set([...Object.keys(oldQtyById), ...Object.keys(newQtyById)]);
-    const nextProducts = products.map((p) => {
+    const nextProducts = adjustVariantStock(adjustVariantStock(products.map((p) => {
       if (!affectedIds.has(p.id)) return p;
       const delta = (oldQtyById[p.id] || 0) - (newQtyById[p.id] || 0); // qty en moins vendue => stock qui remonte
       return delta !== 0 ? { ...p, stock: p.stock + delta } : p;
-    });
+    }), sale.items, 1), newItems, -1);
     const editMovements = [...affectedIds].filter((id) => (oldQtyById[id] || 0) !== (newQtyById[id] || 0)).map((id) => {
       const p = nextProducts.find((pp) => pp.id === id);
       const delta = (oldQtyById[id] || 0) - (newQtyById[id] || 0);
@@ -14314,7 +14876,7 @@ function AppInner() {
     const newItems = [];
     sale.items.forEach((i) => {
       const q = Math.min(i.qty, qtyById[i.id] || 0);
-      if (q > 0) returnedItems.push({ id: i.id, stockId: itemStockId(i), name: i.product?.name || "?", qty: q, value: computeItemTotal(i.product, i.qty) - computeItemTotal(i.product, i.qty - q) });
+      if (q > 0) returnedItems.push({ id: i.id, stockId: itemStockId(i), productId: i.productId, bv: i.bv, name: i.product?.name || "?", qty: q, value: computeItemTotal(i.product, i.qty) - computeItemTotal(i.product, i.qty - q) });
       if (i.qty - q > 0) newItems.push({ ...i, qty: i.qty - q });
     });
     if (returnedItems.length === 0) return null;
@@ -14338,7 +14900,7 @@ function AppInner() {
     if (restock) {
       const backQ = {};
       returnedItems.forEach((r) => { backQ[r.stockId] = (backQ[r.stockId] || 0) + r.qty; });
-      saveProducts(products.map((p) => (backQ[p.id] ? { ...p, stock: (Number(p.stock) || 0) + backQ[p.id] } : p)));
+      saveProducts(adjustVariantStock(products.map((p) => (backQ[p.id] ? { ...p, stock: (Number(p.stock) || 0) + backQ[p.id] } : p)), returnedItems, 1));
     }
     const retMovements = returnedItems.map((r) => {
       const p = products.find((pp) => pp.id === r.stockId);
@@ -14555,7 +15117,7 @@ function AppInner() {
                 {licenseStatus !== "expired" && (
                 <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 pt-2 z-30 no-print" style={{ background: "linear-gradient(to top, var(--paper) 60%, transparent)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
                   <div className="rounded-2xl flex items-stretch shadow-lg overflow-hidden" style={{ background: "var(--glass)" }}>
-                    {TABS[role].map((t) => (
+                    {TABS[role].map((t0) => (shopProfile(shop) === "boutique" && t0.id === "sell" ? { ...t0, label: "Boutique", Icon: ShoppingBag } : t0)).map((t) => (
                       <button key={t.id} onClick={() => { setView(t.id); if (t.id === "admin") setAdminMenuOpen(true); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2.5" style={{ background: view === t.id ? "var(--glass-light)" : "transparent" }}>
                         <div className="relative">
                           <t.Icon size={17} color={view === t.id ? "var(--cap)" : "#ffffff90"} />
@@ -14572,7 +15134,7 @@ function AppInner() {
                               <span>{tr("creditWord")}</span>
                               <span>{tr("avoirWord")}</span>
                             </span>
-                          ) : tr(t.id)}
+                          ) : t.label === "Boutique" ? "Boutique" : tr(t.id)}
                         </span>
                       </button>
                     ))}

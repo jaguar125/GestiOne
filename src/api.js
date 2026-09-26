@@ -328,7 +328,10 @@ async function pushOne(shopId, key, value) {
     const deleted = known ? [...known].filter((k) => !current.has(k)) : [];
     const data = await callFunction("store", { ...shopAuthFields(shopId), action: "set", key, value, deleted_ids: deleted });
     if (data && data.merged && Array.isArray(data.value)) {
-      setKnown(shopId, key, new Set(data.value.map((x) => String(x.id))));
+      // Les ids envoyés mais absents de la réponse ont été refusés par le
+      // serveur (supprimés ailleurs) : on les garde « connus » pour que la
+      // prochaine fusion les retire au lieu de les renvoyer sans fin.
+      setKnown(shopId, key, new Set([...data.value.map((x) => String(x.id)), ...current]));
       return data.value;
     }
     setKnown(shopId, key, current);
