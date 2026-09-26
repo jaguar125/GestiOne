@@ -6,7 +6,7 @@ import {
   Wallet, CreditCard, Truck, Users, Download, Printer, Store, ChevronDown, ChevronLeft, ChevronRight,
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
-  Zap, Rocket, Crown, TrendingDown, LayoutGrid, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
+  Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
   Phone, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
@@ -1525,6 +1525,48 @@ function LicenseLockedScreen({ role, shopName, onLogout, onActivate, pushToast }
   );
 }
 
+// Champs des écrans de connexion (fond sombre) : libellé, icône, et un champ
+// de code masqué avec un bouton œil pour l'afficher / le masquer.
+function AuthField({ Icon, label, hint, children }) {
+  return (
+    <label className="block">
+      <span className="block text-[12px] font-semibold text-white/70 mb-1.5">{label}</span>
+      <span className="flex items-center gap-2.5 px-3.5 min-h-[52px] rounded-[15px] focus-within:ring-2" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", "--tw-ring-color": "var(--cap)" }}>
+        {Icon && <Icon size={17} className="shrink-0" color="rgba(255,255,255,0.55)" />}
+        {children}
+      </span>
+      {hint && <span className="block text-[11px] text-white/40 mt-1">{hint}</span>}
+    </label>
+  );
+}
+function SecretPinField({ label, value, onChange, onEnter, length = 4 }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div>
+      <span className="block text-[12px] font-semibold text-white/70 mb-1.5">{label}</span>
+      <div className="flex items-center gap-2.5 pl-3.5 pr-1.5 min-h-[52px] rounded-[15px] focus-within:ring-2" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", "--tw-ring-color": "var(--cap)" }}>
+        <Lock size={17} className="shrink-0" color="rgba(255,255,255,0.55)" />
+        <input
+          type={show ? "text" : "password"}
+          inputMode="numeric"
+          autoComplete="off"
+          value={value}
+          onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, length))}
+          onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
+          placeholder={"•".repeat(length)}
+          className="flex-1 min-w-0 bg-transparent outline-none text-[18px] font-mono tracking-[0.5em] text-white placeholder-white/30"
+        />
+        <div className="flex gap-1 shrink-0" aria-hidden="true">
+          {Array.from({ length }).map((_, i) => <span key={i} className="w-1.5 h-1.5 rounded-full transition-colors" style={{ background: i < value.length ? "var(--cap)" : "rgba(255,255,255,0.2)" }} />)}
+        </div>
+        <button type="button" onClick={() => setShow((v) => !v)} className="gb-focus w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: show ? "rgba(242,166,90,0.2)" : "rgba(255,255,255,0.08)" }} aria-label={show ? "Masquer le code" : "Afficher le code"} aria-pressed={show}>
+          {show ? <EyeOff size={18} color="var(--cap)" /> : <Eye size={18} color="rgba(255,255,255,0.8)" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const TERMS_SECTIONS = [
   { title: "1. Objet", body: "GestiOne est une application de gestion de caisse, de stock et de crédits clients destinée aux petits commerces (maquis, bars, buvettes, caves, entreprises...). Les présentes conditions encadrent l'utilisation de l'application par le propriétaire d'une entreprise et par les vendeurs qu'il autorise." },
   { title: "2. Compte et essai gratuit", body: "Chaque entreprise créée bénéficie d'un essai gratuit de 14 jours donnant accès à l'ensemble des fonctionnalités, sans engagement. À l'issue de l'essai, l'accès à l'entreprise est suspendu jusqu'à l'activation d'une licence payante." },
@@ -1822,23 +1864,40 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
         </div>
       );
     }
+    const isAdminRc = reconnectRole === "admin";
     return (
-      <div className="min-h-full flex items-center justify-center px-5 py-10" style={{ background: "var(--glass)" }}>
-        <div className="w-full max-w-xs rounded-[24px] p-7 gb-slide-up" style={{ background: "var(--glass-light)", boxShadow: "0 20px 44px -14px rgba(0,0,0,0.4)" }}>
-          <div className="mx-auto mb-4 rounded-2xl overflow-hidden" style={{ width: 56, height: 56 }}><img src="/gestione-logo.webp" alt="GestiOne" className="w-full h-full object-cover" /></div>
-          <h1 className="font-display font-bold text-lg text-white text-center mb-6">{reconnectRole === "admin" ? "Reconnexion administrateur" : "Reconnexion vendeur"}</h1>
-          <div className="flex flex-col gap-2.5">
-            <input value={rcShopName} onChange={(e) => setRcShopName(e.target.value)} placeholder="Nom de l'entreprise" className="gb-input-dark gb-focus w-full rounded-xl px-4 py-3 text-sm outline-none border" style={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.14)", color: "#fff" }} />
-            <input value={rcVendorName} onChange={(e) => setRcVendorName(e.target.value)} placeholder={reconnectRole === "admin" ? "Nom d'un vendeur de ton entreprise" : "Ton nom"} className="gb-input-dark gb-focus w-full rounded-xl px-4 py-3 text-sm outline-none border" style={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.14)", color: "#fff" }} />
-            <input value={rcPin} onChange={(e) => setRcPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder={reconnectRole === "admin" ? "Code administrateur" : "Ton code PIN"} inputMode="numeric" className="gb-input-dark gb-focus w-full rounded-xl px-4 py-3 text-sm font-mono outline-none border" style={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.14)", color: "#fff" }} />
-            {reconnectRole === "vendeur" && (
-              <input value={rcJoinCode} onChange={(e) => setRcJoinCode(e.target.value.toUpperCase())} placeholder="Ton code de liaison" className="gb-input-dark gb-focus w-full rounded-xl px-4 py-3 text-sm font-mono tracking-wider outline-none border" style={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.14)", color: "#fff" }} />
-            )}
-            <button onClick={submitReconnect} disabled={loading} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm disabled:opacity-50 mt-1.5" style={{ background: "var(--cap)", color: "var(--glass)" }}>
-              {loading ? "Connexion…" : "Se reconnecter"}
-            </button>
-            <button onClick={() => setReconnectRole(null)} className="gb-focus flex items-center justify-center gap-1.5 text-white/45 text-xs mt-1"><ArrowUpCircle size={12} style={{ transform: "rotate(-90deg)" }} /> Retour</button>
+      <div className="min-h-full flex flex-col items-center justify-center px-5" style={{ background: "radial-gradient(120% 70% at 50% 0%, var(--glass-light) 0%, var(--glass) 60%)", paddingTop: "max(48px, calc(env(safe-area-inset-top) + 24px))", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 24px))" }}>
+        <div className="w-full max-w-[380px] gb-slide-up">
+          <div className="flex flex-col items-center text-center mb-5">
+            <div className="relative mb-3">
+              <div className="rounded-[20px] overflow-hidden" style={{ width: 68, height: 68, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.55)" }}><img src="/gestione-logo.webp" alt="GestiOne" className="w-full h-full object-cover" /></div>
+              <span className="absolute -bottom-1.5 -right-1.5 w-8 h-8 rounded-[11px] flex items-center justify-center" style={{ background: "var(--cap)", boxShadow: "0 0 0 3px var(--glass)" }}>{isAdminRc ? <ShieldCheck size={16} color="var(--glass)" /> : <ShoppingCart size={16} color="var(--glass)" />}</span>
+            </div>
+            <p className="text-[11.5px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--cap)" }}>Reconnexion</p>
+            <h1 className="font-display font-bold text-[24px] text-white leading-tight">{isAdminRc ? "Espace administrateur" : "Espace vendeur"}</h1>
+            <p className="text-[13px] text-white/60 mt-1 max-w-[290px]">{isAdminRc ? "Retrouvez votre entreprise sur ce téléphone avec votre code administrateur." : "Retrouvez votre entreprise avec votre nom, votre code et votre code de liaison."}</p>
           </div>
+          <div className="rounded-[26px] p-5" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", boxShadow: "0 24px 50px -20px rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}>
+            <div className="flex flex-col gap-3.5">
+              <AuthField Icon={Store} label="Nom de l'entreprise">
+                <input value={rcShopName} onChange={(e) => setRcShopName(e.target.value)} placeholder="Ex : CUATRO" autoComplete="organization" className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-white placeholder-white/35" />
+              </AuthField>
+              <AuthField Icon={UserPlus} label={isAdminRc ? "Nom d'un vendeur de l'entreprise" : "Votre nom"} hint={isAdminRc ? "Pour vérifier qu'il s'agit bien de votre entreprise" : null}>
+                <input value={rcVendorName} onChange={(e) => setRcVendorName(e.target.value)} placeholder={isAdminRc ? "Ex : Francisca" : "Ex : Awa"} className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-white placeholder-white/35" />
+              </AuthField>
+              <SecretPinField label={isAdminRc ? "Code administrateur" : "Votre code PIN"} value={rcPin} onChange={setRcPin} onEnter={submitReconnect} />
+              {reconnectRole === "vendeur" && (
+                <AuthField Icon={KeyRound} label="Code de liaison" hint="7 caractères, fournis par l'administrateur">
+                  <input value={rcJoinCode} onChange={(e) => setRcJoinCode(e.target.value.toUpperCase())} placeholder="Ex : 6ZNNT37" className="flex-1 min-w-0 bg-transparent outline-none text-[15px] font-mono tracking-[0.2em] text-white placeholder-white/35" />
+                </AuthField>
+              )}
+              <button onClick={submitReconnect} disabled={loading} className="gb-focus w-full min-h-[54px] rounded-[16px] font-bold text-[15.5px] disabled:opacity-60 mt-1 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #F6B774, var(--cap))", color: "var(--glass)", boxShadow: "0 12px 24px -10px rgba(242,166,90,0.7)" }}>
+                {loading ? <><RefreshCw size={17} className="animate-spin" /> Connexion…</> : <>Se reconnecter <ChevronRight size={18} /></>}
+              </button>
+            </div>
+          </div>
+          <button onClick={() => setReconnectRole(null)} className="gb-focus mx-auto mt-4 min-h-[40px] px-4 rounded-full flex items-center justify-center gap-1.5 text-white/70 text-[13px] font-semibold" style={{ background: "rgba(255,255,255,0.06)" }}><ChevronLeft size={15} /> Retour</button>
+          <p className="text-center text-[11px] text-white/35 mt-3 flex items-center justify-center gap-1.5"><ShieldCheck size={12} /> Vos codes ne sont jamais enregistrés en clair.</p>
         </div>
       </div>
     );
@@ -5989,125 +6048,187 @@ function CashRegisterModal({ onSave, onClose, afterVersement }) {
   );
 }
 
-function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast, onReturnSale }) {
+function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast, onReturnSale, onSettleCredit, onRedeemMoney, onRedeemProduct }) {
   const fmt = useFmt();
   const [returning, setReturning] = useState(null);
   const [code, setCode] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [result, setResult] = useState(null);
+  const [found, setFound] = useState(null); // { kind: "sale"|"avoir", id }
   const [notFound, setNotFound] = useState(false);
   const [viewSale, setViewSale] = useState(null);
   const [viewAvoir, setViewAvoir] = useState(null);
+  const [settling, setSettling] = useState(null);
+  const [creditReceipt, setCreditReceipt] = useState(null);
+  const [redeemMoney, setRedeemMoney] = useState(null);
+  const [redeemProduct, setRedeemProduct] = useState(null);
+
+  // L'entrée affichée est toujours relue depuis les données à jour, pour que
+  // la fiche reflète immédiatement un encaissement ou une remise.
+  const sale = found?.kind === "sale" ? sales.find((s) => s.id === found.id) : null;
+  const avoirDirect = found?.kind === "avoir" ? avoirs.find((a) => a.id === found.id) : null;
+  const linkedAvoirs = sale ? avoirs.filter((a) => a.saleId === sale.id || avoirs.some((b) => b.saleId === sale.id && a.saleId === b.id)) : avoirDirect ? [avoirDirect, ...avoirs.filter((a) => a.saleId === avoirDirect.id)] : [];
 
   const search = (raw) => {
     const digits = String(raw || "").replace(/\D/g, "");
     if (!digits) return;
-    const sale = sales.find((s) => receiptNumber(s.id) === digits);
-    if (sale) {
-      setResult({ kind: "sale", entry: sale });
-      setNotFound(false);
-      if (sale.paymentMethod === "credit") {
-        const remaining = Math.max(0, sale.total - creditPaidSoFar(sale));
-        if (remaining > 0) speak(`${sale.clientName || "Le client"} a un reste à payer de ${spokenAmount(fmt(remaining))}.`, voiceOn(shop, "credit"));
+    const same = (id) => { const r = receiptNumber(id); return r === digits || r.replace(/^0+/, "") === digits.replace(/^0+/, ""); };
+    const s = sales.find((x) => same(x.id));
+    if (s) {
+      setFound({ kind: "sale", id: s.id }); setNotFound(false);
+      if (s.paymentMethod === "credit") {
+        const remaining = Math.max(0, s.total - creditPaidSoFar(s));
+        if (remaining > 0) speak(`${s.clientName || "Le client"} a un reste à payer de ${spokenAmount(fmt(remaining))}.`, voiceOn(shop, "credit"));
       }
       return;
     }
-    const avoir = avoirs.find((a) => receiptNumber(a.id) === digits);
-    if (avoir) {
-      setResult({ kind: "avoir", entry: avoir });
-      setNotFound(false);
-      if (!avoir.settled) {
-        const prog = avoir.type === "produit" ? avoirProductProgress(avoir) : avoirMoneyProgress(avoir);
-        const msg = avoir.type === "produit"
-          ? `${avoir.clientName || "Le client"} a encore ${prog.remainingQty} article${prog.remainingQty > 1 ? "s" : ""} en avoir.`
-          : `${avoir.clientName || "Le client"} a encore ${spokenAmount(fmt(prog.remaining))} en avoir.`;
-        speak(msg, voiceOn(shop, "credit"));
+    // Reçu d'avoir, ou reçu de la vente d'origine d'un avoir (même numéro que la vente).
+    const a = avoirs.find((x) => same(x.id)) || avoirs.find((x) => x.saleId && same(x.saleId));
+    if (a) {
+      setFound({ kind: "avoir", id: a.id }); setNotFound(false);
+      if (!a.settled) {
+        const prog = a.type === "produit" ? avoirProductProgress(a) : avoirMoneyProgress(a);
+        speak(a.type === "produit" ? `${a.clientName || "Le client"} a encore ${prog.remainingQty} article${prog.remainingQty > 1 ? "s" : ""} en avoir.` : `${a.clientName || "Le client"} a encore ${spokenAmount(fmt(prog.remaining))} en avoir.`, voiceOn(shop, "credit"));
       }
       return;
     }
-    setResult(null);
-    setNotFound(true);
+    setFound(null); setNotFound(true);
   };
-
   const handleDetect = (value) => { setScannerOpen(false); setCode(value.replace(/\D/g, "")); search(value); };
+
+  const Row = ({ l, v, strong, color }) => <div className="flex justify-between gap-3 text-[13px] py-1"><span className="opacity-60">{l}</span><span className={`font-mono ${strong ? "font-bold" : ""}`} style={{ color }}>{v}</span></div>;
+  const Btn = ({ children, onClick, tone = "primary", Icon }) => (
+    <button onClick={onClick} className="gb-focus w-full min-h-[50px] rounded-[15px] px-4 text-[14.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={tone === "primary" ? { background: "linear-gradient(180deg, #16876A, #0C5E49)", color: "#fff", boxShadow: "0 8px 18px -8px rgba(12,94,73,0.6)" } : tone === "amber" ? { background: "linear-gradient(180deg, #E0A030, #B97A12)", color: "#fff", boxShadow: "0 8px 18px -8px rgba(185,122,18,0.6)" } : tone === "violet" ? { background: "linear-gradient(180deg, #6B4FB8, #4E3597)", color: "#fff" } : { background: "#fff", color: "var(--ink)", border: "1.5px solid var(--line)" }}>
+      {Icon && <Icon size={17} />}{children}
+    </button>
+  );
+  const AvoirBlock = ({ a }) => {
+    const isP = a.type === "produit";
+    const prog = isP ? avoirProductProgress(a) : avoirMoneyProgress(a);
+    const done = a.settled;
+    return (
+      <div className="rounded-[18px] p-3.5" style={{ background: done ? "#E6F4EC" : isP ? "#EFEAFB" : "#FFF1D6" }}>
+        <div className="flex items-center gap-2.5">
+          <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "#fff" }}>{isP ? <PackageX size={18} color="#5B3FB0" /> : <Coins size={18} color="#9A5B00" />}</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13.5px] font-bold">{isP ? "Avoir produit" : "Avoir monnaie"} · {a.clientName || "Client"}</p>
+            <p className="text-[11.5px] opacity-70">N° {receiptNumber(a.id)} · {new Date(a.date).toLocaleDateString("fr-FR")}</p>
+          </div>
+          <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full shrink-0" style={done ? { background: "#fff", color: "#1E7A46" } : { background: "#fff", color: isP ? "#5B3FB0" : "#9A5B00" }}>{done ? "SOLDÉ" : "EN COURS"}</span>
+        </div>
+        {!done && (
+          <>
+            <div className="flex justify-between items-baseline mt-2.5">
+              <span className="text-[12.5px] font-semibold" style={{ color: isP ? "#4E3597" : "#6E4300" }}>{isP ? "Encore à remettre" : "Monnaie encore due"}</span>
+              <span className="font-display font-bold text-[20px]" style={{ color: isP ? "#4E3597" : "#6E4300" }}>{isP ? `${prog.remainingQty} article${prog.remainingQty > 1 ? "s" : ""}` : fmt(prog.remaining)}</span>
+            </div>
+            {!isP && prog.remaining < (Number(a.amount) || 0) && <p className="text-[11.5px] opacity-70">Déjà rendu : {fmt((Number(a.amount) || 0) - prog.remaining)} sur {fmt(a.amount)}</p>}
+            <div className="mt-2.5">
+              {isP
+                ? (onRedeemProduct && <Btn tone="violet" Icon={Boxes} onClick={() => setRedeemProduct(a)}>Remettre les produits</Btn>)
+                : (onRedeemMoney && <Btn tone="amber" Icon={Coins} onClick={() => setRedeemMoney(a)}>Rendre la monnaie · {fmt(prog.remaining)}</Btn>)}
+            </div>
+          </>
+        )}
+        <button onClick={() => setViewAvoir(a)} className="gb-focus mt-2 text-[12.5px] font-bold flex items-center gap-1" style={{ color: "var(--glass)" }}><Receipt size={13} /> Voir le reçu de l'avoir</button>
+      </div>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-[92] flex items-end no-print">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="font-display font-bold text-lg">Scanner un reçu</h2>
-          <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
+      <div className="relative w-full rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[90vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+        <div className="flex items-center gap-3 mb-3">
+          <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "var(--glass)" }}><Barcode size={20} color="#fff" /></span>
+          <div className="flex-1 min-w-0"><p className="font-display font-bold text-[19px] leading-tight">Scanner un reçu</p><p className="text-[12px] opacity-60">Crédit à encaisser, monnaie à rendre, produits à remettre</p></div>
+          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
         </div>
-        <p className="text-xs opacity-50 mb-4">Scanne le code-barres ou saisis le numéro pour vérifier s'il reste un avoir ou un crédit en cours.</p>
 
-        <div className="flex items-center gap-2 mb-3">
-          <input
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            onKeyDown={(e) => e.key === "Enter" && search(code)}
-            placeholder="Numéro du reçu"
-            inputMode="numeric"
-            className="gb-focus flex-1 rounded-xl px-3 py-3 text-sm border font-mono"
-            style={{ borderColor: "var(--line)" }}
-          />
-          <button onClick={() => setScannerOpen(true)} className="gb-focus w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--glass)" }} aria-label="Scanner le code-barres">
-            <Barcode size={18} color="#fff" />
-          </button>
+        <div className="flex items-center gap-2 mb-2.5">
+          <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && search(code)} placeholder="Numéro du reçu" inputMode="numeric" className="gb-focus flex-1 min-w-0 rounded-[14px] px-3.5 min-h-[50px] text-[16px] border font-mono tracking-wider" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+          <button onClick={() => setScannerOpen(true)} className="gb-focus w-[50px] h-[50px] rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "var(--cap)" }} aria-label="Scanner le code-barres"><Barcode size={20} color="var(--glass)" /></button>
         </div>
-        <button onClick={() => search(code)} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold text-white mb-4" style={{ background: "#0F6E56" }}>Rechercher</button>
+        <Btn Icon={Search} onClick={() => search(code)}>Rechercher</Btn>
 
-        {notFound && <p className="text-sm text-center opacity-50 py-4">Aucun reçu ne correspond à ce numéro.</p>}
+        {notFound && (
+          <div className="rounded-[18px] p-4 mt-3 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+            <p className="font-bold text-[14px]">Aucun reçu trouvé pour le N° {code}</p>
+            <p className="text-[12px] opacity-60 mt-1">Vérifiez le numéro. Si la vente a été supprimée, son reçu n'est plus valable.</p>
+          </div>
+        )}
 
-        {result?.kind === "sale" && (() => {
-          const s = result.entry;
+        {sale && (() => {
+          const s = sale;
           const isCredit = s.paymentMethod === "credit";
-          const paidSoFar = isCredit ? creditPaidSoFar(s) : s.total;
-          const remaining = isCredit ? Math.max(0, s.total - paidSoFar) : 0;
+          const paid = isCredit ? creditPaidSoFar(s) : Number(s.total) || 0;
+          const remaining = isCredit ? Math.max(0, s.total - paid) : 0;
+          const pays = isCredit ? creditPaymentsOf(s) : [];
+          const openAvoirs = linkedAvoirs.filter((a) => !a.settled);
+          const status = isCredit && remaining > 0 ? { t: "CRÉDIT EN COURS", c: "#B3261E", b: "#FCEBEA" } : openAvoirs.length ? { t: "AVOIR EN COURS", c: "#9A5B00", b: "#FFF1D6" } : { t: isCredit ? "CRÉDIT SOLDÉ" : "PAYÉE", c: "#1E7A46", b: "#E6F4EC" };
           return (
-            <div className="rounded-2xl p-4 gb-slide-up" style={{ background: isCredit && remaining > 0 ? "#FCEBEB" : "#EAF3DE" }}>
-              <p className="text-xs font-semibold opacity-60 mb-1">Vente · {new Date(s.date).toLocaleDateString("fr-FR")}</p>
-              <p className="text-sm font-bold mb-2">{s.clientName || "Client"} — {fmt(s.total)}</p>
-              {isCredit ? (
-                remaining > 0 ? (
-                  <p className="text-sm font-semibold" style={{ color: "var(--danger)" }}>Crédit en cours — reste {fmt(remaining)}</p>
-                ) : (
-                  <p className="text-sm font-semibold" style={{ color: "#27500A" }}>Crédit soldé</p>
-                )
-              ) : (
-                <p className="text-sm" style={{ color: "#27500A" }}>Vente encaissée — {PAYMENT_LABELS[s.paymentMethod]}</p>
+            <div className="mt-3 flex flex-col gap-2.5 gb-slide-up">
+              <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 14px rgba(22,32,42,0.05)" }}>
+                <div className="px-4 pt-3.5 pb-3" style={{ borderBottom: "1px dashed var(--line)" }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-mono text-[13px] font-bold">Reçu N° {receiptNumber(s.id)}</p>
+                    <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: status.b, color: status.c }}>{status.t}</span>
+                  </div>
+                  <p className="text-[12px] opacity-60 mt-0.5">{new Date(s.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} à {new Date(s.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {s.vendor}</p>
+                  {s.clientName && <p className="text-[13px] font-bold mt-1.5 flex items-center gap-1.5"><UserPlus size={14} className="opacity-60" /> {s.clientName}</p>}
+                </div>
+                <div className="px-4 py-2.5" style={{ borderBottom: "1px dashed var(--line)" }}>
+                  {s.items.map((i) => (
+                    <div key={i.id} className="flex justify-between gap-3 text-[13px] py-1"><span className="min-w-0 truncate">{i.qty} × {i.product?.name}</span><span className="font-mono shrink-0">{fmt(computeItemTotal(i.product, i.qty))}</span></div>
+                  ))}
+                  {s.items.length === 0 && <p className="text-[12.5px] opacity-60 py-1">Tous les articles ont été retournés.</p>}
+                </div>
+                <div className="px-4 py-2.5">
+                  <div className="flex justify-between items-baseline"><span className="text-[12px] font-bold uppercase tracking-wide opacity-60">Total</span><span className="font-display font-bold text-[22px]">{fmt(s.total)}</span></div>
+                  <Row l="Paiement" v={PAYMENT_LABELS[s.paymentMethod] || s.paymentMethod} />
+                  {s.avoirPaid > 0 && <Row l="Payé avec un avoir" v={`– ${fmt(s.avoirPaid)}`} />}
+                  {s.amountReceived != null && !isCredit && <Row l="Montant reçu" v={fmt(s.amountReceived)} />}
+                  {s.changeDue > 0 && <Row l="Monnaie rendue" v={fmt(s.changeDue)} />}
+                </div>
+              </div>
+
+              {isCredit && (
+                <div className="rounded-[18px] p-3.5" style={{ background: remaining > 0 ? "#FCEBEA" : "#E6F4EC" }}>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[12.5px] font-semibold" style={{ color: remaining > 0 ? "#8A2419" : "#1E7A46" }}>{remaining > 0 ? "Reste à payer" : "Crédit soldé"}</span>
+                    <span className="font-display font-bold text-[22px]" style={{ color: remaining > 0 ? "#B3261E" : "#1E7A46" }}>{remaining > 0 ? fmt(remaining) : fmt(s.total)}</span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.7)" }}><div className="h-full rounded-full" style={{ width: `${Math.min(100, (paid / Math.max(1, s.total)) * 100)}%`, background: remaining > 0 ? "#1D5FA8" : "#1E7A46" }} /></div>
+                  <p className="text-[11.5px] mt-1 opacity-75">{fmt(paid)} déjà réglés sur {fmt(s.total)}{pays.length ? ` · ${pays.length} règlement${pays.length > 1 ? "s" : ""}` : ""}</p>
+                  {remaining > 0 && onSettleCredit && <div className="mt-2.5"><Btn Icon={Banknote} onClick={() => setSettling(s)}>Encaisser le crédit · {fmt(remaining)}</Btn></div>}
+                </div>
               )}
-              <button onClick={() => setViewSale(s)} className="gb-focus w-full rounded-xl py-2 text-xs font-semibold text-white mt-3" style={{ background: "var(--glass)" }}>Voir le reçu</button>
-              {onReturnSale && s.items?.length > 0 && <button onClick={() => setReturning(s)} className="gb-focus w-full rounded-xl py-2 text-xs font-bold mt-2 flex items-center justify-center gap-1.5" style={{ background: "#fff", color: "#0F6E56" }}><Undo2 size={13} /> Faire un retour</button>}
+
+              {linkedAvoirs.map((a) => <AvoirBlock key={a.id} a={a} />)}
+
+              <div className="grid gap-2" style={{ gridTemplateColumns: onReturnSale && s.items?.length > 0 ? "1fr 1fr" : "1fr" }}>
+                <Btn tone="light" Icon={Printer} onClick={() => setViewSale(s)}>Voir le reçu</Btn>
+                {onReturnSale && s.items?.length > 0 && <Btn tone="light" Icon={Undo2} onClick={() => setReturning(s)}>Retour</Btn>}
+              </div>
             </div>
           );
         })()}
 
-        {result?.kind === "avoir" && (() => {
-          const a = result.entry;
-          const isProduit = a.type === "produit";
-          const prog = isProduit ? avoirProductProgress(a) : avoirMoneyProgress(a);
-          return (
-            <div className="rounded-2xl p-4 gb-slide-up" style={{ background: a.settled ? "#EAF3DE" : (isProduit ? "#EEEDFE" : "#FAEEDA") }}>
-              <p className="text-xs font-semibold opacity-60 mb-1">{isProduit ? "Avoir produit" : "Avoir monnaie"} · {new Date(a.date).toLocaleDateString("fr-FR")}</p>
-              <p className="text-sm font-bold mb-2">{a.clientName}</p>
-              {a.settled ? (
-                <p className="text-sm font-semibold" style={{ color: "#27500A" }}>Avoir soldé</p>
-              ) : (
-                <p className="text-sm font-semibold" style={{ color: isProduit ? "#26215C" : "#854F0B" }}>
-                  {isProduit ? `Encore en avoir : ${prog.remainingQty} article${prog.remainingQty > 1 ? "s" : ""}` : `Encore en avoir : ${fmt(prog.remaining)}`}
-                </p>
-              )}
-              <button onClick={() => setViewAvoir(a)} className="gb-focus w-full rounded-xl py-2 text-xs font-semibold text-white mt-3" style={{ background: "var(--glass)" }}>Voir le reçu</button>
-            </div>
-          );
-        })()}
+        {!sale && avoirDirect && (
+          <div className="mt-3 flex flex-col gap-2.5 gb-slide-up">
+            {linkedAvoirs.map((a) => <AvoirBlock key={a.id} a={a} />)}
+          </div>
+        )}
       </div>
 
       {scannerOpen && <CameraScanner onDetect={handleDetect} onClose={() => setScannerOpen(false)} />}
       {viewSale && <SaleReceiptModal receipt={viewSale} shop={shop} clients={clients || []} onClose={() => setViewSale(null)} pushToast={pushToast} />}
       {viewAvoir && <AvoirReceiptModal avoir={viewAvoir} shop={shop} onClose={() => setViewAvoir(null)} pushToast={pushToast} />}
-      {returning && <SaleReturnFlow sale={returning} shop={shop} onReturnSale={onReturnSale} onClose={() => { setReturning(null); setResult(null); }} pushToast={pushToast} />}
+      {returning && <SaleReturnFlow sale={returning} shop={shop} onReturnSale={onReturnSale} onClose={() => setReturning(null)} pushToast={pushToast} />}
+      {settling && <SettleCreditModal sale={settling} onClose={() => setSettling(null)} onConfirm={(amount) => { const updated = onSettleCredit(settling.id, amount); setSettling(null); if (updated) setCreditReceipt(updated); }} />}
+      {creditReceipt && <CreditReceiptModal sale={creditReceipt} shop={shop} onClose={() => setCreditReceipt(null)} pushToast={pushToast} />}
+      {redeemMoney && <RedeemMoneyAvoirModal avoir={redeemMoney} onClose={() => setRedeemMoney(null)} onConfirm={(amount) => { const updated = onRedeemMoney(redeemMoney.id, amount); setRedeemMoney(null); if (updated) setViewAvoir(updated); }} />}
+      {redeemProduct && <RedeemProductAvoirModal avoir={redeemProduct} onClose={() => setRedeemProduct(null)} onConfirm={(items2) => { const updated = onRedeemProduct(redeemProduct.id, items2); setRedeemProduct(null); if (updated) setViewAvoir(updated); }} />}
     </div>
   );
 }
@@ -6131,7 +6252,7 @@ function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeem
       ) : (
         <AvoirsScreen shop={shop} avoirs={avoirs} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} pushToast={pushToast} />
       )}
-      {scanOpen && <ScanReceiptModal sales={sales} avoirs={avoirs} shop={shop} clients={clients} onClose={() => setScanOpen(false)} pushToast={pushToast} onReturnSale={onReturnSale} />}
+      {scanOpen && <ScanReceiptModal sales={sales} avoirs={avoirs} shop={shop} clients={clients} onClose={() => setScanOpen(false)} pushToast={pushToast} onReturnSale={onReturnSale} onSettleCredit={onSettleCredit} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} />}
     </div>
   );
 }
