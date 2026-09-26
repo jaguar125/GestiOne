@@ -166,6 +166,10 @@ function shopProfile(shop) {
   if (t === "snack") return "snack";
   if (t === "boutique") return "boutique";
   if (["maquis", "cave", "buvette", "bar"].includes(t)) return "boissons";
+  // Type saisi à la main (« Autre ») : on reconnaît les mots courants.
+  const low = String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (/(pain|panini|fourre|snack|sandwich|garba|attieke|restau|cafe|fast.?food|dibi|brochette|patisserie|boulang)/.test(low)) return "snack";
+  if (/(boutique|epicerie|superette|alimentation|quincaill|cosmet|divers)/.test(low)) return "boutique";
   return "autre";
 }
 const SNACK_CATEGORIES = [
@@ -174,8 +178,8 @@ const SNACK_CATEGORIES = [
   { id: "frais", label: "Boissons fraîches", color: "#2C7DA0", icon: "cupsoda" },
 ];
 const SNACK_PRODUCTS = [
-  { id: "pain-simple", name: "Pain simple", barcode: "", category: "pain", price: 100, costPrice: 0, stock: 0, openingStock: 0, minStock: 3, unit: "pain", favorite: true, isBase: true },
-  { id: "pain-fourre", name: "Pain fourré", barcode: "", category: "pain", price: 500, costPrice: 0, stock: 0, openingStock: 0, minStock: 0, unit: "pain", favorite: true, stockFrom: "pain-simple", options: [{ id: "oeuf", name: "Œuf en plus", price: 200 }] },
+  { id: "pain-simple", name: "Pain simple", barcode: "", category: "pain", price: 100, costPrice: 0, stock: 0, openingStock: 0, minStock: 3, unit: "pain", favorite: true, isBase: true,
+    variants: [{ id: "fourre", name: "Pain fourré", price: 500 }, { id: "fourre-oeuf", name: "Pain fourré + œuf", price: 700 }] },
 ];
 const BOUTIQUE_CATEGORIES = [
   { id: "entretien", label: "Entretien", color: "#2C7DA0", icon: "droplets" },
@@ -189,6 +193,18 @@ function seedFor(type) {
   if (prof === "boutique") return { products: [], categories: BOUTIQUE_CATEGORIES, suppliers: [] };
   return { products: SEED_PRODUCTS, categories: SEED_CATEGORIES, suppliers: SEED_SUPPLIERS };
 }
+// Vocabulaire selon le profil : casier/bouteille pour les boissons, lot/pain
+// pour un snack, carton/pièce pour une boutique.
+const VOCAB = {
+  boissons: { pack: "casier", packs: "casiers", Pack: "Casier", unit: "bouteille", units: "bouteilles", Unit: "Bouteille" },
+  snack: { pack: "lot", packs: "lots", Pack: "Lot", unit: "pain", units: "pains", Unit: "Pain" },
+  boutique: { pack: "carton", packs: "cartons", Pack: "Carton", unit: "pièce", units: "pièces", Unit: "Pièce" },
+  autre: { pack: "lot", packs: "lots", Pack: "Lot", unit: "unité", units: "unités", Unit: "Unité" },
+};
+const VocabContext = createContext(VOCAB.boissons);
+function useVocab() { return useContext(VocabContext); }
+const plural = (n, one, many) => (n > 1 ? many : one);
+
 // Stock partagé : un produit « formule » (ex : Pain fourré) se vend à partir
 // du stock d'un autre produit (Pain) — 1 vente retire 1 unité de ce stock.
 function stockTargetId(product) { return product?.stockFrom || product?.id; }
@@ -557,7 +573,7 @@ function buildStockLedger(product, { sales = [], movements = [], inventories = [
     .filter((m) => m.productId === pid && m.type === "livraison" && after(m.date))
     .map((m) => ({ kind: "arrivage", date: m.date, qty: Number(m.delta) || 0, before: m.before, after: m.after, note: m.note, author: m.author }));
   const adjustments = movements
-    .filter((m) => m.productId === pid && (m.type === "ajustement" || m.type === "comptage") && !SALE_ADJUST_NOTES.includes(m.note) && after(m.date))
+    .filter((m) => m.productId === pid && (m.type === "ajustement" || m.type === "comptage" || m.type === "perte") && !SALE_ADJUST_NOTES.includes(m.note) && after(m.date))
     .map((m) => ({ kind: m.type === "comptage" ? "comptage" : "ajustement", date: m.date, qty: Number(m.delta) || 0, before: m.before, after: m.after, note: m.note, author: m.author }));
 
   // Retours clients : la vente d'origine a déjà été diminuée des quantités
@@ -2517,20 +2533,24 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   // Quantité déjà réservée dans le panier sur un stock donné (toutes les
   // lignes qui puisent dans ce stock : pain simple + pain fourré…).
   const usedStock = (tid, lines) => (lines || cart).reduce((t, l) => (stockTargetId(products.find((x) => x.id === l.id)) === tid ? t + l.qty : t), 0);
-  const addToCart = (product, silent, opts, n = 1) => {
-    // Produit avec suppléments : on ouvre d'abord le choix des suppléments.
-    if ((product.options || []).length > 0 && opts === undefined) { setOptionsFor(product); return; }
+  const addToCart = (product, silent, sel, n = 1) => {
+    // Produit avec formules (Pain fourré…) ou suppléments : on ouvre d'abord
+    // le choix, défini par le propriétaire dans la fiche produit.
+    if (((product.options || []).length > 0 || (product.variants || []).length > 0) && sel === undefined) { setOptionsFor(product); return; }
     if (product.stock <= 0) { pushToast(`${product.name} — rupture de stock`, "error"); playSound("error", shop.soundsEnabled); return; }
-    const optIds = [...(opts || [])].sort();
-    const key = optIds.length ? `${product.id}~${optIds.join(".")}` : product.id;
+    const opts = Array.isArray(sel) ? sel : sel?.opts || [];
+    const variant = Array.isArray(sel) ? null : sel?.variant || null;
+    const optIds = [...opts].sort();
+    const key = optIds.length || variant ? `${product.id}~${variant || ""}~${optIds.join(".")}` : product.id;
     setCart((c) => {
       if (usedStock(stockTargetId(product), c) + n > product.stock) { pushToast("Stock insuffisant", "error"); playSound("error", shop.soundsEnabled); return c; }
       const existing = c.find((i) => (i.key || i.id) === key);
       if (existing) return c.map((i) => ((i.key || i.id) === key ? { ...i, qty: i.qty + n } : i));
-      return [...c, optIds.length ? { id: product.id, key, opts: optIds, qty: n } : { id: product.id, qty: n }];
+      return [...c, key !== product.id ? { id: product.id, key, opts: optIds, variant, qty: n } : { id: product.id, qty: n }];
     });
     playSound("add", shop.soundsEnabled);
-    if (!silent) pushToast(`${product.name}${optIds.length ? " + suppléments" : ""} ajouté`, "ok");
+    const vName = variant ? (product.variants || []).find((v) => v.id === variant)?.name : null;
+    if (!silent) pushToast(`${vName || product.name}${optIds.length ? " + suppléments" : ""} ajouté`, "ok");
   };
 
   const lookupAndAdd = (code) => {
@@ -2569,9 +2589,12 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     const base = products.find((p) => p.id === l.id);
     if (!base) return null;
     const chosen = (base.options || []).filter((o) => (l.opts || []).includes(o.id));
-    if (!chosen.length) return { ...l, key: undefined, product: base };
+    const variant = l.variant ? (base.variants || []).find((v) => v.id === l.variant) : null;
+    if (!chosen.length && !variant) return { ...l, key: undefined, product: base };
     const extra = chosen.reduce((t, o) => t + (Number(o.price) || 0), 0);
-    return { ...l, id: l.key, productId: base.id, options: chosen, product: { ...base, name: `${base.name} + ${chosen.map((o) => o.name).join(" + ")}`, price: (Number(base.price) || 0) + extra, bulkQty: 0, bulkPrice: 0 } };
+    const baseName = variant ? variant.name : base.name;
+    const basePrice = variant ? Number(variant.price) || 0 : Number(base.price) || 0;
+    return { ...l, id: l.key, productId: base.id, options: chosen, variantName: variant?.name, product: { ...base, name: chosen.length ? `${baseName} + ${chosen.map((o) => o.name).join(" + ")}` : baseName, price: basePrice + extra, bulkQty: 0, bulkPrice: 0 } };
   }).filter(Boolean);
   const total = cartItems.reduce((s, i) => s + computeItemTotal(i.product, i.qty), 0);
   const count = cartItems.reduce((s, i) => s + i.qty, 0);
@@ -3216,9 +3239,12 @@ function fitCartToBudget(cartItems, budget) {
 function ProductOptionsSheet({ product, left, unitLabel, onAdd, onClose }) {
   const fmt = useFmt();
   const [sel, setSel] = useState([]);
+  const [variant, setVariant] = useState(null);
   const [n, setN] = useState(1);
   const opts = product.options || [];
-  const unit = (Number(product.price) || 0) + opts.filter((o) => sel.includes(o.id)).reduce((t, o) => t + (Number(o.price) || 0), 0);
+  const variants = product.variants || [];
+  const baseUnit = variant ? Number(variants.find((v) => v.id === variant)?.price) || 0 : Number(product.price) || 0;
+  const unit = baseUnit + opts.filter((o) => sel.includes(o.id)).reduce((t, o) => t + (Number(o.price) || 0), 0);
   const toggle = (id) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
@@ -3230,11 +3256,28 @@ function ProductOptionsSheet({ product, left, unitLabel, onAdd, onClose }) {
             <p className="font-display font-bold text-[19px] truncate">{product.name}</p>
             <p className="text-[12px] opacity-60">1 {unitLabel.toLowerCase()} retiré du stock par article</p>
           </div>
-          <p className="font-display font-bold text-[18px] shrink-0" style={{ color: "var(--glass)" }}>{fmt(product.price)}</p>
+          <p className="font-display font-bold text-[18px] shrink-0" style={{ color: "var(--glass)" }}>{fmt(baseUnit)}</p>
         </div>
         <p className="text-[12px] font-bold rounded-[10px] px-3 py-1.5 mb-3" style={left <= 3 ? { background: "#FFF1D6", color: "#9A5B00" } : { background: "#E6F4EC", color: "#1E7A46" }}>Stock {unitLabel.toLowerCase()} : {left} restant{left > 1 ? "s" : ""}</p>
-        <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Suppléments</p>
-        <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {variants.length > 0 && (
+          <>
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Formule</p>
+            <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              {[{ id: null, name: product.name, price: product.price }, ...variants].map((v, i) => {
+                const on = variant === v.id;
+                return (
+                  <button key={v.id || "base"} onClick={() => setVariant(v.id)} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none", background: on ? "#FFF6EC" : "transparent" }}>
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={on ? { background: "var(--glass)" } : { border: "2px solid #C9C5BB" }}>{on && <span className="w-2.5 h-2.5 rounded-full bg-white" />}</span>
+                    <span className="flex-1 min-w-0 text-[14.5px] font-bold">{v.name}</span>
+                    <span className="font-mono text-[14px] font-bold">{fmt(v.price)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {opts.length > 0 && <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Suppléments</p>}
+        {opts.length > 0 && <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
           {opts.map((o, i) => {
             const on = sel.includes(o.id);
             return (
@@ -3245,7 +3288,7 @@ function ProductOptionsSheet({ product, left, unitLabel, onAdd, onClose }) {
               </button>
             );
           })}
-        </div>
+        </div>}
         <div className="flex items-center gap-3 mb-3">
           <span className="flex-1 text-[13.5px] font-semibold opacity-70">Quantité</span>
           <div className="flex items-center rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
@@ -3254,7 +3297,7 @@ function ProductOptionsSheet({ product, left, unitLabel, onAdd, onClose }) {
             <button onClick={() => setN((v) => Math.min(Math.max(1, left), v + 1))} className="gb-focus w-11 h-11 flex items-center justify-center" aria-label="Plus"><Plus size={16} /></button>
           </div>
         </div>
-        <button onClick={() => onAdd(sel, n)} disabled={left < n} className="gb-focus w-full min-h-[54px] rounded-[15px] px-4 text-white flex items-center justify-between font-bold text-[15.5px] disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}>
+        <button onClick={() => onAdd({ opts: sel, variant }, n)} disabled={left < n} className="gb-focus w-full min-h-[54px] rounded-[15px] px-4 text-white flex items-center justify-between font-bold text-[15.5px] disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}>
           <span className="flex items-center gap-2"><ShoppingCart size={18} /> Ajouter au panier</span>
           <span className="font-display">{fmt(unit * n)}</span>
         </button>
@@ -3586,6 +3629,7 @@ function computeStockForecast(products, sales, windowDays = 14) {
 }
 
 function StockForecast({ products, sales, suppliers = [], supplierProducts = [], isAdmin, onCreateOrders }) {
+  const V = useVocab();
   const [filter, setFilter] = useState("7");
   const [cover, setCover] = useState(10);
   const rows = computeStockForecast(products, sales);
@@ -3658,7 +3702,7 @@ function StockForecast({ products, sales, suppliers = [], supplierProducts = [],
               </div>
               <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: t.c }} /></div>
               {r.need > 0 ? (
-                <p className="text-[13px] flex items-center gap-2"><Truck size={15} className="opacity-60 shrink-0" /><span className="min-w-0">Conseil : commander <b>{r.sp && r.crates ? `${r.crates} casier${r.crates > 1 ? "s" : ""} de ${r.sp.crateSize}` : `${r.need} ${unit}${r.need > 1 ? "s" : ""}`}</b>{r.supplier ? ` chez ${r.supplier.name}` : r.sp ? "" : " (aucun fournisseur lié)"}</span></p>
+                <p className="text-[13px] flex items-center gap-2"><Truck size={15} className="opacity-60 shrink-0" /><span className="min-w-0">Conseil : commander <b>{r.sp && r.crates ? `${r.crates} ${plural(r.crates, V.pack, V.packs)} de ${r.sp.crateSize}` : `${r.need} ${unit}${r.need > 1 ? "s" : ""}`}</b>{r.supplier ? ` chez ${r.supplier.name}` : r.sp ? "" : " (aucun fournisseur lié)"}</span></p>
               ) : (
                 <p className="text-[12.5px] opacity-60">Stock suffisant pour {cover} jours.</p>
               )}
@@ -3675,8 +3719,139 @@ function StockForecast({ products, sales, suppliers = [], supplierProducts = [],
   );
 }
 
-function StockScreen({ products, categories, sales = [], movements = [], inventories = [], suppliers = [], supplierProducts = [], isAdmin, onCreateOrders, onLotAction, onAddLot, shop }) {
+// ---------- Pertes : périmé, endommagé, gâté… ----------
+// En fin de journée (ou à tout moment), les articles invendables sont retirés
+// du stock avec un motif. La perte est chiffrée au prix d'achat, tracée dans
+// la fiche de stock, le journal d'activité et l'onglet Stock › Pertes.
+const LOSS_REASONS = [
+  { id: "perime", label: "Périmé", color: "#B3261E", bg: "#FCEBEA" },
+  { id: "gate", label: "Gâté", color: "#9A5B00", bg: "#FFF1D6" },
+  { id: "endommage", label: "Endommagé", color: "#6B4FB8", bg: "#EFEAFB" },
+  { id: "casse", label: "Cassé", color: "#1D5FA8", bg: "#E8F0FB" },
+  { id: "autre", label: "Autre", color: "#3B5B7A", bg: "#EDF2F7" },
+];
+function LossModal({ products, initialProductId, onSave, onClose }) {
+  const fmt = useFmt();
+  const V = useVocab();
+  const [q, setQ] = useState("");
+  const [pid, setPid] = useState(initialProductId || null);
+  const [qty, setQty] = useState(1);
+  const [reason, setReason] = useState("perime");
+  const [note, setNote] = useState("");
+  const inStock = products.filter((p) => !p.stockFrom && Number(p.stock) > 0);
+  const list = inStock.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const p = products.find((x) => x.id === pid);
+  const max = Number(p?.stock) || 0;
+  const value = (Number(p?.costPrice) || 0) * qty;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[90vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+        <div className="flex items-center gap-3 mb-3">
+          <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA" }}><PackageX size={20} color="#B3261E" /></span>
+          <div className="flex-1 min-w-0"><p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60">Stock</p><p className="font-display font-bold text-[19px]">Déclarer une perte</p></div>
+          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+        </div>
+        {!p ? (
+          <>
+            <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px] mb-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              <Search size={16} className="opacity-50" />
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Quel article ?" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
+            </div>
+            <div className="rounded-[16px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              {list.length === 0 && <p className="px-4 py-5 text-center text-[13px] opacity-60">Aucun article en stock.</p>}
+              {list.map((x, i) => (
+                <button key={x.id} onClick={() => { setPid(x.id); setQty(1); }} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                  <span className="flex-1 min-w-0 text-[14.5px] font-bold truncate">{x.name}</span>
+                  <span className="text-[12px] opacity-60 shrink-0">{x.stock} en stock</span>
+                  <ChevronRight size={16} className="opacity-40 shrink-0" />
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <button onClick={() => setPid(null)} className="gb-focus w-full rounded-[16px] p-3 flex items-center gap-3 text-left mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              <div className="flex-1 min-w-0"><p className="text-[15px] font-bold truncate">{p.name}</p><p className="text-[12px] opacity-60">{p.stock} en stock · prix d'achat {fmt(p.costPrice || 0)}</p></div>
+              <span className="text-[12px] font-bold" style={{ color: "var(--glass)" }}>Changer</span>
+            </button>
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Motif</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {LOSS_REASONS.map((r) => (
+                <button key={r.id} onClick={() => setReason(r.id)} className="gb-focus min-h-[40px] px-3.5 rounded-full text-[13px] font-bold" style={reason === r.id ? { background: r.color, color: "#fff" } : { background: r.bg, color: r.color }}>{r.label}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 mb-3">
+              <span className="flex-1 text-[13.5px] font-semibold opacity-70">Quantité perdue <span className="opacity-60">(max {max})</span></span>
+              <div className="flex items-center rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
+                <button onClick={() => setQty((v) => Math.max(1, v - 1))} className="gb-focus w-11 h-11 flex items-center justify-center" aria-label="Moins"><Minus size={16} /></button>
+                <input type="number" inputMode="numeric" value={qty} onChange={(e) => setQty(Math.max(1, Math.min(max, Number(e.target.value) || 1)))} className="w-14 text-center font-display font-bold text-[17px] bg-transparent outline-none" />
+                <button onClick={() => setQty((v) => Math.min(max, v + 1))} className="gb-focus w-11 h-11 flex items-center justify-center" aria-label="Plus"><Plus size={16} /></button>
+              </div>
+            </div>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Précision (facultatif) — ex : invendus du jour" className="gb-focus w-full rounded-[13px] px-3 min-h-[46px] text-[14px] border mb-3" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+            <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              {[["Retiré du stock", `– ${qty} ${plural(qty, p.unit || V.unit, `${p.unit || V.unit}s`)}`], ["Stock après", `${max - qty}`], ["Valeur de la perte (prix d'achat)", `– ${fmt(value)}`]].map(([l, v], i) => (
+                <div key={l} className="flex justify-between px-3.5 py-2.5 text-[13px]" style={{ borderTop: i ? "1px solid var(--line)" : "none", fontWeight: i === 2 ? 800 : 500, color: i === 2 ? "#B3261E" : "var(--ink)" }}><span>{l}</span><span className="font-mono">{v}</span></div>
+              ))}
+            </div>
+            <button onClick={() => onSave({ product: p, qty, reason: LOSS_REASONS.find((r) => r.id === reason)?.label || "Autre", note: note.trim() })} disabled={qty < 1 || qty > max} className="gb-focus w-full min-h-[54px] rounded-[15px] text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #D0473B, #A3261C)", boxShadow: "0 10px 20px -8px rgba(163,38,28,0.55)" }}>
+              <PackageX size={18} /> Déclarer la perte
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+function LossesView({ movements, onDeclare }) {
+  const fmt = useFmt();
+  const [period, setPeriod] = useState("mois");
+  const now = new Date();
+  const from = period === "semaine" ? new Date(Date.now() - 6 * MS_DAY) : period === "mois" ? new Date(now.getFullYear(), now.getMonth(), 1) : new Date(0);
+  const losses = movements.filter((m) => m.type === "perte" && new Date(m.date) >= new Date(from.getFullYear(), from.getMonth(), from.getDate())).sort((a, b) => new Date(b.date) - new Date(a.date));
+  const total = losses.reduce((t, m) => t + (Number(m.value) || 0), 0);
+  const byReason = LOSS_REASONS.map((r) => ({ ...r, n: losses.filter((m) => m.reason === r.label).reduce((t, m) => t + (Number(m.qty) || 0), 0), v: losses.filter((m) => m.reason === r.label).reduce((t, m) => t + (Number(m.value) || 0), 0) })).filter((r) => r.n > 0);
+  return (
+    <div>
+      <div className="flex items-end justify-between gap-3 mb-3">
+        <div><h2 className="font-display font-bold text-[24px] leading-tight">Pertes</h2><p className="text-[13px] opacity-60">Périmés, gâtés, endommagés…</p></div>
+      </div>
+      <button onClick={onDeclare} className="gb-focus w-full min-h-[52px] rounded-[15px] text-white font-bold text-[15px] flex items-center justify-center gap-2 mb-3 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #D0473B, #A3261C)", boxShadow: "0 8px 18px -8px rgba(163,38,28,0.55)" }}><PackageX size={18} /> Déclarer une perte</button>
+      <div className="flex gap-1.5 mb-3">
+        {[["semaine", "7 jours"], ["mois", "Ce mois"], ["tout", "Tout"]].map(([id, l]) => (
+          <button key={id} onClick={() => setPeriod(id)} className="gb-focus flex-1 min-h-[38px] rounded-full text-[12.5px] font-bold" style={period === id ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>{l}</button>
+        ))}
+      </div>
+      <div className="rounded-[20px] p-4 mb-3" style={{ background: "#FCEBEA" }}>
+        <p className="text-[11.5px] font-bold uppercase tracking-[0.08em]" style={{ color: "#8A2419" }}>Valeur perdue</p>
+        <p className="font-display font-bold text-[28px] leading-tight" style={{ color: "#B3261E" }}>– {fmt(total)}</p>
+        <p className="text-[12px]" style={{ color: "#8A2419" }}>{losses.length} déclaration{losses.length > 1 ? "s" : ""} · {losses.reduce((t, m) => t + (Number(m.qty) || 0), 0)} article{losses.reduce((t, m) => t + (Number(m.qty) || 0), 0) > 1 ? "s" : ""}</p>
+        {byReason.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">{byReason.map((r) => <span key={r.id} className="text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#fff", color: r.color }}>{r.label} · {r.n} · {fmt(r.v)}</span>)}</div>}
+      </div>
+      <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {losses.length === 0 && <p className="px-4 py-6 text-center text-[13px] opacity-60">Aucune perte déclarée sur la période.</p>}
+        {losses.map((m, i) => {
+          const r = LOSS_REASONS.find((x) => x.label === m.reason) || LOSS_REASONS[4];
+          return (
+            <div key={m.id} className="flex items-center gap-3 px-3.5 py-3" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+              <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: r.bg }}><PackageX size={17} color={r.color} /></span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[14px] font-bold truncate">{m.qty} × {m.productName}</p>
+                <p className="text-[11.5px] opacity-60 truncate">{r.label}{m.extra ? ` · ${m.extra}` : ""} · {new Date(m.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} {new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {m.author}</p>
+              </div>
+              <span className="font-mono text-[13px] font-bold shrink-0" style={{ color: "#B3261E" }}>– {fmt(m.value || 0)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StockScreen({ products, categories, sales = [], movements = [], inventories = [], suppliers = [], supplierProducts = [], isAdmin, onCreateOrders, onLotAction, onAddLot, onRecordLoss, shop }) {
   const [mode, setMode] = useState("etat");
+  const [lossOpen, setLossOpen] = useState(false);
   const expiryAlerts = expiringLots(products).filter((l) => l.days <= 7).length;
   const fmt = useFmt();
   const [ledgerProductId, setLedgerProductId] = useState(null);
@@ -3703,15 +3878,18 @@ function StockScreen({ products, categories, sales = [], movements = [], invento
   ].filter((g) => g.items.length);
   return (
     <div className="px-4 pt-4 pb-36">
-      <div role="tablist" className="grid grid-cols-3 gap-1 p-1 rounded-2xl mb-4" style={{ background: "var(--paper-dim)" }}>
-        {[["etat", "État du stock"], ["forecast", "Prévisions"], ["expiry", "Péremption"]].map(([id, label]) => (
+      <div role="tablist" className="grid grid-cols-4 gap-1 p-1 rounded-2xl mb-4" style={{ background: "var(--paper-dim)" }}>
+        {[["etat", "État"], ["forecast", "Prévisions"], ["expiry", "Péremption"], ["pertes", "Pertes"]].map(([id, label]) => (
           <button key={id} role="tab" aria-selected={mode === id} onClick={() => setMode(id)} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold relative" style={{ background: mode === id ? "var(--card)" : "transparent", boxShadow: mode === id ? "0 1px 3px rgba(22,32,42,0.12)" : "none" }}>
             {label}
             {id === "expiry" && expiryAlerts > 0 && <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center" style={{ background: "#B3261E" }}>{expiryAlerts}</span>}
           </button>
         ))}
       </div>
-      {mode === "forecast" ? (
+      {lossOpen && <LossModal products={products} onSave={(d) => { onRecordLoss?.(d); setLossOpen(false); }} onClose={() => setLossOpen(false)} />}
+      {mode === "pertes" ? (
+        <LossesView movements={movements} onDeclare={() => setLossOpen(true)} />
+      ) : mode === "forecast" ? (
         <StockForecast products={products} sales={sales} suppliers={suppliers} supplierProducts={supplierProducts} isAdmin={isAdmin} onCreateOrders={onCreateOrders} />
       ) : mode === "expiry" ? (
         <ExpiryView products={products} categories={categories} isAdmin={isAdmin} onLotAction={onLotAction} onAddLot={onAddLot} />
@@ -3721,6 +3899,7 @@ function StockScreen({ products, categories, sales = [], movements = [], invento
           <h2 className="font-display font-bold text-[24px] leading-tight">État du stock</h2>
           <p className="text-[13px] opacity-60 mt-0.5">{products.length} produit{products.length > 1 ? "s" : ""}{value > 0 ? ` · valeur ${fmt(value)}` : ""}</p>
         </div>
+        {onRecordLoss && <button onClick={() => setLossOpen(true)} className="gb-focus shrink-0 min-h-[42px] px-3.5 rounded-[13px] text-[13px] font-bold flex items-center gap-1.5" style={{ background: "#FCEBEA", color: "#B3261E", border: "1px solid #F2C9C5" }}><PackageX size={16} /> Perte</button>}
       </div>
 
       <section aria-label="Santé du stock" className="grid grid-cols-3 gap-2 mb-3.5">
@@ -5960,8 +6139,9 @@ function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeem
 /* ---------- Formulaires admin ---------- */
 
 function ProductForm({ initial, categories, products, onSave, onCancel, pushToast }) {
+  const V = useVocab();
   const symbol = useCurrencySymbol();
-  const [f, setF] = useState(initial || { name: "", barcode: "", category: categories[0]?.id || "", costPrice: "", price: "", stock: "", minStock: 5, unit: "bouteille", bulkQty: "", bulkPrice: "", favorite: false, image: null });
+  const [f, setF] = useState(initial || { name: "", barcode: "", category: categories[0]?.id || "", costPrice: "", price: "", stock: "", minStock: 5, unit: V.unit, bulkQty: "", bulkPrice: "", favorite: false, image: null });
   const [bulkEnabled, setBulkEnabled] = useState(!!(initial && initial.bulkQty > 0));
   const [scannerOpen, setScannerOpen] = useState(false);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
@@ -6112,6 +6292,21 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
         </div>
       )}
 
+      <div className="rounded-xl mt-2.5 p-3" style={{ background: "#E6F4EC" }}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#1E7A46" }}><Layers size={13} /> Formules de vente (même stock, autre prix)</span>
+          <button onClick={() => set("variants", [...(f.variants || []), { id: uid(), name: "", price: "" }])} className="gb-focus text-[12px] font-bold px-2.5 py-1 rounded-lg" style={{ background: "#fff", color: "#1E7A46" }}>+ Ajouter</button>
+        </div>
+        {(f.variants || []).map((v, idx) => (
+          <div key={v.id || idx} className="flex items-center gap-2 mt-2">
+            <input className="gb-focus flex-1 min-w-0 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#9FD5B5", background: "#fff" }} placeholder="Ex : Pain fourré" value={v.name} onChange={(e) => set("variants", f.variants.map((x, j) => (j === idx ? { ...x, name: e.target.value } : x)))} />
+            <input type="number" className="gb-focus w-24 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#9FD5B5", background: "#fff" }} placeholder={`Prix ${symbol}`} value={v.price} onChange={(e) => set("variants", f.variants.map((x, j) => (j === idx ? { ...x, price: e.target.value } : x)))} />
+            <button onClick={() => set("variants", f.variants.filter((_, j) => j !== idx))} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff" }} aria-label="Retirer"><Trash2 size={14} color="var(--danger)" /></button>
+          </div>
+        ))}
+        {!(f.variants || []).length && <p className="text-[11px] mt-1" style={{ color: "#1E7A46", opacity: 0.85 }}>Ex : Pain fourré 500, Pain fourré + œuf 700. Chaque vente retire 1 unité de ce produit.</p>}
+      </div>
+
       <div className="rounded-xl mt-2.5 p-3" style={{ background: "#FFF1D6" }}>
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#854F0B" }}><Plus size={13} /> Suppléments (ex : œuf en plus)</span>
@@ -6152,6 +6347,7 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
             minStock: f.stockFrom ? 0 : (f.minStock === "" || f.minStock == null ? 5 : Number(f.minStock) || 0),
             stockFrom: f.stockFrom || undefined,
             options: (f.options || []).filter((o) => (o.name || "").trim()).map((o) => ({ id: o.id || uid(), name: o.name.trim(), price: Number(o.price) || 0 })),
+            variants: (f.variants || []).filter((v) => (v.name || "").trim() && Number(v.price) > 0).map((v) => ({ id: v.id || uid(), name: v.name.trim(), price: Number(v.price) || 0 })),
             bulkQty: bulkEnabled ? Number(f.bulkQty) || 0 : 0,
             bulkPrice: bulkEnabled ? Number(f.bulkPrice) || 0 : 0,
             favorite: !!f.favorite,
@@ -7359,7 +7555,7 @@ function ProductsSection({ products, saveProducts, categories, movements, saveMo
                 {p.name}
                 {p.favorite && <Star size={11} color="var(--cap)" fill="var(--cap)" className="shrink-0" />}
               </div>
-              <div className="text-xs opacity-50 font-mono mt-0.5">{fmt(p.price)} · {p.stockFrom ? `stock de ${products.find((x) => x.id === p.stockFrom)?.name || "?"}` : `${p.stock} ${p.unit}s`}{(p.options || []).length ? ` · ${p.options.length} supplément${p.options.length > 1 ? "s" : ""}` : ""}{p.bulkQty > 0 && p.bulkPrice > 0 ? ` · lot ${p.bulkQty}=${fmt(p.bulkPrice)}` : ""}</div>
+              <div className="text-xs opacity-50 font-mono mt-0.5">{fmt(p.price)} · {p.stockFrom ? `stock de ${products.find((x) => x.id === p.stockFrom)?.name || "?"}` : `${p.stock} ${p.unit}s`}{(p.variants || []).length ? ` · ${p.variants.length} formule${p.variants.length > 1 ? "s" : ""}` : ""}{(p.options || []).length ? ` · ${p.options.length} supplément${p.options.length > 1 ? "s" : ""}` : ""}{p.bulkQty > 0 && p.bulkPrice > 0 ? ` · lot ${p.bulkQty}=${fmt(p.bulkPrice)}` : ""}</div>
             </div>
             {p.stock <= p.minStock && (
               <span className="text-[9px] font-bold px-2 py-1 rounded-full shrink-0" style={{ background: "#FCEBEB", color: "#A32D2D" }}>STOCK BAS</span>
@@ -8332,6 +8528,7 @@ const SUPPLIER_CARD_GRADIENTS = [
 ];
 
 function SupplierProductForm({ initial, products, categories, saveCategories, onSave, onCancel, pushToast }) {
+  const V = useVocab();
   const symbol = useCurrencySymbol();
   const [name, setName] = useState(initial?.productName || "");
   const [barcode, setBarcode] = useState(initial?.barcode || "");
@@ -8425,16 +8622,16 @@ function SupplierProductForm({ initial, products, categories, saveCategories, on
         <div className="flex gap-2 flex-wrap">
           {CRATE_SIZES.map((n) => (
             <button key={n} onClick={() => { setCrateSize(n); setCustomSize(false); }} className="gb-focus px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: !customSize && crateSize === n ? "var(--glass)" : "var(--paper-dim)", color: !customSize && crateSize === n ? "#fff" : "var(--ink)" }}>
-              Casier de {n}
+              {V.Pack} de {n}
             </button>
           ))}
           <button onClick={() => setCustomSize(true)} className="gb-focus px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: customSize ? "var(--glass)" : "var(--paper-dim)", color: customSize ? "#fff" : "var(--ink)" }}>Autre</button>
         </div>
         {customSize && (
-          <input type="number" min="1" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder="Bouteilles par casier" value={crateSize} onChange={(e) => setCrateSize(e.target.value)} />
+          <input type="number" min="1" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder={`${V.Unit}s par ${V.pack}`} value={crateSize} onChange={(e) => setCrateSize(e.target.value)} />
         )}
-        <input type="number" min="0" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder={`Prix du casier (${symbol})`} value={cratePrice} onChange={(e) => setCratePrice(e.target.value)} />
-        <input type="number" min="0" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder={`Prix de vente par bouteille (${symbol})`} value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
+        <input type="number" min="0" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder={`Prix du ${V.pack} (${symbol})`} value={cratePrice} onChange={(e) => setCratePrice(e.target.value)} />
+        <input type="number" min="0" className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder={`Prix de vente par ${V.unit} (${symbol})`} value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
       </div>
       <div className="flex gap-2 mt-3">
         <button onClick={onCancel} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
@@ -8445,6 +8642,7 @@ function SupplierProductForm({ initial, products, categories, saveCategories, on
 }
 
 function SupplierProductCard({ sp, gradient, fmt, onEdit, onDelete }) {
+  const V = useVocab();
   const [open, setOpen] = useState(false);
   const unitCost = sp.crateSize > 0 ? Math.round(sp.cratePrice / sp.crateSize) : 0;
   const benefit = (sp.salePrice || 0) - unitCost;
@@ -8453,7 +8651,7 @@ function SupplierProductCard({ sp, gradient, fmt, onEdit, onDelete }) {
       <button onClick={() => setOpen((v) => !v)} className="gb-focus w-full flex items-center justify-between p-3.5 text-left">
         <div className="min-w-0">
           <p className="font-semibold text-sm text-white truncate">{sp.productName}</p>
-          {!open && <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.75)" }}>{sp.crateSize} bouteilles · {fmt(sp.cratePrice)} le casier</p>}
+          {!open && <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.75)" }}>{sp.crateSize} {V.units} · {fmt(sp.cratePrice)} le {V.pack}</p>}
         </div>
         <div className="flex items-center gap-2.5 shrink-0 ml-2">
           {open && (
@@ -8469,16 +8667,16 @@ function SupplierProductCard({ sp, gradient, fmt, onEdit, onDelete }) {
         <div className="px-3.5 pb-3.5 gb-slide-up">
           <div className="flex gap-2 mb-2.5">
             <div className="flex-1 rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.14)" }}>
-              <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.7)" }}>Quantité par casier</p>
-              <p className="text-sm font-mono font-semibold mt-0.5 text-white">{sp.crateSize} bouteilles</p>
+              <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.7)" }}>Quantité par {V.pack}</p>
+              <p className="text-sm font-mono font-semibold mt-0.5 text-white">{sp.crateSize} {V.units}</p>
             </div>
             <div className="flex-1 rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.14)" }}>
-              <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.7)" }}>Prix du casier</p>
+              <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.7)" }}>Prix du {V.pack}</p>
               <p className="text-sm font-mono font-semibold mt-0.5 text-white">{fmt(sp.cratePrice)}</p>
             </div>
           </div>
           <div className="flex items-center justify-between pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.25)" }}>
-            <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.75)" }}>Coût par bouteille</span>
+            <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.75)" }}>Coût par {V.unit}</span>
             <span className="font-mono text-xs font-semibold text-white">{fmt(unitCost)}</span>
           </div>
           {sp.salePrice > 0 && (
@@ -8488,7 +8686,7 @@ function SupplierProductCard({ sp, gradient, fmt, onEdit, onDelete }) {
                 <span className="font-mono text-xs font-semibold text-white">{fmt(sp.salePrice)}</span>
               </div>
               <div className="flex items-center justify-between mt-2.5 rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.16)" }}>
-                <span className="text-[11px] font-semibold text-white">Bénéfice par bouteille</span>
+                <span className="text-[11px] font-semibold text-white">Bénéfice par {V.unit}</span>
                 <span className="font-mono text-sm font-semibold text-white">{benefit >= 0 ? "+" : ""}{fmt(benefit)}</span>
               </div>
             </>
@@ -8500,6 +8698,7 @@ function SupplierProductCard({ sp, gradient, fmt, onEdit, onDelete }) {
 }
 
 function SupplierProductsModal({ supplier, products, categories, saveCategories, supplierProducts, onSave, onDelete, onClose, pushToast }) {
+  const V = useVocab();
   const fmt = useFmt();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -8518,7 +8717,7 @@ function SupplierProductsModal({ supplier, products, categories, saveCategories,
             <h2 className="font-display font-bold text-lg min-w-0">Produits — {supplier.name}</h2>
             <button onClick={onClose} className="gb-focus p-1 shrink-0"><X size={20} /></button>
           </div>
-          <p className="text-xs opacity-50 mb-3">Prix par casier, tel que vendu par ce fournisseur.</p>
+          <p className="text-xs opacity-50 mb-3">Prix par {V.pack}, tel que vendu par ce fournisseur.</p>
           {showSearch && (
             <div className="relative mb-2.5">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
@@ -8563,6 +8762,7 @@ function SupplierProductsModal({ supplier, products, categories, saveCategories,
 }
 
 function PurchaseOrderModal({ supplier, supplierProducts, onCreate, onClose }) {
+  const V = useVocab();
   const fmt = useFmt();
   const catalog = supplierProducts.filter((sp) => sp.supplierId === supplier.id);
   const [crates, setCrates] = useState({});
@@ -8575,7 +8775,7 @@ function PurchaseOrderModal({ supplier, supplierProducts, onCreate, onClose }) {
     return sp ? { productId: sp.productId, productName: sp.productName, barcode: sp.barcode || "", category: sp.category || "", crateSize: sp.crateSize, cratePrice: sp.cratePrice, salePrice: sp.salePrice || 0, crates: n } : null;
   }).filter(Boolean);
   const total = lineItems.reduce((sum, l) => sum + l.crates * l.cratePrice, 0);
-  const lines = lineItems.map((l) => `- ${l.productName} : ${l.crates} casier${l.crates > 1 ? "s" : ""} de ${l.crateSize} (${fmt(l.crates * l.cratePrice)})`);
+  const lines = lineItems.map((l) => `- ${l.productName} : ${l.crates} ${plural(l.crates, V.pack, V.packs)} de ${l.crateSize} (${fmt(l.crates * l.cratePrice)})`);
   const text = `Bon de commande — ${supplier.name}\n${new Date().toLocaleDateString("fr-FR")}\n\n${lines.join("\n")}\n\nTotal : ${fmt(total)}`;
 
   const copyText = async () => {
@@ -8600,7 +8800,7 @@ function PurchaseOrderModal({ supplier, supplierProducts, onCreate, onClose }) {
           </div>
           {catalog.length > 0 && (
             <>
-              <p className="text-xs opacity-50 mb-3">Indique le nombre de casiers à commander pour chaque produit.</p>
+              <p className="text-xs opacity-50 mb-3">Indique le nombre de {V.packs} à commander pour chaque produit.</p>
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
                 <input
@@ -8624,7 +8824,7 @@ function PurchaseOrderModal({ supplier, supplierProducts, onCreate, onClose }) {
                   <div key={sp.id} className="rounded-xl p-2.5 border flex items-center gap-2.5" style={{ borderColor: crates[sp.id] > 0 ? "var(--glass)" : "var(--line)" }}>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium truncate">{sp.productName}</div>
-                      <div className="text-[10px] opacity-50">Casier de {sp.crateSize} · {fmt(sp.cratePrice)}{crates[sp.id] > 0 ? ` · ${fmt(sp.cratePrice * crates[sp.id])}` : ""}</div>
+                      <div className="text-[10px] opacity-50">{V.Pack} de {sp.crateSize} · {fmt(sp.cratePrice)}{crates[sp.id] > 0 ? ` · ${fmt(sp.cratePrice * crates[sp.id])}` : ""}</div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button onClick={() => setQty(sp.id, (crates[sp.id] || 0) - 1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Minus size={13} /></button>
@@ -8660,6 +8860,7 @@ function orderTotalOf(o) {
 }
 
 function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, onValidate, onDelete, onClose, pushToast }) {
+  const V = useVocab();
   const fmt = useFmt();
   const [items, setItems] = useState(order.items.map((i) => ({ ...i })));
   const [adding, setAdding] = useState(false);
@@ -8713,7 +8914,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
           <span className="font-display font-bold text-[32px] leading-none">{fmt(total)}</span>
           <div className="flex justify-between gap-2 flex-wrap text-[13px]" style={{ color: "#C9D1D8" }}>
             <span>Commandée le {new Date(order.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span>
-            <span>{totalCrates} casier{totalCrates > 1 ? "s" : ""}</span>
+            <span>{totalCrates} {plural(totalCrates, V.pack, V.packs)}</span>
           </div>
           {dirty && (
             <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-[12.5px]" style={{ background: "rgba(255,194,102,0.14)", color: "#FFD699" }}>
@@ -8733,7 +8934,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
               <div className="flex justify-between items-start gap-2.5">
                 <div className="min-w-0">
                   <p className="text-[15px] font-semibold break-words">{i.productName}</p>
-                  <p className="text-[12.5px]" style={{ color: "#5B6470" }}>Casier de {i.crateSize} · {fmt(i.cratePrice)} / casier</p>
+                  <p className="text-[12.5px]" style={{ color: "#5B6470" }}>{V.Pack} de {i.crateSize} · {fmt(i.cratePrice)} / {V.pack}</p>
                 </div>
                 <button onClick={() => removeLine(idx)} className="gb-focus w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#F7F6F2" }} aria-label={`Retirer ${i.productName}`}><X size={16} color="#B3261E" /></button>
               </div>
@@ -8782,7 +8983,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
                   <div key={sp.id} className="flex items-center gap-3 py-3 border-b" style={{ borderColor: "#EFEDE7" }}>
                     <div className="flex-1 min-w-0">
                       <p className="text-[15px] font-semibold break-words">{sp.productName}</p>
-                      <p className="text-[12.5px]" style={{ color: "#5B6470" }}>Casier de {sp.crateSize} · {fmt(sp.cratePrice)}{n ? ` · ${n} dans la commande` : ""}</p>
+                      <p className="text-[12.5px]" style={{ color: "#5B6470" }}>{V.Pack} de {sp.crateSize} · {fmt(sp.cratePrice)}{n ? ` · ${n} dans la commande` : ""}</p>
                     </div>
                     <button onClick={() => addFromCatalog(sp)} className="gb-focus min-h-[38px] px-3 rounded-[10px] text-[13.5px] font-bold flex items-center gap-1.5 shrink-0" style={n ? { background: "#1F2A33", color: "#fff" } : { border: "1px solid #1F2A33", color: "#1F2A33", background: "#fff" }}><Plus size={15} />{n ? n : "Ajouter"}</button>
                   </div>
@@ -8798,7 +8999,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
           <div role="dialog" aria-modal="true" className="w-full max-w-[380px] rounded-[22px] p-5 flex flex-col gap-3" style={{ background: "#fff" }}>
             <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "#FBE4E1" }}><Trash2 size={22} color="#9B2C1F" /></div>
             <h2 className="font-display font-bold text-[20px]">Supprimer la commande ?</h2>
-            <p className="text-[14px] leading-relaxed" style={{ color: "#5B6470" }}>La commande N° {order.id.slice(0, 6).toUpperCase()} ({fmt(total)}, {totalCrates} casier{totalCrates > 1 ? "s" : ""}) sera supprimée définitivement. Aucun stock n'est modifié.</p>
+            <p className="text-[14px] leading-relaxed" style={{ color: "#5B6470" }}>La commande N° {order.id.slice(0, 6).toUpperCase()} ({fmt(total)}, {totalCrates} {plural(totalCrates, V.pack, V.packs)}) sera supprimée définitivement. Aucun stock n'est modifié.</p>
             <div className="grid grid-cols-2 gap-2.5 mt-1">
               <button onClick={() => setConfirmDelete(false)} className="gb-focus min-h-[48px] rounded-2xl text-[15px] font-bold" style={{ border: "1px solid #DAD8D0" }}>Annuler</button>
               <button onClick={() => { onDelete?.(order); onClose(); }} className="gb-focus min-h-[48px] rounded-2xl text-[15px] font-bold text-white" style={{ background: "#B3261E" }}>Supprimer</button>
@@ -8811,6 +9012,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
 }
 
 function ReceivedOrderModal({ order, supplier, onClose }) {
+  const V = useVocab();
   const fmt = useFmt();
   const total = order.items.reduce((sum, i) => sum + i.crates * i.cratePrice, 0);
   return (
@@ -8828,7 +9030,7 @@ function ReceivedOrderModal({ order, supplier, onClose }) {
               <div key={idx} className="rounded-xl p-2.5 border flex items-center justify-between" style={{ borderColor: "var(--line)" }}>
                 <div className="min-w-0">
                   <div className="text-xs font-medium truncate">{i.productName}</div>
-                  <div className="text-[10px] opacity-50">{i.crates} casier{i.crates > 1 ? "s" : ""} de {i.crateSize}</div>
+                  <div className="text-[10px] opacity-50">{i.crates} {plural(i.crates, V.pack, V.packs)} de {i.crateSize}</div>
                 </div>
                 <span className="font-mono text-xs font-semibold shrink-0">{fmt(i.crates * i.cratePrice)}</span>
               </div>
@@ -8846,6 +9048,7 @@ function ReceivedOrderModal({ order, supplier, onClose }) {
 }
 
 function SupplierOrdersModal({ supplier, ordersForSupplier, onNewOrder, onOpenOrder, onClose }) {
+  const V = useVocab();
   const fmt = useFmt();
   const todayKey = cashDayKeyOf(new Date());
   const shiftKey = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return cashDayKeyOf(d); };
@@ -8938,7 +9141,7 @@ function SupplierOrdersModal({ supplier, ordersForSupplier, onNewOrder, onOpenOr
               <span className="flex justify-between items-start gap-3 w-full">
                 <span className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[16px] font-bold capitalize">{new Date(o.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span>
-                  <span className="text-[13px]" style={{ color: "#5B6470" }}>N° {o.id.slice(0, 6).toUpperCase()} · {crates} casier{crates > 1 ? "s" : ""}</span>
+                  <span className="text-[13px]" style={{ color: "#5B6470" }}>N° {o.id.slice(0, 6).toUpperCase()} · {crates} {plural(crates, V.pack, V.packs)}</span>
                 </span>
                 <span className="flex flex-col items-end shrink-0">
                   <span className="font-display font-bold text-[18px] whitespace-nowrap">{fmt(orderTotalOf(o))}</span>
@@ -8963,6 +9166,7 @@ function SupplierOrdersModal({ supplier, ordersForSupplier, onNewOrder, onOpenOr
 }
 
 function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, products, saveProducts, categories, saveCategories, movements, saveMovements, orders, saveOrders, supplierProducts, saveSupplierProducts, pushToast, pushNotification, shop }) {
+  const V = useVocab();
   const fmt = useFmt();
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -9014,7 +9218,7 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
       if (existing) {
         const before = existing.stock;
         nextProducts = nextProducts.map((p) => (p.id === existing.id ? { ...p, stock: p.stock + unitsReceived, costPrice: unitCost, price: i.salePrice > 0 ? i.salePrice : p.price } : p));
-        receiveMovements.push({ id: uid(), date: new Date().toISOString(), productId: existing.id, productName: existing.name, type: "livraison", delta: unitsReceived, before, after: before + unitsReceived, author: shop?.adminDisplayName?.trim() || "Administrateur", note: `${i.crates} casier${i.crates > 1 ? "s" : ""} de ${i.crateSize}` });
+        receiveMovements.push({ id: uid(), date: new Date().toISOString(), productId: existing.id, productName: existing.name, type: "livraison", delta: unitsReceived, before, after: before + unitsReceived, author: shop?.adminDisplayName?.trim() || "Administrateur", note: `${i.crates} ${plural(i.crates, V.pack, V.packs)} de ${i.crateSize}` });
       } else {
         // Produit encore inconnu du stock : on le crée automatiquement avec les
         // infos de la commande (nom, code-barre, catégorie, coût par bouteille,
@@ -9022,11 +9226,11 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
         const newProduct = {
           id: uid(), name: i.productName, barcode: i.barcode || "", category: i.category || categories[0]?.id || "",
           price: i.salePrice > 0 ? i.salePrice : unitCost, costPrice: unitCost, stock: unitsReceived, openingStock: unitsReceived, openingStockDate: new Date().toISOString(),
-          minStock: Math.max(i.crateSize, 5), unit: "bouteille", favorite: false,
+          minStock: Math.max(i.crateSize, 5), unit: V.unit, favorite: false,
         };
         nextProducts = [...nextProducts, newProduct];
         createdNames.push(i.productName);
-        receiveMovements.push({ id: uid(), date: new Date().toISOString(), productId: newProduct.id, productName: newProduct.name, type: "creation", delta: unitsReceived, before: 0, after: unitsReceived, author: shop?.adminDisplayName?.trim() || "Administrateur", note: `Créé automatiquement — ${i.crates} casier${i.crates > 1 ? "s" : ""} de ${i.crateSize}` });
+        receiveMovements.push({ id: uid(), date: new Date().toISOString(), productId: newProduct.id, productName: newProduct.name, type: "creation", delta: unitsReceived, before: 0, after: unitsReceived, author: shop?.adminDisplayName?.trim() || "Administrateur", note: `Créé automatiquement — ${i.crates} ${plural(i.crates, V.pack, V.packs)} de ${i.crateSize}` });
       }
     });
     const total = order.items.reduce((sum, i) => sum + i.crates * i.cratePrice, 0);
@@ -10955,7 +11159,7 @@ function SnackSection({ shop, products, saveProducts, movements, saveMovements, 
   const [buyOpen, setBuyOpen] = useState(null); // productId
   const [ingSheet, setIngSheet] = useState(null); // { mode: "new" } | { mode: "refill", ing }
   const lots = snackLots || [];
-  const bases = products.filter((p) => !p.stockFrom && (p.isBase || products.some((x) => x.stockFrom === p.id)));
+  const bases = products.filter((p) => !p.stockFrom && (p.isBase || (p.variants || []).length > 0 || products.some((x) => x.stockFrom === p.id)));
   const todayISO = () => new Date().toISOString();
   const addExpense = (label, amount, date) => { const id = uid(); saveExpenses([{ id, label, amount, date: date || todayISO(), supplierId: null, author }, ...expenses]); return id; };
 
@@ -11058,7 +11262,7 @@ function SnackSection({ shop, products, saveProducts, movements, saveMovements, 
                   </div>
                   <div className="text-right shrink-0"><p className="font-display font-bold text-[20px] leading-none" style={{ color: p.stock <= 0 ? SK.red : p.stock <= p.minStock ? SK.amb : "var(--ink)" }}>{p.stock}</p><p className="text-[10.5px]" style={{ color: SK.mut }}>en stock</p></div>
                 </div>
-                {formulas.length > 0 && <p className="text-[11.5px] mt-2" style={{ color: SK.mut }}>Formules sur ce stock : {[p, ...formulas].map((x) => `${x.name} (${fmt(x.price)})`).join(" · ")}</p>}
+                {(formulas.length > 0 || (p.variants || []).length > 0) && <p className="text-[11.5px] mt-2" style={{ color: SK.mut }}>Formules sur ce stock : {[p, ...(p.variants || []), ...formulas].map((x) => `${x.name} (${fmt(x.price)})`).join(" · ")}</p>}
                 <div className="flex gap-2 mt-3"><SnackBtn primary Icon={Plus} onClick={() => setBuyOpen(p.id)}>Nouvel achat de pains</SnackBtn></div>
                 {pl.length > 0 && <p className="text-[11px] font-bold uppercase tracking-[0.1em] mt-3.5 mb-1.5" style={{ color: SK.mut }}>Lots achetés</p>}
                 <div className="flex flex-col gap-2">
@@ -13285,7 +13489,7 @@ function AppInner() {
       const real = products.find((p) => p.id === realId) || i.product;
       const tid = stockTargetId(real);
       const target = products.find((p) => p.id === tid);
-      const isBaseLine = !!(real?.stockFrom || real?.isBase);
+      const isBaseLine = !!(real?.stockFrom || real?.isBase || (real?.variants || []).length);
       return { ...i, productId: realId, stockId: tid, ...(isBaseLine && target ? { base: { price: Number(target.price) || 0, cost: Number(target.costPrice) || 0 } } : {}) };
     });
     const qtyByStock = {};
@@ -13632,6 +13836,21 @@ function AppInner() {
 
   // Modifie une vente déjà enregistrée (quantités, articles retirés, mode de
   // paiement) et ajuste le stock en conséquence. Réservé à l'administrateur.
+  // Perte déclarée (périmé, gâté, endommagé…) : sortie de stock chiffrée au
+  // prix d'achat, visible dans Stock › Pertes et dans la fiche de stock.
+  const handleRecordLoss = ({ product, qty, reason, note }) => {
+    const p = products.find((x) => x.id === product.id);
+    if (!p || qty <= 0) return;
+    const before = Number(p.stock) || 0;
+    const q = Math.min(qty, before);
+    const value = (Number(p.costPrice) || 0) * q;
+    const by = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
+    saveProducts(products.map((x) => (x.id === p.id ? { ...x, stock: before - q } : x)));
+    saveMovements([{ id: uid(), date: new Date().toISOString(), productId: p.id, productName: p.name, type: "perte", delta: -q, qty: q, before, after: before - q, author: by, reason, extra: note, value, note: `Perte · ${reason}${note ? ` · ${note}` : ""}` }, ...movements]);
+    logAudit("stock", `Perte déclarée : ${q} × ${p.name} (${reason})${note ? ` · ${note}` : ""} · ${formatMoney(value, shop?.currency)}`, { amount: -value });
+    pushToast(`Perte enregistrée : ${q} × ${p.name} · ${reason}`, "ok");
+  };
+
   const handleUpdateSale = (saleId, newItems, newPaymentMethod) => {
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return;
@@ -13819,7 +14038,7 @@ function AppInner() {
         ) : shops.length === 0 ? (
           <OnboardingScreen shops={shops} onComplete={handleOnboardingComplete} onJoinShop={handleJoinShopComplete} pushToast={pushToast} trialUsed={trialUsed} onStartTrial={handleStartTrial} />
         ) : shop && (
-          <CurrencyContext.Provider value={shop.currency}>
+          <CurrencyContext.Provider value={shop.currency}><VocabContext.Provider value={VOCAB[shopProfile(shop)] || VOCAB.boissons}>
           <LanguageContext.Provider value={shop.language || "fr"}>
             {!role ? (
               <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); logAudit("connexion", `Connexion de ${name}`, { by: name, role: r }); setRole(r); setCurrentVendorName(name); setView("sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} />
@@ -13886,7 +14105,7 @@ function AppInner() {
                     {view === "sell" && (
                       <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={handleCheckout} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
                     )}
-                    {view === "stock" && <StockScreen products={products} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
+                    {view === "stock" && <StockScreen onRecordLoss={handleRecordLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
                     {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} onReturnSale={handleReturnSale} pushToast={pushToast} />}
                     {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
                     {view === "expenses" && role === "vendeur" && (
@@ -13947,7 +14166,7 @@ function AppInner() {
               </>
             )}
           </LanguageContext.Provider>
-          </CurrencyContext.Provider>
+          </VocabContext.Provider></CurrencyContext.Provider>
         )}
 
         <Toast toast={toast} />
