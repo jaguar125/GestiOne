@@ -157,6 +157,52 @@ const SEED_SUPPLIERS = [
   { id: "s2", name: "Distributeur Eaux locales", phone: "+241 07 65 43 21", note: "Eaux minérales" },
 ];
 
+// ---------- Profils d'activité ----------
+// Le type choisi à la création détermine le profil : Boissons (maquis, cave,
+// buvette, bar), Snack (pain fourré…), Boutique, ou Autre. Même application,
+// mêmes licences : seuls les exemples de départ et quelques rubriques changent.
+function shopProfile(shop) {
+  const t = shop?.type;
+  if (t === "snack") return "snack";
+  if (t === "boutique") return "boutique";
+  if (["maquis", "cave", "buvette", "bar"].includes(t)) return "boissons";
+  return "autre";
+}
+const SNACK_CATEGORIES = [
+  { id: "pain", label: "Pains", color: "#C98A1B", icon: "croissant" },
+  { id: "chaud", label: "Boissons chaudes", color: "#8A5A12", icon: "coffee" },
+  { id: "frais", label: "Boissons fraîches", color: "#2C7DA0", icon: "cupsoda" },
+];
+const SNACK_PRODUCTS = [
+  { id: "pain-simple", name: "Pain simple", barcode: "", category: "pain", price: 100, costPrice: 0, stock: 0, openingStock: 0, minStock: 3, unit: "pain", favorite: true, isBase: true },
+  { id: "pain-fourre", name: "Pain fourré", barcode: "", category: "pain", price: 500, costPrice: 0, stock: 0, openingStock: 0, minStock: 0, unit: "pain", favorite: true, stockFrom: "pain-simple", options: [{ id: "oeuf", name: "Œuf en plus", price: 200 }] },
+];
+const BOUTIQUE_CATEGORIES = [
+  { id: "entretien", label: "Entretien", color: "#2C7DA0", icon: "droplets" },
+  { id: "alimentation", label: "Alimentation", color: "#E8A33D", icon: "cookie" },
+  { id: "hygiene", label: "Hygiène", color: "#EC4899", icon: "milk" },
+  { id: "divers", label: "Divers", color: "#8B5CF6", icon: "popcorn" },
+];
+function seedFor(type) {
+  const prof = shopProfile({ type });
+  if (prof === "snack") return { products: SNACK_PRODUCTS, categories: SNACK_CATEGORIES, suppliers: [] };
+  if (prof === "boutique") return { products: [], categories: BOUTIQUE_CATEGORIES, suppliers: [] };
+  return { products: SEED_PRODUCTS, categories: SEED_CATEGORIES, suppliers: SEED_SUPPLIERS };
+}
+// Stock partagé : un produit « formule » (ex : Pain fourré) se vend à partir
+// du stock d'un autre produit (Pain) — 1 vente retire 1 unité de ce stock.
+function stockTargetId(product) { return product?.stockFrom || product?.id; }
+function availableStock(product, products) {
+  const t = product?.stockFrom ? (products || []).find((x) => x.id === product.stockFrom) : product;
+  return Number(t?.stock) || 0;
+}
+function itemStockId(i) { return i?.stockId || i?.product?.stockFrom || i?.productId || i?.id; }
+// Jours calendaires entre deux dates (minuit à minuit).
+function calDays(a, b) {
+  const x = new Date(a); const y = new Date(b);
+  return Math.round((new Date(y.getFullYear(), y.getMonth(), y.getDate()) - new Date(x.getFullYear(), x.getMonth(), x.getDate())) / MS_DAY);
+}
+
 const DEFAULT_ADMIN_PIN = "1234";
 const PAYMENT_METHODS = [
   { id: "especes", label: "Espèces" },
@@ -210,6 +256,8 @@ const ESTABLISHMENT_TYPES = [
   { id: "cave", label: "Cave" },
   { id: "buvette", label: "Buvette" },
   { id: "bar", label: "Bar" },
+  { id: "snack", label: "Snack · pain fourré" },
+  { id: "boutique", label: "Boutique" },
   { id: "autre", label: "Autre" },
 ];
 
@@ -525,7 +573,7 @@ function buildStockLedger(product, { sales = [], movements = [], inventories = [
   sales.forEach((s) => {
     if (!after(s.date)) return;
     (s.items || []).forEach((it) => {
-      if ((it.product?.id || it.id) !== pid) return;
+      if (itemStockId(it) !== pid) return;
       const qty = Number(it.qty) || 0;
       sold += qty;
       revenue += it.product ? computeItemTotal({ ...it.product, price: Number(it.product.price) || 0 }, qty) : 0;
@@ -726,14 +774,15 @@ async function loadShopData(shopId) {
   ]);
   return { products, sales, vendors, suppliers, expenses, categories, movements, inventories, clients, orders, supplierProducts, avoirs, cashRegisterEntries: ownCashEntries(cashRegisterEntries, shopId), versements: ownCashEntries(versements, shopId) };
 }
-async function seedShopData(shopId, vendor) {
+async function seedShopData(shopId, vendor, type) {
+  const seed = seedFor(type);
   await Promise.all([
-    window.storage.set(`products:${shopId}`, JSON.stringify(SEED_PRODUCTS)),
+    window.storage.set(`products:${shopId}`, JSON.stringify(seed.products)),
     window.storage.set(`sales:${shopId}`, JSON.stringify([])),
     window.storage.set(`vendors:${shopId}`, JSON.stringify(vendor ? [vendor] : [])),
-    window.storage.set(`suppliers:${shopId}`, JSON.stringify(SEED_SUPPLIERS)),
+    window.storage.set(`suppliers:${shopId}`, JSON.stringify(seed.suppliers)),
     window.storage.set(`expenses:${shopId}`, JSON.stringify([])),
-    window.storage.set(`categories:${shopId}`, JSON.stringify(SEED_CATEGORIES)),
+    window.storage.set(`categories:${shopId}`, JSON.stringify(seed.categories)),
     window.storage.set(`movements:${shopId}`, JSON.stringify([])),
     window.storage.set(`inventories:${shopId}`, JSON.stringify([])),
     window.storage.set(`clients:${shopId}`, JSON.stringify([])),
@@ -1806,7 +1855,7 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
     );
   }
 
-  const TYPE_ICONS = { maquis: Store, cave: Wine, buvette: GlassWater, bar: Beer };
+  const TYPE_ICONS = { maquis: Store, cave: Wine, buvette: GlassWater, bar: Beer, snack: Croissant, boutique: ShoppingCart };
   const STEP_META = {
     1: { eyebrow: "BIENVENUE SUR GESTIONE", title: "Comment s'appelle votre établissement ?", Icon: Store },
     2: { eyebrow: "ÉQUIPE", title: "Créez votre premier vendeur", Icon: UserPlus },
@@ -2383,8 +2432,12 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
   );
 }
 
-function SellScreen({ shop, categories, products, sales, clients, avoirs, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash }) {
+function SellScreen({ shop, categories, products: productsRaw, sales, clients, avoirs, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash }) {
   const fmt = useFmt();
+  // Les produits « formule » (ex : Pain fourré) affichent le stock du produit
+  // dont ils dépendent (Pain) — un seul stock partagé.
+  const products = productsRaw.map((p) => (p.stockFrom ? { ...p, stock: availableStock(p, productsRaw) } : p));
+  const [optionsFor, setOptionsFor] = useState(null);
   const [barcode, setBarcode] = useState("");
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("all");
@@ -2461,17 +2514,23 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
     }
   };
 
-  const addToCart = (product, silent) => {
+  // Quantité déjà réservée dans le panier sur un stock donné (toutes les
+  // lignes qui puisent dans ce stock : pain simple + pain fourré…).
+  const usedStock = (tid, lines) => (lines || cart).reduce((t, l) => (stockTargetId(products.find((x) => x.id === l.id)) === tid ? t + l.qty : t), 0);
+  const addToCart = (product, silent, opts, n = 1) => {
+    // Produit avec suppléments : on ouvre d'abord le choix des suppléments.
+    if ((product.options || []).length > 0 && opts === undefined) { setOptionsFor(product); return; }
     if (product.stock <= 0) { pushToast(`${product.name} — rupture de stock`, "error"); playSound("error", shop.soundsEnabled); return; }
+    const optIds = [...(opts || [])].sort();
+    const key = optIds.length ? `${product.id}~${optIds.join(".")}` : product.id;
     setCart((c) => {
-      const existing = c.find((i) => i.id === product.id);
-      const qtyInCart = existing ? existing.qty : 0;
-      if (qtyInCart >= product.stock) { pushToast("Stock insuffisant", "error"); playSound("error", shop.soundsEnabled); return c; }
-      if (existing) return c.map((i) => (i.id === product.id ? { ...i, qty: i.qty + 1 } : i));
-      return [...c, { id: product.id, qty: 1 }];
+      if (usedStock(stockTargetId(product), c) + n > product.stock) { pushToast("Stock insuffisant", "error"); playSound("error", shop.soundsEnabled); return c; }
+      const existing = c.find((i) => (i.key || i.id) === key);
+      if (existing) return c.map((i) => ((i.key || i.id) === key ? { ...i, qty: i.qty + n } : i));
+      return [...c, optIds.length ? { id: product.id, key, opts: optIds, qty: n } : { id: product.id, qty: n }];
     });
     playSound("add", shop.soundsEnabled);
-    if (!silent) pushToast(`${product.name} ajouté`, "ok");
+    if (!silent) pushToast(`${product.name}${optIds.length ? " + suppléments" : ""} ajouté`, "ok");
   };
 
   const lookupAndAdd = (code) => {
@@ -2501,23 +2560,31 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
 
   const popularIds = (() => {
     const counts = {};
-    (sales || []).forEach((s) => s.items.forEach((i) => { counts[i.id] = (counts[i.id] || 0) + i.qty; }));
+    (sales || []).forEach((s) => s.items.forEach((i) => { const k = i.productId || i.id; counts[k] = (counts[k] || 0) + i.qty; }));
     return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id]) => id);
   })();
   const quickPicks = products.filter((p) => p.favorite || popularIds.includes(p.id)).slice(0, 10);
 
-  const cartItems = cart.map((i) => ({ ...i, product: products.find((p) => p.id === i.id) })).filter((i) => i.product);
+  const cartItems = cart.map((l) => {
+    const base = products.find((p) => p.id === l.id);
+    if (!base) return null;
+    const chosen = (base.options || []).filter((o) => (l.opts || []).includes(o.id));
+    if (!chosen.length) return { ...l, key: undefined, product: base };
+    const extra = chosen.reduce((t, o) => t + (Number(o.price) || 0), 0);
+    return { ...l, id: l.key, productId: base.id, options: chosen, product: { ...base, name: `${base.name} + ${chosen.map((o) => o.name).join(" + ")}`, price: (Number(base.price) || 0) + extra, bulkQty: 0, bulkPrice: 0 } };
+  }).filter(Boolean);
   const total = cartItems.reduce((s, i) => s + computeItemTotal(i.product, i.qty), 0);
   const count = cartItems.reduce((s, i) => s + i.qty, 0);
 
   const changeQty = (id, delta) => {
     setCart((c) => {
-      const item = c.find((i) => i.id === id);
-      const product = products.find((p) => p.id === id);
+      const item = c.find((i) => (i.key || i.id) === id);
+      if (!item) return c;
+      const product = products.find((p) => p.id === item.id);
       const nextQty = item.qty + delta;
-      if (nextQty <= 0) return c.filter((i) => i.id !== id);
-      if (product && nextQty > product.stock) { pushToast("Stock insuffisant", "error"); return c; }
-      return c.map((i) => (i.id === id ? { ...i, qty: nextQty } : i));
+      if (nextQty <= 0) return c.filter((i) => (i.key || i.id) !== id);
+      if (product && delta > 0 && usedStock(stockTargetId(product), c) + delta > product.stock) { pushToast("Stock insuffisant", "error"); return c; }
+      return c.map((i) => ((i.key || i.id) === id ? { ...i, qty: nextQty } : i));
     });
   };
 
@@ -2704,7 +2771,7 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
     setCart([]);
   };
 
-  const qtyInCart = (id) => cartItems.find((i) => i.id === id)?.qty || 0;
+  const qtyInCart = (id) => cartItems.filter((i) => (i.productId || i.id) === id).reduce((t, i) => t + i.qty, 0);
   const catColor = (catId) => { const c = getCategory(categories, catId).color || "#888888"; return /^#[0-9a-fA-F]{6}$/.test(c) ? c : "#888888"; };
   const catTint = (catId) => `${catColor(catId)}1F`;
   // Teinte foncée de la couleur de catégorie, pour les touches rapides
@@ -2809,7 +2876,7 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
           const n = qtyInCart(p.id);
           const out = p.stock <= 0;
           const low = !out && p.stock <= p.minStock;
-          const left = p.stock - n;
+          const left = p.stock - usedStock(stockTargetId(p));
           const stockColor = out ? "#8A2419" : low ? "#6E3C00" : "#0F4F2B";
           const dotColor = out ? "#C2331F" : low ? "#E09A1A" : "#1E8E50";
           const meta = getCategory(categories, p.category);
@@ -3116,6 +3183,9 @@ function SellScreen({ shop, categories, products, sales, clients, avoirs, onCrea
         </div>
       )}
 
+      {optionsFor && (
+        <ProductOptionsSheet product={optionsFor} left={optionsFor.stock - usedStock(stockTargetId(optionsFor))} unitLabel={(productsRaw.find((x) => x.id === stockTargetId(optionsFor)) || optionsFor).name} onAdd={(opts, n) => { addToCart(optionsFor, false, opts, n); setOptionsFor(null); }} onClose={() => setOptionsFor(null)} />
+      )}
       {avoirPickerOpen && (
         <AvoirPickerSheet avoirs={openMoneyAvoirs} total={total} onPick={(a) => { setPayAvoirId(a.id); setAvoirPickerOpen(false); if (!clientName && !clientId) setClientName(""); }} onClose={() => setAvoirPickerOpen(false)} />
       )}
@@ -3138,6 +3208,59 @@ function fitCartToBudget(cartItems, budget) {
   });
   const kept = lines.filter((l) => l.keptQty > 0);
   return { lines, kept, total: kept.reduce((t, l) => t + l.cost, 0), count: kept.reduce((t, l) => t + l.keptQty, 0) };
+}
+
+// Choix des suppléments d'un produit (ex : Pain fourré + œuf) avant l'ajout
+// au panier. Le prix s'ajuste en direct ; une seule unité de stock est
+// retirée par article, quels que soient les suppléments.
+function ProductOptionsSheet({ product, left, unitLabel, onAdd, onClose }) {
+  const fmt = useFmt();
+  const [sel, setSel] = useState([]);
+  const [n, setN] = useState(1);
+  const opts = product.options || [];
+  const unit = (Number(product.price) || 0) + opts.filter((o) => sel.includes(o.id)).reduce((t, o) => t + (Number(o.price) || 0), 0);
+  const toggle = (id) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[88vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-12 h-12 rounded-[14px] overflow-hidden flex items-center justify-center shrink-0" style={{ background: "#FBEFD9" }}>{product.image ? <img src={product.image} alt="" className="w-full h-full object-cover" /> : <Croissant size={22} color="#8A5A12" />}</div>
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-bold text-[19px] truncate">{product.name}</p>
+            <p className="text-[12px] opacity-60">1 {unitLabel.toLowerCase()} retiré du stock par article</p>
+          </div>
+          <p className="font-display font-bold text-[18px] shrink-0" style={{ color: "var(--glass)" }}>{fmt(product.price)}</p>
+        </div>
+        <p className="text-[12px] font-bold rounded-[10px] px-3 py-1.5 mb-3" style={left <= 3 ? { background: "#FFF1D6", color: "#9A5B00" } : { background: "#E6F4EC", color: "#1E7A46" }}>Stock {unitLabel.toLowerCase()} : {left} restant{left > 1 ? "s" : ""}</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Suppléments</p>
+        <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          {opts.map((o, i) => {
+            const on = sel.includes(o.id);
+            return (
+              <button key={o.id} onClick={() => toggle(o.id)} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none", background: on ? "#FFF6EC" : "transparent" }}>
+                <span className="flex-1 min-w-0 text-[14.5px] font-bold">{o.name}</span>
+                <span className="font-mono text-[13.5px] font-bold">{Number(o.price) > 0 ? `+ ${fmt(o.price)}` : "Offert"}</span>
+                <span className="w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0" style={on ? { background: "var(--glass)" } : { border: "2px solid #C9C5BB" }}>{on && <Check size={16} color="#fff" strokeWidth={3} />}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="flex-1 text-[13.5px] font-semibold opacity-70">Quantité</span>
+          <div className="flex items-center rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
+            <button onClick={() => setN((v) => Math.max(1, v - 1))} className="gb-focus w-11 h-11 flex items-center justify-center" aria-label="Moins"><Minus size={16} /></button>
+            <span className="font-display font-bold text-[17px] min-w-[28px] text-center">{n}</span>
+            <button onClick={() => setN((v) => Math.min(Math.max(1, left), v + 1))} className="gb-focus w-11 h-11 flex items-center justify-center" aria-label="Plus"><Plus size={16} /></button>
+          </div>
+        </div>
+        <button onClick={() => onAdd(sel, n)} disabled={left < n} className="gb-focus w-full min-h-[54px] rounded-[15px] px-4 text-white flex items-center justify-between font-bold text-[15.5px] disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}>
+          <span className="flex items-center gap-2"><ShoppingCart size={18} /> Ajouter au panier</span>
+          <span className="font-display">{fmt(unit * n)}</span>
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // Choix de l'avoir monnaie à utiliser pour payer le panier en cours.
@@ -4171,7 +4294,7 @@ function EditSaleModal({ sale, products, onSave, onClose, pushToast }) {
   // quel — c'est ce qui rend le remplacement d'article sûr : on ne peut
   // jamais fabriquer du stock qui n'existe pas.
   const maxQty = (item) => {
-    const live = products.find((p) => p.id === item.id);
+    const live = products.find((p) => p.id === itemStockId(item));
     const originalQty = sale.items.find((i) => i.id === item.id)?.qty || 0;
     return (live ? live.stock : 0) + originalQty;
   };
@@ -4754,11 +4877,19 @@ function CreditReceiptModal({ sale, shop, onClose, pushToast }) {
 }
 
 const CR = { card: "#FFFFFF", line: "#E6E3DB", ink: "#16202A", mut: "#66707A", soft: "#F5F4F0", red: "#B3261E", redBg: "#FCEBEA", amber: "#9A5B00", amberBg: "#FFF1D6", green: "#1E7A46", greenBg: "#E6F4EC", blue: "#1D5FA8" };
-function creditAge(dateStr) { return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / MS_DAY)); }
+// Ancienneté d'un crédit en JOURS CALENDAIRES (minuit à minuit) : un crédit
+// fait hier à 21 h est « Hier » dès minuit, pas 24 h plus tard.
+function creditAge(dateStr) {
+  const d = new Date(dateStr); const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const n = new Date(); const b = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  return Math.max(0, Math.round((b - a) / MS_DAY));
+}
 function creditAgeMeta(days) {
   if (days >= 30) return { label: `${days} j`, full: `En retard · ${days} jours`, color: CR.red, bg: CR.redBg };
-  if (days >= 7) return { label: `${days} j`, full: `${days} jours`, color: CR.amber, bg: CR.amberBg };
-  return { label: days === 0 ? "Aujourd'hui" : `${days} j`, full: days === 0 ? "Aujourd'hui" : days === 1 ? "Hier" : `${days} jours`, color: CR.mut, bg: CR.soft };
+  if (days >= 7) return { label: `${days} j`, full: `Depuis ${days} jours`, color: CR.amber, bg: CR.amberBg };
+  if (days === 0) return { label: "Aujourd'hui", full: "Aujourd'hui", color: "#1D5FA8", bg: "#E8F0FB" };
+  if (days === 1) return { label: "Hier", full: "Depuis hier", color: CR.mut, bg: CR.soft };
+  return { label: `${days} j`, full: `Depuis ${days} jours`, color: CR.mut, bg: CR.soft };
 }
 
 function CreditsScreen({ shop, sales, clients, onSettle, pushToast }) {
@@ -4914,16 +5045,17 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast }) {
                   <span>Total {fmt(s.total)}</span>
                 </div>
               </div>
-              <div className="flex gap-2 mt-3">
-                <button onClick={() => setSettling(s)} className="gb-focus flex-1 min-h-[44px] rounded-[13px] text-[13.5px] font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "#0F6E56" }}>
-                  <Banknote size={16} /> {hasPartial ? "Encaisser le solde" : "Encaisser"}
-                </button>
-                <button onClick={() => remind(s)} className="gb-focus min-h-[44px] px-3 rounded-[13px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#EAF6EF", color: "#0F4F2B" }} aria-label={`Relancer ${s.clientName || "le client"} sur WhatsApp`}>
-                  <MessageCircle size={16} color="#1E8E50" /> Relancer
+              <button onClick={() => setSettling(s)} className="gb-focus w-full mt-3.5 min-h-[52px] rounded-[15px] px-4 text-white flex items-center justify-between gap-2 active:scale-[0.98] active:brightness-95 transition-transform" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 8px 18px -6px rgba(12,94,73,0.55), inset 0 1px 0 rgba(255,255,255,0.22)", border: "1px solid #0A5341" }}>
+                <span className="flex items-center gap-2.5 text-[15px] font-bold"><span className="w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: "rgba(255,255,255,0.16)" }}><Banknote size={17} /></span>{hasPartial ? "Encaisser le solde" : "Encaisser le crédit"}</span>
+                <span className="font-display font-bold text-[15px] px-2.5 py-1 rounded-[9px]" style={{ background: "rgba(255,255,255,0.16)" }}>{fmt(remaining)}</span>
+              </button>
+              <div className="grid gap-2 mt-2" style={{ gridTemplateColumns: hasPartial ? "1fr 1fr" : "1fr" }}>
+                <button onClick={() => remind(s)} className="gb-focus min-h-[46px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "#fff", color: "#128C4A", border: "1.5px solid #25D366", boxShadow: "0 3px 8px -4px rgba(37,211,102,0.5)" }} aria-label={`Relancer ${s.clientName || "le client"} sur WhatsApp`}>
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "#25D366" }}><MessageCircle size={13} color="#fff" strokeWidth={2.6} /></span> {hasPartial ? "Relancer" : "Relancer sur WhatsApp"}
                 </button>
                 {hasPartial && (
-                  <button onClick={() => setConfirmReceipt(s)} className="gb-focus w-11 min-h-[44px] rounded-[13px] flex items-center justify-center" style={{ background: CR.soft, border: `1px solid ${CR.line}` }} aria-label="Historique des règlements">
-                    <History size={16} color={CR.ink} />
+                  <button onClick={() => setConfirmReceipt(s)} className="gb-focus min-h-[46px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "#fff", color: CR.ink, border: `1.5px solid ${CR.line}`, boxShadow: "0 3px 8px -5px rgba(0,0,0,0.25)" }} aria-label="Historique des règlements">
+                    <History size={16} /> Règlements
                   </button>
                 )}
               </div>
@@ -5917,24 +6049,32 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
           <label className="text-[11px] font-semibold opacity-60 block mb-1">Unité</label>
           <input className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder="Unité" value={f.unit} onChange={(e) => set("unit", e.target.value)} />
         </div>
-        <div>
+        <div className="col-span-2">
+          <label className="text-[11px] font-semibold opacity-60 block mb-1">Stock utilisé</label>
+          <select className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} value={f.stockFrom || ""} onChange={(e) => set("stockFrom", e.target.value || undefined)}>
+            <option value="">Son propre stock</option>
+            {products.filter((p) => !p.stockFrom && p.id !== f.id).map((p) => <option key={p.id} value={p.id}>Stock de « {p.name} » (1 vendu = 1 {p.unit || "unité"} retiré)</option>)}
+          </select>
+          {f.stockFrom && <p className="text-[11px] mt-1 opacity-60">Formule : chaque vente retire 1 unité du stock de « {products.find((p) => p.id === f.stockFrom)?.name} ». Le prix d'achat et le stock sont ceux de ce produit.</p>}
+        </div>
+        {!f.stockFrom && <div>
           <label className="text-[11px] font-semibold mb-1 flex items-center gap-1" style={{ color: "#854F0B" }}><ArrowDownCircle size={12} /> Prix d'achat ({symbol})</label>
           <input type="number" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#FAC775" }} placeholder="0" value={f.costPrice} onChange={(e) => set("costPrice", e.target.value)} />
-        </div>
+        </div>}
         <div>
           <label className="text-[11px] font-semibold mb-1 flex items-center gap-1" style={{ color: "#0F6E56" }}><ArrowUpCircle size={12} /> Prix de vente ({symbol})</label>
           <input type="number" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#9FE1CB" }} placeholder="0" value={f.price} onChange={(e) => set("price", e.target.value)} />
         </div>
-        <div>
+        {!f.stockFrom && <div>
           <label className="text-[11px] font-semibold opacity-60 block mb-1">Stock</label>
           <input type="number" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder="0" value={f.stock} onChange={(e) => set("stock", e.target.value)} />
-        </div>
-        <div>
+        </div>}
+        {!f.stockFrom && <div>
           <label className="text-[11px] font-semibold opacity-60 block mb-1">Seuil d'alerte</label>
           <input type="number" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder="Seuil d'alerte" value={f.minStock} onChange={(e) => set("minStock", e.target.value)} />
-        </div>
+        </div>}
       </div>
-      {f.costPrice !== "" && f.price !== "" && !isNaN(margin) && (
+      {!f.stockFrom && f.costPrice !== "" && f.price !== "" && !isNaN(margin) && (
         <p className="text-xs mb-3 px-1" style={{ color: margin >= 0 ? "#1CA857" : "var(--danger)" }}>
           Bénéfice unitaire : {margin >= 0 ? "+" : ""}{margin} {symbol} / {f.unit || "unité"}
         </p>
@@ -5972,11 +6112,26 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
         </div>
       )}
 
+      <div className="rounded-xl mt-2.5 p-3" style={{ background: "#FFF1D6" }}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#854F0B" }}><Plus size={13} /> Suppléments (ex : œuf en plus)</span>
+          <button onClick={() => set("options", [...(f.options || []), { id: uid(), name: "", price: "" }])} className="gb-focus text-[12px] font-bold px-2.5 py-1 rounded-lg" style={{ background: "#fff", color: "#854F0B" }}>+ Ajouter</button>
+        </div>
+        {(f.options || []).map((o, idx) => (
+          <div key={o.id || idx} className="flex items-center gap-2 mt-2">
+            <input className="gb-focus flex-1 min-w-0 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#FAC775", background: "#fff" }} placeholder="Nom (ex : Œuf en plus)" value={o.name} onChange={(e) => set("options", f.options.map((x, j) => (j === idx ? { ...x, name: e.target.value } : x)))} />
+            <input type="number" className="gb-focus w-24 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#FAC775", background: "#fff" }} placeholder={`+ ${symbol}`} value={o.price} onChange={(e) => set("options", f.options.map((x, j) => (j === idx ? { ...x, price: e.target.value } : x)))} />
+            <button onClick={() => set("options", f.options.filter((_, j) => j !== idx))} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff" }} aria-label="Retirer"><Trash2 size={14} color="var(--danger)" /></button>
+          </div>
+        ))}
+        {!(f.options || []).length && <p className="text-[11px] mt-1" style={{ color: "#854F0B", opacity: 0.8 }}>À la vente, le vendeur cochera les suppléments demandés ; leur prix s'ajoute au prix de vente.</p>}
+      </div>
+
       <div className="flex gap-2 mt-4">
         <button onClick={onCancel} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold border" style={{ borderColor: "var(--line)" }}>Annuler</button>
         <button onClick={async () => {
-          if (!f.name || !f.barcode || !f.price) { pushToast("Nom, code-barre et prix de vente requis", "error"); return; }
-          const duplicate = products.some((p) => p.barcode === f.barcode.trim() && p.id !== f.id);
+          if (!f.name || !f.price) { pushToast("Nom et prix de vente requis", "error"); return; }
+          const duplicate = !!(f.barcode || "").trim() && products.some((p) => p.barcode === f.barcode.trim() && p.id !== f.id);
           if (duplicate) { pushToast("Ce code-barre est déjà utilisé par un autre produit", "error"); return; }
           // Filet de sécurité pour les photos enregistrées avant la
           // compression automatique (non compressées, parfois plusieurs Mo) :
@@ -5990,11 +6145,13 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
             ...f,
             id: f.id || uid(),
             image: finalImage,
-            barcode: f.barcode.trim(),
+            barcode: (f.barcode || "").trim(),
             price: Number(f.price) || 0,
-            costPrice: Number(f.costPrice) || 0,
-            stock: Number(f.stock) || 0,
-            minStock: Number(f.minStock) || 5,
+            costPrice: f.stockFrom ? 0 : Number(f.costPrice) || 0,
+            stock: f.stockFrom ? 0 : Number(f.stock) || 0,
+            minStock: f.stockFrom ? 0 : (f.minStock === "" || f.minStock == null ? 5 : Number(f.minStock) || 0),
+            stockFrom: f.stockFrom || undefined,
+            options: (f.options || []).filter((o) => (o.name || "").trim()).map((o) => ({ id: o.id || uid(), name: o.name.trim(), price: Number(o.price) || 0 })),
             bulkQty: bulkEnabled ? Number(f.bulkQty) || 0 : 0,
             bulkPrice: bulkEnabled ? Number(f.bulkPrice) || 0 : 0,
             favorite: !!f.favorite,
@@ -6906,7 +7063,7 @@ function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }
   const marginOf = (list) => list.reduce((t, x) => t + x.items.reduce((u, i) => { const c = Number(i.product?.costPrice) || 0; return c > 0 ? u + computeItemTotal(i.product, i.qty) - c * i.qty : u; }, 0), 0);
   const marginToday = marginOf(todaySales.filter((x) => x.paymentMethod !== "credit" || x.paid));
   const hasCost = sales.some((x) => x.items.some((i) => Number(i.product?.costPrice) > 0));
-  const lowStock = products.filter((p) => p.stock <= p.minStock);
+  const lowStock = products.filter((p) => !p.stockFrom && p.stock <= p.minStock);
   const outOfStock = lowStock.filter((p) => p.stock <= 0);
   const monthExpenses = expenses.filter((e) => { const d = new Date(e.date); return d.getMonth() === thisMonth && d.getFullYear() === thisYear; });
   const expensesThisMonth = monthExpenses.reduce((s, e) => s + Number(e.amount), 0);
@@ -7202,7 +7359,7 @@ function ProductsSection({ products, saveProducts, categories, movements, saveMo
                 {p.name}
                 {p.favorite && <Star size={11} color="var(--cap)" fill="var(--cap)" className="shrink-0" />}
               </div>
-              <div className="text-xs opacity-50 font-mono mt-0.5">{fmt(p.price)} · {p.stock} {p.unit}s{p.bulkQty > 0 && p.bulkPrice > 0 ? ` · lot ${p.bulkQty}=${fmt(p.bulkPrice)}` : ""}</div>
+              <div className="text-xs opacity-50 font-mono mt-0.5">{fmt(p.price)} · {p.stockFrom ? `stock de ${products.find((x) => x.id === p.stockFrom)?.name || "?"}` : `${p.stock} ${p.unit}s`}{(p.options || []).length ? ` · ${p.options.length} supplément${p.options.length > 1 ? "s" : ""}` : ""}{p.bulkQty > 0 && p.bulkPrice > 0 ? ` · lot ${p.bulkQty}=${fmt(p.bulkPrice)}` : ""}</div>
             </div>
             {p.stock <= p.minStock && (
               <span className="text-[9px] font-bold px-2 py-1 rounded-full shrink-0" style={{ background: "#FCEBEB", color: "#A32D2D" }}>STOCK BAS</span>
@@ -7222,7 +7379,7 @@ function InventoryOverview({ products, categories, movements }) {
   const fmt = useFmt();
   const totalValue = products.reduce((s, p) => s + p.stock * p.price, 0);
   const totalUnits = products.reduce((s, p) => s + p.stock, 0);
-  const lowStock = products.filter((p) => p.stock <= p.minStock);
+  const lowStock = products.filter((p) => !p.stockFrom && p.stock <= p.minStock);
   const outOfStock = products.filter((p) => p.stock <= 0);
   const today = new Date().toDateString();
   const movementsToday = movements.filter((m) => new Date(m.date).toDateString() === today).length;
@@ -10008,6 +10165,7 @@ const ADMIN_SECTIONS = [
   { id: "produits", desc: "Prix, stock, codes-barres", label: "Produits", Icon: Boxes, group: "Gestion commerciale" },
   { id: "categories", desc: "Classer vos produits", label: "Catégories", Icon: ClipboardList, group: "Gestion commerciale" },
   { id: "inventaire", desc: "Comptage, caisse, versements", label: "Inventaire", Icon: ArrowUpCircle, group: "Gestion commerciale" },
+  { id: "snack", desc: "Achats de pains, ingrédients, bénéfices", label: "Pains & ingrédients", Icon: Croissant, group: "Gestion commerciale", profile: "snack" },
   { id: "fournisseurs", desc: "Commandes et achats", label: "Fournisseurs", Icon: Truck, group: "Gestion commerciale" },
   { id: "depenses", desc: "Sorties d'argent du mois", label: "Dépenses", Icon: Wallet, group: "Finances" },
   { id: "export", desc: "Excel pour le comptable", label: "Export comptable", Icon: FileText, group: "Finances" },
@@ -10734,10 +10892,427 @@ function NotificationPanel({ notifications, currency, onClear, onClose, voice })
   );
 }
 
+// ---------- Profil Snack : pains, réserve d'ingrédients, bénéfices ----------
+// snackLots contient trois sortes d'enregistrements :
+//   { kind: "pain", productId, date, qty, amount, price }   achat d'un lot de pains
+//   { kind: "ingredient", name }                            un ingrédient suivi
+//   { kind: "ilot", ingredientId, date, amount, endDate }   un lot d'ingrédient acheté
+// Un lot d'ingrédient reste « en cours » jusqu'à ce qu'il soit terminé (au
+// réapprovisionnement ou à la main). Son coût est réparti sur ses jours
+// d'utilisation (dates incluses) ; tant qu'il est en cours, le coût par jour
+// est une estimation.
+const SK = { card: "var(--card)", line: "var(--line)", mut: "#66707A", ok: "#1E7A46", okBg: "#E6F4EC", amb: "#9A5B00", ambBg: "#FFF1D6", red: "#B3261E", redBg: "#FCEBEA", bread: "#8A5A12", breadBg: "#FBEFD9" };
+function ilotDays(l, now = new Date()) { return Math.max(1, calDays(l.date, l.endDate || now) + 1); }
+// Durée utilisée pour répartir le coût d'un lot : sa vraie durée s'il est
+// terminé ; s'il est encore en cours, au moins la durée moyenne des lots
+// précédents du même ingrédient (sinon un lot acheté le matin pèserait tout
+// son prix sur la journée).
+function ilotCostDays(l, snackLots) {
+  const d = ilotDays(l);
+  if (l.endDate) return d;
+  const prev = (snackLots || []).filter((x) => x.kind === "ilot" && x.ingredientId === l.ingredientId && x.endDate);
+  if (!prev.length) return d;
+  const avg = Math.round(prev.reduce((t, x) => t + ilotDays(x), 0) / prev.length);
+  return Math.max(d, avg);
+}
+function ingredientCostOn(snackLots, day) {
+  const d = new Date(day);
+  const lines = [];
+  (snackLots || []).filter((x) => x.kind === "ilot").forEach((l) => {
+    const start = calDays(l.date, d);
+    const endRef = l.endDate || new Date();
+    if (start < 0 || calDays(d, endRef) < 0) return;
+    const days = ilotCostDays(l, snackLots);
+    const ing = (snackLots || []).find((x) => x.id === l.ingredientId);
+    lines.push({ lot: l, name: ing?.name || "Ingrédient", perDay: (Number(l.amount) || 0) / days, days, estimated: !l.endDate });
+  });
+  return lines;
+}
+function SnackBtn({ children, onClick, primary, Icon, disabled }) {
+  return (
+    <button onClick={onClick} disabled={disabled} className="gb-focus flex-1 min-h-[44px] rounded-[13px] px-3 text-[13px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform disabled:opacity-50" style={primary ? { background: "linear-gradient(180deg, #16876A, #0C5E49)", color: "#fff", boxShadow: "0 6px 14px -6px rgba(12,94,73,0.6)" } : { background: "#fff", color: "var(--ink)", border: "1.5px solid var(--line)" }}>
+      {Icon && <Icon size={15} />}{children}
+    </button>
+  );
+}
+function SnackSheet({ title, kicker, onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
+      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[90vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+        <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60">{kicker}</p>
+        <p className="font-display font-bold text-[19px] mb-3">{title}</p>
+        {children}
+      </div>
+    </div>
+  );
+}
+const skInput = "gb-focus w-full rounded-[13px] px-3 min-h-[46px] text-[15px] border";
+
+function SnackSection({ shop, products, saveProducts, movements, saveMovements, expenses, saveExpenses, sales, snackLots, saveSnackLots, pushToast, author }) {
+  const fmt = useFmt();
+  const [tab, setTab] = useState("pains");
+  const [buyOpen, setBuyOpen] = useState(null); // productId
+  const [ingSheet, setIngSheet] = useState(null); // { mode: "new" } | { mode: "refill", ing }
+  const lots = snackLots || [];
+  const bases = products.filter((p) => !p.stockFrom && (p.isBase || products.some((x) => x.stockFrom === p.id)));
+  const todayISO = () => new Date().toISOString();
+  const addExpense = (label, amount, date) => { const id = uid(); saveExpenses([{ id, label, amount, date: date || todayISO(), supplierId: null, author }, ...expenses]); return id; };
+
+  // ---- Achat d'un lot de pains
+  const buyBread = ({ productId, qty, amount, price, date }) => {
+    const p = products.find((x) => x.id === productId);
+    if (!p) return;
+    const unit = qty > 0 ? Math.round((amount / qty) * 100) / 100 : 0;
+    const before = Number(p.stock) || 0;
+    saveProducts(products.map((x) => (x.id === productId ? { ...x, stock: before + qty, costPrice: unit, price: price || x.price } : x)));
+    saveMovements([{ id: uid(), date: date || todayISO(), productId, productName: p.name, type: "livraison", delta: qty, before, after: before + qty, author, note: `Achat de ${qty} ${p.unit || "pains"} · ${fmt(amount)}` }, ...movements]);
+    const expenseId = addExpense(`Achat de ${qty} ${(p.unit || "pain")}${qty > 1 ? "s" : ""} (${p.name})`, amount, date);
+    saveSnackLots([{ id: uid(), kind: "pain", productId, date: date || todayISO(), qty, amount, price: price || p.price, expenseId }, ...lots]);
+    pushToast(`${qty} ${p.name.toLowerCase()} ajoutés · ${fmt(unit)} l'unité`, "ok");
+    setBuyOpen(null);
+  };
+  // Répartit le stock actuel sur les lots, du plus récent au plus ancien :
+  // un lot entièrement « consommé » est vendu.
+  const breadLotsOf = (p) => {
+    let left = Number(p.stock) || 0;
+    return lots.filter((l) => l.kind === "pain" && l.productId === p.id).sort((a, b) => new Date(b.date) - new Date(a.date)).map((l) => {
+      const rem = Math.max(0, Math.min(l.qty, left));
+      left -= rem;
+      return { ...l, remaining: rem, sold: l.qty - rem };
+    });
+  };
+
+  // ---- Ingrédients
+  const ingredients = lots.filter((l) => l.kind === "ingredient");
+  const ilotsOf = (id) => lots.filter((l) => l.kind === "ilot" && l.ingredientId === id).sort((a, b) => new Date(b.date) - new Date(a.date));
+  const addIngredient = ({ name, amount, date }) => {
+    const ing = { id: uid(), kind: "ingredient", name: name.trim() };
+    const expenseId = addExpense(`Ingrédient : ${ing.name}`, amount, date);
+    const lot = { id: uid(), kind: "ilot", ingredientId: ing.id, date: date || todayISO(), amount, expenseId };
+    saveSnackLots([ing, lot, ...lots]);
+    pushToast(`${ing.name} ajouté à la réserve`, "ok");
+    setIngSheet(null);
+  };
+  const refill = ({ ing, amount, date, closePrevious }) => {
+    const d = date || todayISO();
+    const next = lots.map((l) => (closePrevious && l.kind === "ilot" && l.ingredientId === ing.id && !l.endDate ? { ...l, endDate: d } : l));
+    const expenseId = addExpense(`Ingrédient : ${ing.name}`, amount, d);
+    saveSnackLots([{ id: uid(), kind: "ilot", ingredientId: ing.id, date: d, amount, expenseId }, ...next]);
+    pushToast(`${ing.name} réapprovisionné · ${fmt(amount)}`, "ok");
+    setIngSheet(null);
+  };
+  // Correction du prix d'achat d'un lot (et de la dépense liée).
+  const editLotPrice = (lot, amount) => {
+    saveSnackLots(lots.map((l) => (l.id === lot.id ? { ...l, amount } : l)));
+    if (lot.expenseId && expenses.some((e) => e.id === lot.expenseId)) saveExpenses(expenses.map((e) => (e.id === lot.expenseId ? { ...e, amount } : e)));
+    pushToast(`Prix d'achat corrigé : ${fmt(amount)}`, "ok");
+    setIngSheet(null);
+  };
+  const finishLot = (lot) => { saveSnackLots(lots.map((l) => (l.id === lot.id ? { ...l, endDate: todayISO() } : l))); pushToast("Lot marqué comme terminé", "ok"); };
+
+  const openIlots = lots.filter((l) => l.kind === "ilot" && !l.endDate);
+
+  // ---- Journal des bénéfices
+  const [period, setPeriod] = useState("semaine");
+  // Un lot de pains est terminé quand il est entièrement vendu : sa date de
+  // fin est celle de la dernière vente qui l'a vidé (ou l'achat suivant).
+  const breadLotEnd = (p, l) => {
+    if (l.remaining > 0) return null;
+    const next = lots.filter((x) => x.kind === "pain" && x.productId === p.id && new Date(x.date) > new Date(l.date)).sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+    const lastSale = movements.filter((m) => m.productId === p.id && m.type === "vente" && new Date(m.date) >= new Date(l.date) && (!next || new Date(m.date) <= new Date(next.date))).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    return lastSale?.date || next?.date || l.date;
+  };
+  const dStr = (d) => new Date(d).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" });
+
+  const Tabs = (
+    <div className="grid grid-cols-3 gap-1.5 mb-3">
+      {[["pains", "Pains"], ["ingredients", "Ingrédients"], ["benefice", "Bénéfice"]].map(([id, l]) => (
+        <button key={id} onClick={() => setTab(id)} className="gb-focus min-h-[40px] rounded-[12px] text-[13px] font-bold" style={tab === id ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)", color: SK.mut }}>{l}</button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div>
+      {Tabs}
+
+      {tab === "pains" && (
+        <div className="flex flex-col gap-3">
+          {bases.length === 0 && (
+            <div className="rounded-[18px] p-5 text-center" style={{ background: SK.card, border: `1px dashed ${SK.line}` }}>
+              <p className="font-semibold">Aucun pain configuré</p>
+              <p className="text-[12px] mt-1" style={{ color: SK.mut }}>Dans Produits, créez « Pain simple » puis vos formules (Pain fourré…) avec « Stock utilisé : Pain simple ».</p>
+            </div>
+          )}
+          {bases.map((p) => {
+            const pl = breadLotsOf(p);
+            const formulas = products.filter((x) => x.stockFrom === p.id);
+            return (
+              <div key={p.id} className="rounded-[20px] p-3.5" style={{ background: SK.card, border: `1px solid ${SK.line}`, boxShadow: "0 3px 12px rgba(22,32,42,0.05)" }}>
+                <div className="flex items-center gap-3">
+                  <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: SK.breadBg }}><Croissant size={20} color={SK.bread} /></span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-[15.5px] truncate">{p.name}</p>
+                    <p className="text-[11.5px]" style={{ color: SK.mut }}>Vendu {fmt(p.price)} · coût {fmt(p.costPrice || 0)} l'unité</p>
+                  </div>
+                  <div className="text-right shrink-0"><p className="font-display font-bold text-[20px] leading-none" style={{ color: p.stock <= 0 ? SK.red : p.stock <= p.minStock ? SK.amb : "var(--ink)" }}>{p.stock}</p><p className="text-[10.5px]" style={{ color: SK.mut }}>en stock</p></div>
+                </div>
+                {formulas.length > 0 && <p className="text-[11.5px] mt-2" style={{ color: SK.mut }}>Formules sur ce stock : {[p, ...formulas].map((x) => `${x.name} (${fmt(x.price)})`).join(" · ")}</p>}
+                <div className="flex gap-2 mt-3"><SnackBtn primary Icon={Plus} onClick={() => setBuyOpen(p.id)}>Nouvel achat de pains</SnackBtn></div>
+                {pl.length > 0 && <p className="text-[11px] font-bold uppercase tracking-[0.1em] mt-3.5 mb-1.5" style={{ color: SK.mut }}>Lots achetés</p>}
+                <div className="flex flex-col gap-2">
+                  {pl.slice(0, 6).map((l) => {
+                    const done = l.remaining <= 0;
+                    const value = l.qty * (Number(l.price) || 0);
+                    return (
+                      <div key={l.id} className="rounded-[14px] p-3" style={{ background: done ? SK.okBg : "var(--paper)" }}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[13px] font-bold">Lot du {dStr(l.date)}</span>
+                          <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={done ? { background: "#fff", color: SK.ok } : { background: SK.okBg, color: SK.ok }}>{done ? "VENDU" : "EN COURS"}</span>
+                        </div>
+                        <p className="text-[11.5px]" style={{ color: SK.mut }}>{l.qty} achetés · {fmt(l.amount)} · {fmt(l.amount / Math.max(1, l.qty))} l'unité</p>
+                        {!done && (
+                          <div className="mt-2">
+                            <div className="flex justify-between text-[11.5px] font-semibold"><span>{l.sold} vendu{l.sold > 1 ? "s" : ""}</span><span style={{ color: SK.amb }}>{l.remaining} restant{l.remaining > 1 ? "s" : ""}</span></div>
+                            <div className="h-2 rounded-full overflow-hidden mt-1" style={{ background: "#F1E3C8" }}><div className="h-full rounded-full" style={{ width: `${(l.sold / Math.max(1, l.qty)) * 100}%`, background: SK.bread }} /></div>
+                          </div>
+                        )}
+                        {done && (
+                          <div className="mt-2 rounded-[11px] overflow-hidden" style={{ background: "#fff" }}>
+                            {[["Achat du lot", `– ${fmt(l.amount)}`], [`Part pain vendue (${l.qty} × ${fmt(l.price)})`, fmt(value)], ["Bénéfice sur le pain", `${value - l.amount >= 0 ? "+ " : "– "}${fmt(Math.abs(value - l.amount))}`]].map(([a, b], i) => (
+                              <div key={a} className="flex justify-between px-3 py-1.5 text-[12.5px]" style={{ borderTop: i ? `1px solid ${SK.line}` : "none", fontWeight: i === 2 ? 800 : 500, color: i === 2 ? (value - l.amount >= 0 ? SK.ok : SK.red) : "var(--ink)" }}><span>{a}</span><span className="font-mono">{b}</span></div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === "ingredients" && (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-[16px] px-3 py-2.5" style={{ background: SK.card, border: `1px solid ${SK.line}` }}><p className="text-[11px] font-semibold" style={{ color: SK.mut }}>Lots en cours</p><p className="font-display font-bold text-[16px]">{openIlots.length} · {fmt(openIlots.reduce((t, l) => t + (Number(l.amount) || 0), 0))}</p></div>
+            <div className="rounded-[16px] px-3 py-2.5" style={{ background: SK.card, border: `1px solid ${SK.line}` }}><p className="text-[11px] font-semibold" style={{ color: SK.mut }}>Lots terminés</p><p className="font-display font-bold text-[16px]">{lots.filter((l) => l.kind === "ilot" && l.endDate).length}</p></div>
+          </div>
+          <SnackBtn primary Icon={Plus} onClick={() => setIngSheet({ mode: "new" })}>Ajouter un ingrédient</SnackBtn>
+          {ingredients.length === 0 && <p className="text-center text-[12.5px] py-4" style={{ color: SK.mut }}>Ajoutez vos ingrédients (mayonnaise, œufs, oignons…) avec leur prix d'achat.</p>}
+          {ingredients.map((ing) => {
+            const il = ilotsOf(ing.id);
+            const open = il.filter((l) => !l.endDate);
+            const done = il.filter((l) => l.endDate);
+            return (
+              <div key={ing.id} className="rounded-[20px] p-3.5" style={{ background: SK.card, border: `1px solid ${SK.line}`, boxShadow: "0 3px 12px rgba(22,32,42,0.05)" }}>
+                <div className="flex items-center gap-3">
+                  <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: SK.ambBg }}><Boxes size={18} color={SK.amb} /></span>
+                  <div className="flex-1 min-w-0"><p className="font-bold text-[15px] truncate">{ing.name}</p><p className="text-[11.5px]" style={{ color: SK.mut }}>{il.length} lot{il.length > 1 ? "s" : ""} acheté{il.length > 1 ? "s" : ""}</p></div>
+                  <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={open.length ? { background: SK.okBg, color: SK.ok } : { background: SK.redBg, color: SK.red }}>{open.length ? "EN COURS" : "À RACHETER"}</span>
+                </div>
+                {open.map((l) => {
+                  const d = ilotDays(l);
+                  return (
+                    <div key={l.id} className="mt-2.5 rounded-[14px] p-3" style={{ background: SK.okBg }}>
+                      <div className="flex justify-between text-[12px] font-bold" style={{ color: SK.ok }}><span>Lot du {dStr(l.date)}</span><span>{d}ᵉ jour d'utilisation</span></div>
+                      <div className="flex justify-between items-baseline mt-0.5"><span className="font-display font-bold text-[19px]" style={{ color: "#0F4F2B" }}>{fmt(l.amount)}</span><span className="text-[11.5px]" style={{ color: SK.ok }}>soustrait quand il sera terminé</span></div>
+                      <button onClick={() => setIngSheet({ mode: "edit", ing, lot: l })} className="gb-focus mt-1.5 text-[12px] font-bold flex items-center gap-1" style={{ color: SK.ok }}><Pencil size={12} /> Modifier le prix d'achat</button>
+                    </div>
+                  );
+                })}
+                {done.length > 0 && <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] mt-3 mb-1" style={{ color: SK.mut }}>Lots terminés</p>}
+                {done.slice(0, 4).map((l, i) => {
+                  const d = ilotDays(l);
+                  return <div key={l.id} className="flex justify-between gap-2 py-1.5 text-[12.5px]" style={{ borderTop: `1px solid ${SK.line}` }}><span>Du {new Date(l.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} au {new Date(l.endDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} · <b>{d} j</b></span><span className="font-mono"><b>– {fmt(l.amount)}</b></span></div>;
+                })}
+                <div className="flex gap-2 mt-3">
+                  <SnackBtn primary Icon={Plus} onClick={() => setIngSheet({ mode: "refill", ing, open, last: il[0] })}>Réapprovisionner</SnackBtn>
+                  {open.length > 0 && <SnackBtn Icon={Check} onClick={() => finishLot(open[open.length - 1])}>Terminé</SnackBtn>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === "benefice" && (() => {
+        // Journal des bénéfices : les ventes de chaque jour s'ajoutent ; le
+        // prix d'achat d'un lot (pains, plateau d'œufs, mayonnaise…) n'est
+        // soustrait que le jour où ce lot est TERMINÉ. Aucune estimation.
+        const now = new Date();
+        const from = period === "semaine" ? (() => { const d = new Date(now); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return d; })()
+          : period === "mois" ? new Date(now.getFullYear(), now.getMonth(), 1)
+          : new Date(0);
+        const inP = (d) => new Date(d) >= from;
+        const entries = [];
+        const byDay = {};
+        sales.forEach((x) => { if (!inP(x.date)) return; const k = new Date(x.date).toDateString(); byDay[k] = byDay[k] || { date: x.date, total: 0, n: 0 }; byDay[k].total += Number(x.total) || 0; byDay[k].n += 1; });
+        Object.values(byDay).forEach((d) => entries.push({ kind: "vente", date: new Date(new Date(d.date).setHours(23, 59, 0, 0)).toISOString(), label: `Ventes du jour · ${d.n} vente${d.n > 1 ? "s" : ""}`, amount: d.total }));
+        const pending = [];
+        bases.forEach((p) => {
+          const pl = breadLotsOf(p);
+          pl.forEach((l) => {
+            const end = breadLotEnd(p, l);
+            if (end && inP(end)) entries.push({ kind: "achat", date: end, label: `Lot de ${l.qty} ${(p.unit || "pain")}${l.qty > 1 ? "s" : ""} terminé (acheté le ${dStr(l.date)})`, amount: -(Number(l.amount) || 0) });
+            if (!end) pending.push({ label: `${p.name} · lot du ${dStr(l.date)} (${l.remaining} restant${l.remaining > 1 ? "s" : ""})`, amount: Number(l.amount) || 0 });
+          });
+        });
+        lots.filter((l) => l.kind === "ilot").forEach((l) => {
+          const ing = lots.find((x) => x.id === l.ingredientId);
+          if (l.endDate && inP(l.endDate)) entries.push({ kind: "achat", date: l.endDate, label: `${ing?.name || "Ingrédient"} terminé (acheté le ${dStr(l.date)})`, amount: -(Number(l.amount) || 0) });
+          if (!l.endDate) pending.push({ label: `${ing?.name || "Ingrédient"} · lot du ${dStr(l.date)}`, amount: Number(l.amount) || 0 });
+        });
+        entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+        let solde = 0;
+        const rows = entries.map((e) => { solde += e.amount; return { ...e, solde }; }).reverse();
+        const totVentes = entries.filter((e) => e.kind === "vente").reduce((t, e) => t + e.amount, 0);
+        const totAchats = -entries.filter((e) => e.kind === "achat").reduce((t, e) => t + e.amount, 0);
+        const benef = totVentes - totAchats;
+        const totPending = pending.reduce((t, x) => t + x.amount, 0);
+        return (
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-1.5">
+              {[["semaine", "7 derniers jours"], ["mois", "Ce mois"], ["tout", "Tout"]].map(([id, l]) => (
+                <button key={id} onClick={() => setPeriod(id)} className="gb-focus flex-1 min-h-[38px] rounded-full text-[12.5px] font-bold" style={period === id ? { background: "var(--glass)", color: "#fff" } : { background: SK.card, border: `1px solid ${SK.line}` }}>{l}</button>
+              ))}
+            </div>
+            <div className="rounded-[22px] p-4 text-white" style={{ background: "linear-gradient(135deg, var(--glass), var(--glass-light))" }}>
+              <p className="text-[11.5px] font-bold uppercase tracking-[0.08em] opacity-75">Bénéfice · {period === "semaine" ? "7 derniers jours" : period === "mois" ? now.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }) : "depuis le début"}</p>
+              <p className="font-display font-bold text-[30px] leading-tight">{fmt(Math.round(benef))}</p>
+              <div className="grid grid-cols-2 gap-2 mt-2.5">
+                <div className="rounded-[12px] px-3 py-1.5" style={{ background: "rgba(255,255,255,0.12)" }}><p className="text-[10.5px] opacity-75">Total des ventes</p><p className="font-display font-bold text-[14px]">+ {fmt(totVentes)}</p></div>
+                <div className="rounded-[12px] px-3 py-1.5" style={{ background: "rgba(255,255,255,0.12)" }}><p className="text-[10.5px] opacity-75">Achats terminés soustraits</p><p className="font-display font-bold text-[14px]">– {fmt(totAchats)}</p></div>
+              </div>
+            </div>
+            {pending.length > 0 && (
+              <div className="rounded-[18px] p-3.5" style={{ background: SK.ambBg }}>
+                <div className="flex justify-between gap-2"><p className="text-[13px] font-bold" style={{ color: SK.amb }}>Achats en cours d'utilisation</p><p className="font-mono text-[13px] font-bold" style={{ color: SK.amb }}>{fmt(totPending)}</p></div>
+                <p className="text-[11.5px] mb-1.5" style={{ color: SK.amb }}>Pas encore soustraits : ils le seront le jour où le lot sera terminé.</p>
+                {pending.map((x, i) => <div key={i} className="flex justify-between gap-2 text-[12px] py-0.5" style={{ color: "#6E4300" }}><span className="truncate">{x.label}</span><span className="font-mono shrink-0">{fmt(x.amount)}</span></div>)}
+              </div>
+            )}
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] -mb-1.5" style={{ color: SK.mut }}>Journal des bénéfices</p>
+            <div className="rounded-[18px] overflow-hidden" style={{ background: SK.card, border: `1px solid ${SK.line}` }}>
+              {rows.length === 0 && <p className="px-3.5 py-4 text-[12.5px] text-center" style={{ color: SK.mut }}>Aucune vente sur la période.</p>}
+              {rows.map((r, i) => (
+                <div key={i} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? `1px solid ${SK.line}` : "none" }}>
+                  <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: r.kind === "vente" ? SK.okBg : SK.redBg }}>{r.kind === "vente" ? <TrendingUp size={16} color={SK.ok} /> : <Boxes size={16} color={SK.red} />}</span>
+                  <div className="flex-1 min-w-0"><p className="text-[13px] font-bold leading-snug">{r.label}</p><p className="text-[11px]" style={{ color: SK.mut }}>{new Date(r.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</p></div>
+                  <div className="text-right shrink-0"><p className="font-mono text-[13.5px] font-bold" style={{ color: r.amount >= 0 ? SK.ok : SK.red }}>{r.amount >= 0 ? "+ " : "– "}{fmt(Math.abs(r.amount))}</p><p className="text-[10.5px] font-mono" style={{ color: SK.mut }}>Solde {fmt(r.solde)}</p></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {buyOpen && <BreadBuySheet product={products.find((x) => x.id === buyOpen)} last={lots.filter((l) => l.kind === "pain" && l.productId === buyOpen).sort((a, b) => new Date(b.date) - new Date(a.date))[0]} onSave={buyBread} onClose={() => setBuyOpen(null)} />}
+      {ingSheet && <IngredientSheet state={ingSheet} onAdd={addIngredient} onRefill={refill} onEdit={editLotPrice} onClose={() => setIngSheet(null)} />}
+    </div>
+  );
+}
+
+function BreadBuySheet({ product, last, onSave, onClose }) {
+  const fmt = useFmt();
+  // Pré-rempli avec le dernier achat : si rien n'a changé, il suffit de valider.
+  const [qty, setQty] = useState(last ? String(last.qty) : "");
+  const [amount, setAmount] = useState(last ? String(last.amount) : "");
+  const [price, setPrice] = useState(String(product?.price || ""));
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const q = Number(qty) || 0, a = Number(amount) || 0, pr = Number(price) || 0;
+  const unit = q > 0 ? a / q : 0;
+  const margin = pr - unit;
+  const submit = () => {
+    if (q <= 0 || a <= 0 || pr <= 0) return;
+    const d = new Date(date + "T" + new Date().toTimeString().slice(0, 8));
+    onSave({ productId: product.id, qty: q, amount: a, price: pr, date: isNaN(d) ? new Date().toISOString() : d.toISOString() });
+  };
+  return (
+    <SnackSheet kicker="Nouvel achat" title={product?.name || "Pains"} onClose={onClose}>
+      {last && <p className="text-[12px] rounded-[11px] px-3 py-2 mb-2.5" style={{ background: SK.okBg, color: SK.ok }}>Rempli avec le dernier achat ({last.qty} pour {fmt(last.amount)}). Modifiez si la quantité ou le prix a changé.</p>}
+      <div className="grid grid-cols-2 gap-2.5">
+        <div><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Quantité achetée</p><input type="number" inputMode="numeric" className={skInput} style={{ borderColor: SK.line }} placeholder="Ex : 10" value={qty} onChange={(e) => setQty(e.target.value)} /></div>
+        <div><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Montant payé</p><input type="number" inputMode="numeric" className={skInput} style={{ borderColor: SK.line }} placeholder="Ex : 750" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+        <div><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Prix de vente (1 pain)</p><input type="number" inputMode="numeric" className={skInput} style={{ borderColor: SK.line }} placeholder="Ex : 100" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
+        <div><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Date d'achat</p><input type="date" className={skInput} style={{ borderColor: SK.line }} value={date} onChange={(e) => setDate(e.target.value)} /></div>
+      </div>
+      {q > 0 && a > 0 && (
+        <div className="rounded-[14px] mt-3 overflow-hidden" style={{ background: SK.card, border: `1px solid ${SK.line}` }}>
+          {[["Prix d'achat unitaire", fmt(Math.round(unit * 100) / 100)], ["Bénéfice par pain vendu simple", `${margin >= 0 ? "+ " : "– "}${fmt(Math.abs(Math.round(margin * 100) / 100))}`], [`Bénéfice sur les ${q} pains`, `${margin >= 0 ? "+ " : "– "}${fmt(Math.abs(Math.round(margin * q)))}`]].map(([l, v], i) => (
+            <div key={l} className="flex justify-between px-3.5 py-2 text-[13px]" style={{ borderTop: i ? `1px solid ${SK.line}` : "none", fontWeight: i === 2 ? 800 : 500, color: i > 0 ? (margin >= 0 ? SK.ok : SK.red) : "var(--ink)" }}><span>{l}</span><span className="font-mono">{v}</span></div>
+          ))}
+        </div>
+      )}
+      {margin < 0 && q > 0 && a > 0 && <p className="text-[12px] font-semibold mt-2" style={{ color: SK.red }}>Attention : le prix de vente est inférieur au prix d'achat.</p>}
+      <p className="text-[11.5px] mt-3 flex items-center gap-1.5" style={{ color: SK.mut }}><Check size={14} color={SK.ok} /> Le stock augmente et l'achat est ajouté aux dépenses.</p>
+      <button onClick={submit} disabled={q <= 0 || a <= 0 || pr <= 0} className="gb-focus w-full min-h-[54px] rounded-[15px] mt-3 text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}><Check size={18} /> Enregistrer l'achat</button>
+    </SnackSheet>
+  );
+}
+
+function IngredientSheet({ state, onAdd, onRefill, onEdit, onClose }) {
+  const [name, setName] = useState("");
+  const lastAmount = Number(state.last?.amount) || 0;
+  const [samePrice, setSamePrice] = useState(state.mode === "refill" && lastAmount > 0);
+  const [amount, setAmount] = useState(state.mode === "edit" ? String(state.lot.amount || "") : "");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [closePrev, setClosePrev] = useState(true);
+  const isNew = state.mode === "new";
+  const isEdit = state.mode === "edit";
+  const open = state.open || [];
+  const a = samePrice ? lastAmount : Number(amount) || 0;
+  const iso = () => { const d = new Date(date + "T" + new Date().toTimeString().slice(0, 8)); return isNaN(d) ? new Date().toISOString() : d.toISOString(); };
+  const fmt = useFmt();
+  return (
+    <SnackSheet kicker={isNew ? "Réserve d'ingrédients" : isEdit ? "Modifier le prix d'achat" : "Réapprovisionner"} title={isNew ? "Nouvel ingrédient" : state.ing.name} onClose={onClose}>
+      {isEdit && (
+        <>
+          <p className="text-[12.5px] mb-2" style={{ color: SK.mut }}>Lot du {new Date(state.lot.date).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" })} · prix actuel {fmt(state.lot.amount)}. La dépense liée est corrigée aussi.</p>
+          <p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Nouveau prix d'achat</p>
+          <input type="number" inputMode="numeric" autoFocus className={skInput} style={{ borderColor: SK.line }} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <button onClick={() => { const v = Number(amount) || 0; if (v > 0) onEdit(state.lot, v); }} disabled={!(Number(amount) > 0)} className="gb-focus w-full min-h-[54px] rounded-[15px] mt-3 text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}><Check size={18} /> Enregistrer le prix</button>
+        </>
+      )}
+      {!isEdit && <>
+      {!isNew && open.length > 0 && (
+        <div className="rounded-[16px] p-3 mb-3" style={{ background: SK.card, border: `1px solid ${SK.line}` }}>
+          <p className="text-[14px] font-bold">Le lot du {new Date(open[open.length - 1].date).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" })} est-il terminé ?</p>
+          <p className="text-[12px]" style={{ color: SK.mut }}>Acheté {fmt(open[open.length - 1].amount)} · en service depuis {ilotDays(open[open.length - 1])} jour{ilotDays(open[open.length - 1]) > 1 ? "s" : ""}</p>
+          <div className="grid grid-cols-2 gap-2 mt-2.5">
+            <button onClick={() => setClosePrev(true)} className="gb-focus rounded-[13px] p-2.5 text-left" style={closePrev ? { border: `2px solid ${SK.ok}`, background: SK.okBg } : { border: `1.5px solid ${SK.line}`, background: "#fff" }}><p className="text-[13.5px] font-bold flex items-center gap-1" style={{ color: closePrev ? "#0F4F2B" : "var(--ink)" }}>{closePrev && <Check size={14} />} Oui, terminé</p><p className="text-[11px]" style={{ color: SK.mut }}>Il sera clôturé à la date du nouvel achat</p></button>
+            <button onClick={() => setClosePrev(false)} className="gb-focus rounded-[13px] p-2.5 text-left" style={!closePrev ? { border: `2px solid ${SK.ok}`, background: SK.okBg } : { border: `1.5px solid ${SK.line}`, background: "#fff" }}><p className="text-[13.5px] font-bold flex items-center gap-1">{!closePrev && <Check size={14} />} Non, pas encore</p><p className="text-[11px]" style={{ color: SK.mut }}>Les deux lots restent en cours</p></button>
+          </div>
+        </div>
+      )}
+      {isNew && <div className="mb-2.5"><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Nom de l'ingrédient</p><input className={skInput} style={{ borderColor: SK.line }} placeholder="Ex : Mayonnaise" value={name} onChange={(e) => setName(e.target.value)} /></div>}
+      {!isNew && lastAmount > 0 && (
+        <div className="rounded-[16px] p-3 mb-3" style={{ background: SK.card, border: `1px solid ${SK.line}` }}>
+          <p className="text-[14px] font-bold">Le prix d'achat a-t-il changé ?</p>
+          <div className="grid grid-cols-2 gap-2 mt-2.5">
+            <button onClick={() => setSamePrice(true)} className="gb-focus rounded-[13px] p-2.5 text-left" style={samePrice ? { border: `2px solid ${SK.ok}`, background: SK.okBg } : { border: `1.5px solid ${SK.line}`, background: "#fff" }}><p className="text-[13.5px] font-bold flex items-center gap-1" style={{ color: samePrice ? "#0F4F2B" : "var(--ink)" }}>{samePrice && <Check size={14} />} Non, même prix</p><p className="text-[12px] font-mono font-bold mt-0.5">{fmt(lastAmount)}</p></button>
+            <button onClick={() => setSamePrice(false)} className="gb-focus rounded-[13px] p-2.5 text-left" style={!samePrice ? { border: `2px solid ${SK.ok}`, background: SK.okBg } : { border: `1.5px solid ${SK.line}`, background: "#fff" }}><p className="text-[13.5px] font-bold flex items-center gap-1">{!samePrice && <Check size={14} />} Oui, il a changé</p><p className="text-[11px]" style={{ color: SK.mut }}>Saisir le nouveau prix</p></button>
+          </div>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2.5">
+        {!samePrice && <div><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>{isNew ? "Prix d'achat" : "Nouveau prix d'achat"}</p><input type="number" inputMode="numeric" autoFocus={!isNew} className={skInput} style={{ borderColor: SK.line }} placeholder={lastAmount ? String(lastAmount) : "Ex : 1500"} value={amount} onChange={(e) => setAmount(e.target.value)} /></div>}
+        <div className={samePrice ? "col-span-2" : ""}><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Date d'achat</p><input type="date" className={skInput} style={{ borderColor: SK.line }} value={date} onChange={(e) => setDate(e.target.value)} /></div>
+      </div>
+      <p className="text-[11.5px] mt-3 flex items-center gap-1.5" style={{ color: SK.mut }}><Check size={14} color={SK.ok} /> Enregistré aussi dans les dépenses.</p>
+      <button onClick={() => { if (a <= 0 || (isNew && !name.trim())) return; if (isNew) onAdd({ name, amount: a, date: iso() }); else onRefill({ ing: state.ing, amount: a, date: iso(), closePrevious: closePrev }); }} disabled={a <= 0 || (isNew && !name.trim())} className="gb-focus w-full min-h-[54px] rounded-[15px] mt-3 text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}><Check size={18} /> {isNew ? "Ajouter à la réserve" : `Réapprovisionner · ${fmt(a)}`}</button>
+      </>}
+    </SnackSheet>
+  );
+}
+
 function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, onPick, onLegal, onClose }) {
   const [q, setQ] = useState("");
   const query = q.trim().toLowerCase();
-  const items = ADMIN_SECTIONS.filter((s) => !query || s.label.toLowerCase().includes(query) || (s.desc || "").toLowerCase().includes(query) || (s.group || "").toLowerCase().includes(query));
+  const items = ADMIN_SECTIONS.filter((s) => !s.profile || s.profile === shopProfile(shop)).filter((s) => !query || s.label.toLowerCase().includes(query) || (s.desc || "").toLowerCase().includes(query) || (s.group || "").toLowerCase().includes(query));
   const groups = [];
   items.forEach((s) => { const g = s.group || ""; let last = groups[groups.length - 1]; if (!last || last.name !== g) { last = { name: g, items: [] }; groups.push(last); } last.items.push(s); });
   const daysLeft = license && !license.lifetime && license.expiresAt ? Math.ceil((new Date(license.expiresAt) - Date.now()) / MS_DAY) : null;
@@ -10817,6 +11392,7 @@ function AdminScreen({
   orders, saveOrders, supplierProducts, saveSupplierProducts, avoirs,
   menuOpen, setMenuOpen, pushNotification, onSectionChange,
   auditLog, requireAdmin, onRestoreServerBackup,
+  snackLots, saveSnackLots,
 }) {
   const [section, setSection] = useState("stats");
   const [legalDoc, setLegalDoc] = useState(null);
@@ -10847,7 +11423,7 @@ function AdminScreen({
           section={section}
           license={license}
           licenseStatus={licenseStatus}
-          lowStockCount={products.filter((p) => p.stock <= p.minStock).length}
+          lowStockCount={products.filter((p) => !p.stockFrom && p.stock <= p.minStock).length}
           onPick={(id) => { setSection(id); onSectionChange?.(id); setMenuOpen(false); }}
           onLegal={(doc) => { setLegalDoc(doc); setMenuOpen(false); }}
           onClose={() => setMenuOpen(false)}
@@ -10865,6 +11441,7 @@ function AdminScreen({
       {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} onNavigate={(id) => { setSection(id); onSectionChange?.(id); }} />}
       {section === "inventaire" && <InventorySection shop={shop} expenses={expenses} vendors={vendors} cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} products={products} sales={sales} saveSales={saveSales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "produits" && <ProductsSection requireAdmin={requireAdmin} products={products} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
+      {section === "snack" && <SnackSection shop={shop} products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} expenses={expenses} saveExpenses={saveExpenses} sales={sales} snackLots={snackLots} saveSnackLots={saveSnackLots} pushToast={pushToast} author={shop?.adminDisplayName?.trim() || "Administrateur"} />}
       {section === "categories" && <CategoriesSection categories={categories} saveCategories={saveCategories} products={products} pushToast={pushToast} />}
       {section === "fournisseurs" && <SuppliersSection suppliers={suppliers} saveSuppliers={saveSuppliers} expenses={expenses} saveExpenses={saveExpenses} products={products} saveProducts={saveProducts} categories={categories} saveCategories={saveCategories} movements={movements} saveMovements={saveMovements} orders={orders} saveOrders={saveOrders} supplierProducts={supplierProducts} saveSupplierProducts={saveSupplierProducts} pushToast={pushToast} pushNotification={pushNotification} shop={shop} />}
       {section === "export" && <AccountingExportSection shop={shop} sales={sales} expenses={expenses} products={products} versements={versements} pushToast={pushToast} />}
@@ -11428,6 +12005,8 @@ function AppInner() {
   // Journal d'activité : on ne fait qu'ajouter (le serveur refuse aussi
   // toute suppression ou modification d'une ligne déjà enregistrée).
   const [auditLog, setAuditLog] = useState([]);
+  // Profil Snack : lots de pains achetés et réserve d'ingrédients (lots datés).
+  const [snackLots, setSnackLots] = useState([]);
   const auditRef = useRef([]);
   // Fenêtre "fond de caisse" affichée au centre : ouverte automatiquement à
   // l'entrée sur Vendre (ou au démarrage) tant qu'aucun montant n'a été
@@ -11671,6 +12250,7 @@ function AppInner() {
           api.pullKey("cashRegisterEntries", activeShopId),
           api.pullKey("versements", activeShopId),
           api.pullKey("auditLog", activeShopId),
+          api.pullKey("snackLots", activeShopId),
         ]);
         if (cancelled) return;
         // Promise.allSettled (au lieu de Promise.all) : avant, si UNE SEULE
@@ -11679,7 +12259,7 @@ function AppInner() {
         // bloquait la mise à jour de TOUTES les autres données — produits,
         // catégories, ventes, etc. — pas seulement celle en échec. Chaque
         // clé a maintenant sa propre chance indépendante de réussir.
-        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements, freshAuditLog] =
+        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements, freshAuditLog, freshSnackLots] =
           results.map((r) => (r.status === "fulfilled" ? r.value : undefined));
         // Annonces vocales des actions faites sur les autres appareils.
         try {
@@ -11768,6 +12348,7 @@ function AppInner() {
           ["inventories", freshInventories, setInventories],
           ["cashRegisterEntries", Array.isArray(freshCashRegisterEntries) ? ownCashEntries(freshCashRegisterEntries, activeShopId) : freshCashRegisterEntries, setCashRegisterEntries],
           ["versements", Array.isArray(freshVersements) ? ownCashEntries(freshVersements, activeShopId) : freshVersements, setVersements],
+          ["snackLots", freshSnackLots, setSnackLots],
         ];
         if (Array.isArray(freshAuditLog)) {
           const localIds = new Set((auditRef.current || []).map((e) => e.id));
@@ -11859,6 +12440,7 @@ function AppInner() {
   useEffect(() => {
     if (!activeShopId) return undefined;
     let off = false;
+    loadKey(`snackLots:${activeShopId}`, []).then((v) => { if (!off) setSnackLots(Array.isArray(v) ? v : []); });
     loadKey(`auditLog:${activeShopId}`, []).then((v) => {
       if (off) return;
       const list = Array.isArray(v) ? v : [];
@@ -11896,6 +12478,7 @@ function AppInner() {
     switch (key) {
       case "shopMeta": return shop ? pickShopMeta(shop) : {};
       case "auditLog": return auditRef.current || [];
+      case "snackLots": return snackLots;
       case "vendors": return vendors;
       case "products": return products;
       case "sales": return sales;
@@ -12161,6 +12744,15 @@ function AppInner() {
   // Avoirs : sommes ou produits que LA BOUTIQUE doit à un client (monnaie non
   // rendue, ou produits vendus mais pas encore remis). Enregistrés comme les
   // autres données, avec synchronisation immédiate vers le serveur.
+  const saveSnackLots = (next) => {
+    setSnackLots(next);
+    window.storage.set(`snackLots:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error"));
+    if (shop?.backendLinked) {
+      api.markDirty("snackLots");
+      setPendingSync(api.getPendingCount());
+      api.syncKeyNow("snackLots", next).then(() => setPendingSync(api.getPendingCount())).catch(() => {});
+    }
+  };
   const saveAvoirs = (next) => {
     setAvoirs(next);
     try {
@@ -12376,10 +12968,11 @@ function AppInner() {
     setShops(nextShops);
     window.storage.set("shops", JSON.stringify(nextShops)).catch(() => {});
     window.storage.set("activeShopId", JSON.stringify(newShop.id)).catch(() => {});
-    await seedShopData(newShop.id, vendor);
+    await seedShopData(newShop.id, vendor, newShop.type);
+    const seed = seedFor(newShop.type);
     setActiveShopId(newShop.id);
     api.setActiveShop(newShop.id);
-    setProducts(SEED_PRODUCTS); setSales([]); setVendors([vendor]); setSuppliers(SEED_SUPPLIERS); setExpenses([]); setCategories(SEED_CATEGORIES); setMovements([]); setInventories([]); setClients([]); setOrders([]); setSupplierProducts([]); setAvoirs([]); setCashRegisterEntries([]); setVersements([]);
+    setProducts(seed.products); setSales([]); setVendors([vendor]); setSuppliers(seed.suppliers); setExpenses([]); setCategories(seed.categories); setSnackLots([]); setMovements([]); setInventories([]); setClients([]); setOrders([]); setSupplierProducts([]); setAvoirs([]); setCashRegisterEntries([]); setVersements([]);
     // Le serveur a déjà écrit shopMeta, vendors et shopLicense (essai gratuit
     // de 14 jours) dans le MÊME appel qui a créé l'entreprise — s'il en a
     // renvoyé une, on la reprend telle quelle plutôt que d'en recalculer une
@@ -12397,7 +12990,7 @@ function AppInner() {
       const keys = ["products", "sales", "categories", "suppliers", "expenses", "movements", "inventories", "clients", "orders", "supplierProducts", "avoirs"];
       keys.forEach(api.markDirty);
       const initialValues = {
-        products: SEED_PRODUCTS, sales: [], categories: SEED_CATEGORIES, suppliers: SEED_SUPPLIERS,
+        products: seed.products, sales: [], categories: seed.categories, suppliers: seed.suppliers,
         expenses: [], movements: [], inventories: [], clients: [], orders: [], supplierProducts: [], avoirs: [],
       };
       try {
@@ -12505,7 +13098,8 @@ function AppInner() {
     const nextShops = uniqueShops([...shops, linkedShop]);
     setShops(nextShops);
     window.storage.set("shops", JSON.stringify(nextShops)).catch(() => {});
-    await seedShopData(linkedShop.id, linkedVendor);
+    await seedShopData(linkedShop.id, linkedVendor, linkedShop.type);
+    const linkedSeed = seedFor(linkedShop.type);
     // La licence d'essai est déjà écrite en base par le serveur (même appel
     // que la création) — on l'enregistre localement telle quelle.
     const trialLicense = serverShopLicense || makeTrialLicense();
@@ -12515,7 +13109,7 @@ function AppInner() {
     // données de démarrage (produits/catégories/fournisseurs de départ)
     // restent à synchroniser, moins critique si ça prend un peu de temps.
     const initialValues = {
-      products: SEED_PRODUCTS, sales: [], categories: SEED_CATEGORIES, suppliers: SEED_SUPPLIERS,
+      products: linkedSeed.products, sales: [], categories: linkedSeed.categories, suppliers: linkedSeed.suppliers,
       expenses: [], movements: [], inventories: [], clients: [], avoirs: [],
     };
     Object.keys(initialValues).forEach((k) => api.markDirty(k, linkedShop.id));
@@ -12581,7 +13175,7 @@ function AppInner() {
 
   useEffect(() => {
     if (role === "admin" && products) {
-      const n = products.filter((p) => p.stock <= p.minStock).length;
+      const n = products.filter((p) => !p.stockFrom && p.stock <= p.minStock).length;
       if (n > 0) pushToast(`${n} produit${n > 1 ? "s" : ""} en stock bas`, "error");
     }
     if (role === "admin" && licenseStatus === "expiring" && license?.expiresAt) {
@@ -12665,7 +13259,7 @@ function AppInner() {
     if (products && products.length > 0) {
       const lastShownStock = localStorage.getItem(`notif_stock_${activeShopId}`);
       if (lastShownStock !== todayKey) {
-        const lowStock = products.filter((p) => p.stock <= p.minStock);
+        const lowStock = products.filter((p) => !p.stockFrom && p.stock <= p.minStock);
         if (lowStock.length > 0) {
           setNotifications((prev) => [{ id: `stock-${todayKey}`, type: "lowstock", count: lowStock.length, names: lowStock.slice(0, 3).map((p) => p.name), date: new Date().toISOString() }, ...prev].slice(0, 30));
           setUnreadCount((c) => c + 1);
@@ -12682,8 +13276,21 @@ function AppInner() {
   // encaissé est enregistré comme premier règlement du crédit (voir
   // SellScreen.confirmCheckout), le solde restant apparaissant dans
   // CreditsScreen comme pour tout crédit partiellement réglé.
-  const handleCheckout = (cartItems, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment, avoirPay) => {
-    const nextProducts = products.map((p) => { const line = cartItems.find((i) => i.id === p.id); return line ? { ...p, stock: p.stock - line.qty } : p; });
+  const handleCheckout = (cartItemsIn, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment, avoirPay) => {
+    // Chaque ligne retire son stock du produit qui porte réellement le stock
+    // (pour un Pain fourré : le Pain). On garde aussi la « part de base »
+    // (prix et coût du pain) pour calculer les bénéfices pain / garniture.
+    const cartItems = cartItemsIn.map((i) => {
+      const realId = i.productId || i.id;
+      const real = products.find((p) => p.id === realId) || i.product;
+      const tid = stockTargetId(real);
+      const target = products.find((p) => p.id === tid);
+      const isBaseLine = !!(real?.stockFrom || real?.isBase);
+      return { ...i, productId: realId, stockId: tid, ...(isBaseLine && target ? { base: { price: Number(target.price) || 0, cost: Number(target.costPrice) || 0 } } : {}) };
+    });
+    const qtyByStock = {};
+    cartItems.forEach((i) => { qtyByStock[i.stockId] = (qtyByStock[i.stockId] || 0) + i.qty; });
+    const nextProducts = products.map((p) => (qtyByStock[p.id] ? { ...p, stock: p.stock - qtyByStock[p.id] } : p));
     const paidNow = initialCashPayment > 0 ? initialCashPayment : 0;
     const payments = paidNow > 0 ? [{ amount: paidNow, date: new Date().toISOString(), by: currentVendorName }] : undefined;
     const sale = {
@@ -12729,9 +13336,10 @@ function AppInner() {
     }
     saveProducts(nextProducts);
     saveSales([...sales, sale]);
-    const saleMovements = cartItems.map((i) => {
-      const before = i.product.stock;
-      return { id: uid(), date: sale.date, productId: i.product.id, productName: i.product.name, type: "vente", delta: -i.qty, before, after: before - i.qty, author: currentVendorName, note: "" };
+    const saleMovements = Object.entries(qtyByStock).map(([pid, q]) => {
+      const tp = products.find((p) => p.id === pid);
+      const before = Number(tp?.stock) || 0;
+      return { id: uid(), date: sale.date, productId: pid, productName: tp?.name || "?", type: "vente", delta: -q, before, after: before - q, author: currentVendorName, note: "" };
     });
     saveMovements([...saleMovements, ...movements]);
     setCart([]);
@@ -12979,14 +13587,13 @@ function AppInner() {
   const handleDeleteSale = (saleId) => {
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return;
-    const nextProducts = products.map((p) => {
-      const line = sale.items.find((i) => i.id === p.id);
-      return line ? { ...p, stock: p.stock + line.qty } : p;
-    });
-    const cancelMovements = sale.items.map((i) => {
-      const p = nextProducts.find((pp) => pp.id === i.id);
-      const before = p ? p.stock - i.qty : 0;
-      return { id: uid(), date: new Date().toISOString(), productId: i.id, productName: i.product?.name || "?", type: "ajustement", delta: i.qty, before, after: before + i.qty, author: currentVendorName || "Administrateur", note: "Suppression de vente" };
+    const backByStock = {};
+    sale.items.forEach((i) => { const k = itemStockId(i); backByStock[k] = (backByStock[k] || 0) + i.qty; });
+    const nextProducts = products.map((p) => (backByStock[p.id] ? { ...p, stock: p.stock + backByStock[p.id] } : p));
+    const cancelMovements = Object.entries(backByStock).filter(([pid]) => nextProducts.some((pp) => pp.id === pid)).map(([pid, q]) => {
+      const p = nextProducts.find((pp) => pp.id === pid);
+      const before = p ? p.stock - q : 0;
+      return { id: uid(), date: new Date().toISOString(), productId: pid, productName: p?.name || "?", type: "ajustement", delta: q, before, after: before + q, author: currentVendorName || "Administrateur", note: "Suppression de vente" };
     });
     saveProducts(nextProducts);
     saveMovements([...cancelMovements, ...movements]);
@@ -13028,8 +13635,9 @@ function AppInner() {
   const handleUpdateSale = (saleId, newItems, newPaymentMethod) => {
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return;
-    const oldQtyById = Object.fromEntries(sale.items.map((i) => [i.id, i.qty]));
-    const newQtyById = Object.fromEntries(newItems.map((i) => [i.id, i.qty]));
+    const sumBy = (list) => list.reduce((m, i) => { const k = itemStockId(i); m[k] = (m[k] || 0) + (Number(i.qty) || 0); return m; }, {});
+    const oldQtyById = sumBy(sale.items);
+    const newQtyById = sumBy(newItems);
     const affectedIds = new Set([...Object.keys(oldQtyById), ...Object.keys(newQtyById)]);
     const nextProducts = products.map((p) => {
       if (!affectedIds.has(p.id)) return p;
@@ -13071,7 +13679,7 @@ function AppInner() {
     const newItems = [];
     sale.items.forEach((i) => {
       const q = Math.min(i.qty, qtyById[i.id] || 0);
-      if (q > 0) returnedItems.push({ id: i.id, name: i.product?.name || "?", qty: q, value: computeItemTotal(i.product, i.qty) - computeItemTotal(i.product, i.qty - q) });
+      if (q > 0) returnedItems.push({ id: i.id, stockId: itemStockId(i), name: i.product?.name || "?", qty: q, value: computeItemTotal(i.product, i.qty) - computeItemTotal(i.product, i.qty - q) });
       if (i.qty - q > 0) newItems.push({ ...i, qty: i.qty - q });
     });
     if (returnedItems.length === 0) return null;
@@ -13093,13 +13701,15 @@ function AppInner() {
       ...(becomesPaid ? { paid: true, paidBy: sale.paidBy || by, paidDate: sale.paidDate || now } : {}),
     };
     if (restock) {
-      saveProducts(products.map((p) => { const r = returnedItems.find((x) => x.id === p.id); return r ? { ...p, stock: (Number(p.stock) || 0) + r.qty } : p; }));
+      const backQ = {};
+      returnedItems.forEach((r) => { backQ[r.stockId] = (backQ[r.stockId] || 0) + r.qty; });
+      saveProducts(products.map((p) => (backQ[p.id] ? { ...p, stock: (Number(p.stock) || 0) + backQ[p.id] } : p)));
     }
     const retMovements = returnedItems.map((r) => {
-      const p = products.find((pp) => pp.id === r.id);
+      const p = products.find((pp) => pp.id === r.stockId);
       const before = Number(p?.stock) || 0;
       const delta = restock ? r.qty : 0;
-      return { id: uid(), date: now, productId: r.id, productName: r.name, type: "retour", delta, qty: r.qty, restocked: !!restock, before, after: before + delta, author: by, note: ret.reason, saleId: sale.id, saleDate: sale.date };
+      return { id: uid(), date: now, productId: r.stockId, productName: p?.name || r.name, type: "retour", delta, qty: r.qty, restocked: !!restock, before, after: before + delta, author: by, note: ret.reason, saleId: sale.id, saleDate: sale.date };
     });
     saveMovements([...retMovements, ...movements]);
     saveSales(sales.map((s) => (s.id === saleId ? nextSale : s)));
@@ -13171,7 +13781,7 @@ function AppInner() {
     pushNotification({ type: "expiry_alert", count: urgent.length, expired: urgent.filter((x) => x.days < 0).length, first: urgent[0].product.name });
   }, [role, activeShopId, products]);
 
-  const lowStockCount = products ? products.filter((p) => p.stock <= p.minStock).length : 0;
+  const lowStockCount = products ? products.filter((p) => !p.stockFrom && p.stock <= p.minStock).length : 0;
   const creditCount = sales ? sales.filter((s) => s.paymentMethod === "credit" && !s.paid).length : 0;
 
   if (!dataReady) {
@@ -13293,7 +13903,7 @@ function AppInner() {
                         orders={orders} saveOrders={saveOrders} supplierProducts={supplierProducts} saveSupplierProducts={saveSupplierProducts}
                         avoirs={avoirs}
                         menuOpen={adminMenuOpen} setMenuOpen={setAdminMenuOpen} pushNotification={pushNotification} onSectionChange={setActiveAdminSection}
-                        auditLog={auditLog} requireAdmin={requireAdmin} onRestoreServerBackup={handleRestoreServerBackup}
+                        auditLog={auditLog} requireAdmin={requireAdmin} onRestoreServerBackup={handleRestoreServerBackup} snackLots={snackLots} saveSnackLots={saveSnackLots}
                       />
                     )}
                   </>

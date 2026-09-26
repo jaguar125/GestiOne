@@ -8,3 +8,4 @@ android/.gradle/
 
 android/key.properties
 android/app/*.jks
+src/_avant_maj_*/
