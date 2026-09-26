@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useContext, createContext, Component } from "react";
+import { useState, useEffect, useRef, useContext, createContext, Component, useMemo } from "react";
 import {
   ScanLine, ShoppingCart, Boxes, History, ShieldCheck, Plus, Minus,
   Trash2, X, Check, AlertTriangle, LogOut, Search, TrendingUp,
@@ -6048,13 +6048,15 @@ function CashRegisterModal({ onSave, onClose, afterVersement }) {
   );
 }
 
-function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast, onReturnSale, onSettleCredit, onRedeemMoney, onRedeemProduct }) {
+function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose, pushToast, onReturnSale, onSettleCredit, onRedeemMoney, onRedeemProduct }) {
   const fmt = useFmt();
   const [returning, setReturning] = useState(null);
   const [code, setCode] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
   const [found, setFound] = useState(null); // { kind: "sale"|"avoir", id }
   const [notFound, setNotFound] = useState(false);
+  const [deletedInfo, setDeletedInfo] = useState(null); // { number, date, by, amount, replaced }
+  const [matches, setMatches] = useState(null); // plusieurs résultats (recherche par nom)
   const [viewSale, setViewSale] = useState(null);
   const [viewAvoir, setViewAvoir] = useState(null);
   const [settling, setSettling] = useState(null);
@@ -6068,32 +6070,82 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast, on
   const avoirDirect = found?.kind === "avoir" ? avoirs.find((a) => a.id === found.id) : null;
   const linkedAvoirs = sale ? avoirs.filter((a) => a.saleId === sale.id || avoirs.some((b) => b.saleId === sale.id && a.saleId === b.id)) : avoirDirect ? [avoirDirect, ...avoirs.filter((a) => a.saleId === avoirDirect.id)] : [];
 
-  const search = (raw) => {
-    const digits = String(raw || "").replace(/\D/g, "");
-    if (!digits) return;
-    const same = (id) => { const r = receiptNumber(id); return r === digits || r.replace(/^0+/, "") === digits.replace(/^0+/, ""); };
-    const s = sales.find((x) => same(x.id));
-    if (s) {
-      setFound({ kind: "sale", id: s.id }); setNotFound(false);
-      if (s.paymentMethod === "credit") {
+  // Crédits et avoirs encore ouverts : ce que la caisse doit pouvoir retrouver
+  // en un geste, même sans le bon numéro.
+  const openEntries = useMemo(() => {
+    const list = [];
+    sales.forEach((x) => {
+      if (x.paymentMethod !== "credit") return;
+      const rest = Math.max(0, x.total - creditPaidSoFar(x));
+      if (rest > 0) list.push({ kind: "sale", id: x.id, num: x.id, name: x.clientName || "Client", date: x.date, label: "Crédit", amount: rest, tone: "credit" });
+    });
+    avoirs.forEach((x) => {
+      if (x.settled) return;
+      const isP = x.type === "produit";
+      const prog = isP ? avoirProductProgress(x) : avoirMoneyProgress(x);
+      list.push({ kind: "avoir", id: x.id, num: x.saleId || x.id, name: x.clientName || "Client", date: x.date, label: isP ? "Avoir produit" : "Avoir monnaie", amount: isP ? null : prog.remaining, qty: isP ? prog.remainingQty : null, tone: isP ? "produit" : "monnaie" });
+    });
+    return list.sort((p, q) => new Date(q.date) - new Date(p.date));
+  }, [sales, avoirs]);
+
+  const announce = (kind, id) => {
+    if (kind === "sale") {
+      const s = sales.find((x) => x.id === id);
+      if (s && s.paymentMethod === "credit") {
         const remaining = Math.max(0, s.total - creditPaidSoFar(s));
         if (remaining > 0) speak(`${s.clientName || "Le client"} a un reste à payer de ${spokenAmount(fmt(remaining))}.`, voiceOn(shop, "credit"));
       }
-      return;
-    }
-    // Reçu d'avoir, ou reçu de la vente d'origine d'un avoir (même numéro que la vente).
-    const a = avoirs.find((x) => same(x.id)) || avoirs.find((x) => x.saleId && same(x.saleId));
-    if (a) {
-      setFound({ kind: "avoir", id: a.id }); setNotFound(false);
-      if (!a.settled) {
+      const av = avoirs.find((v) => v.saleId === id && !v.settled);
+      if (av && !(s && s.paymentMethod === "credit")) announce("avoir", av.id);
+    } else {
+      const a = avoirs.find((x) => x.id === id);
+      if (a && !a.settled) {
         const prog = a.type === "produit" ? avoirProductProgress(a) : avoirMoneyProgress(a);
         speak(a.type === "produit" ? `${a.clientName || "Le client"} a encore ${prog.remainingQty} article${prog.remainingQty > 1 ? "s" : ""} en avoir.` : `${a.clientName || "Le client"} a encore ${spokenAmount(fmt(prog.remaining))} en avoir.`, voiceOn(shop, "credit"));
       }
-      return;
+    }
+  };
+  const show = (kind, id) => { setFound({ kind, id }); setNotFound(false); setMatches(null); announce(kind, id); };
+
+  const search = (raw) => {
+    const text = String(raw || "").trim();
+    if (!text) return;
+    setDeletedInfo(null); setMatches(null);
+    // Recherche par nom du client (dès qu'il y a des lettres).
+    if (/[a-zà-ÿ]/i.test(text)) {
+      const q = text.toLowerCase();
+      const hits = openEntries.filter((e) => e.name.toLowerCase().includes(q));
+      if (hits.length === 1) return show(hits[0].kind, hits[0].id);
+      setFound(null);
+      if (hits.length > 1) { setMatches(hits); setNotFound(false); return; }
+      setNotFound(true); return;
+    }
+    const digits = text.replace(/\D/g, "");
+    if (!digits) return;
+    const same = (id) => { const r = receiptNumber(id); return r === digits || r.replace(/^0+/, "") === digits.replace(/^0+/, ""); };
+    const s = sales.find((x) => same(x.id));
+    if (s) return show("sale", s.id);
+    // Reçu d'avoir, ou reçu de la vente d'origine d'un avoir.
+    const a = avoirs.find((x) => same(x.id)) || avoirs.find((x) => x.saleId && same(x.saleId));
+    if (a) return show("avoir", a.id);
+    // Reçu d'une vente supprimée puis ressaisie : on retrouve la nouvelle
+    // vente (même montant, enregistrée après la suppression) qui porte un
+    // crédit ou un avoir en cours.
+    const del = (auditLog || []).find((e) => e.saleId && same(e.saleId) && /supprim/i.test(e.text || ""));
+    if (del) {
+      const amount = Math.abs(Number(del.amount) || 0);
+      const t0 = new Date(del.date).getTime();
+      const cands = sales
+        .filter((x) => Math.abs((Number(x.total) || 0) - amount) < 1 && new Date(x.date).getTime() >= t0 && new Date(x.date).getTime() - t0 < 48 * 3600 * 1000)
+        .filter((x) => (x.paymentMethod === "credit" && x.total - creditPaidSoFar(x) > 0) || avoirs.some((v) => v.saleId === x.id && !v.settled))
+        .sort((p, q) => new Date(p.date) - new Date(q.date));
+      setDeletedInfo({ number: receiptNumber(del.saleId), date: del.date, by: del.by, amount, replaced: cands[0] ? receiptNumber(cands[0].id) : null });
+      if (cands[0]) { setFound({ kind: "sale", id: cands[0].id }); setNotFound(false); announce("sale", cands[0].id); return; }
+      setFound(null); setNotFound(true); return;
     }
     setFound(null); setNotFound(true);
   };
-  const handleDetect = (value) => { setScannerOpen(false); setCode(value.replace(/\D/g, "")); search(value); };
+  const handleDetect = (value) => { setScannerOpen(false); setCode(value.replace(/\D/g, "")); search(value.replace(/\D/g, "")); };
 
   const Row = ({ l, v, strong, color }) => <div className="flex justify-between gap-3 text-[13px] py-1"><span className="opacity-60">{l}</span><span className={`font-mono ${strong ? "font-bold" : ""}`} style={{ color }}>{v}</span></div>;
   const Btn = ({ children, onClick, tone = "primary", Icon }) => (
@@ -6146,17 +6198,54 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast, on
         </div>
 
         <div className="flex items-center gap-2 mb-2.5">
-          <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && search(code)} placeholder="Numéro du reçu" inputMode="numeric" className="gb-focus flex-1 min-w-0 rounded-[14px] px-3.5 min-h-[50px] text-[16px] border font-mono tracking-wider" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+          <input value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search(code)} placeholder="N° reçu ou nom client" className="gb-focus flex-1 min-w-0 rounded-[14px] px-3.5 min-h-[50px] text-[16px] border font-mono tracking-wider" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
           <button onClick={() => setScannerOpen(true)} className="gb-focus w-[50px] h-[50px] rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "var(--cap)" }} aria-label="Scanner le code-barres"><Barcode size={20} color="var(--glass)" /></button>
         </div>
         <Btn Icon={Search} onClick={() => search(code)}>Rechercher</Btn>
 
-        {notFound && (
-          <div className="rounded-[18px] p-4 mt-3 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
-            <p className="font-bold text-[14px]">Aucun reçu trouvé pour le N° {code}</p>
-            <p className="text-[12px] opacity-60 mt-1">Vérifiez le numéro. Si la vente a été supprimée, son reçu n'est plus valable.</p>
+        {deletedInfo && (
+          <div className="rounded-[18px] p-3.5 mt-3 flex gap-3 gb-slide-up" style={{ background: deletedInfo.replaced ? "#E8F1FB" : "#FCEBEA" }}>
+            <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "#fff" }}>{deletedInfo.replaced ? <RefreshCw size={17} color="#1D5FA8" /> : <Trash2 size={17} color="#B3261E" />}</span>
+            <div className="min-w-0" style={{ color: deletedInfo.replaced ? "#16457A" : "#8A2419" }}>
+              <p className="text-[13.5px] font-bold">{deletedInfo.replaced ? "Reçu remplacé" : "Reçu annulé"}</p>
+              <p className="text-[12px] mt-0.5 leading-snug">
+                La vente N° {deletedInfo.number} ({fmt(deletedInfo.amount)}) a été supprimée le {new Date(deletedInfo.date).toLocaleDateString("fr-FR")} à {new Date(deletedInfo.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{deletedInfo.by ? ` par ${deletedInfo.by}` : ""}.
+                {deletedInfo.replaced ? ` Elle a été ressaisie sous le N° ${deletedInfo.replaced} :` : " Choisissez le client ci-dessous."}
+              </p>
+            </div>
           </div>
         )}
+
+        {notFound && !deletedInfo && (
+          <div className="rounded-[18px] p-4 mt-3 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+            <p className="font-bold text-[14px]">Aucun reçu trouvé pour « {code} »</p>
+            <p className="text-[12px] opacity-60 mt-1">Vérifiez le numéro, ou choisissez le client parmi les crédits et avoirs en cours.</p>
+          </div>
+        )}
+
+        {!found && (() => {
+          const list = matches || openEntries;
+          if (!list.length) return null;
+          const tone = { credit: { bg: "#FCEBEA", c: "#B3261E", I: Wallet }, monnaie: { bg: "#FFF1D6", c: "#9A5B00", I: Coins }, produit: { bg: "#EFEAFB", c: "#5B3FB0", I: PackageX } };
+          return (
+            <div className="mt-4">
+              <p className="text-[11.5px] font-bold uppercase tracking-wider opacity-60 mb-2">{matches ? `${matches.length} résultats` : `Crédits et avoirs en cours · ${list.length}`}</p>
+              <div className="flex flex-col gap-2">
+                {list.map((e) => { const T = tone[e.tone]; return (
+                  <button key={e.kind + e.id} onClick={() => show(e.kind, e.id)} className="gb-focus w-full rounded-[16px] p-3 flex items-center gap-3 text-left active:scale-[0.98] transition-transform" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                    <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: T.bg }}><T.I size={18} color={T.c} /></span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[14px] font-bold truncate">{e.name}</span>
+                      <span className="block text-[11.5px] opacity-60 truncate">{e.label} · N° {receiptNumber(e.num)} · {new Date(e.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
+                    </span>
+                    <span className="font-mono font-bold text-[13.5px] shrink-0" style={{ color: T.c }}>{e.amount != null ? fmt(e.amount) : `${e.qty} art.`}</span>
+                    <ChevronRight size={16} className="opacity-40 shrink-0" />
+                  </button>
+                ); })}
+              </div>
+            </div>
+          );
+        })()}
 
         {sale && (() => {
           const s = sale;
@@ -6235,7 +6324,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, onClose, pushToast, on
 
 // Regroupe Crédits et Avoirs sous un seul onglet de navigation, avec un
 // sous-menu à l'intérieur — évite de surcharger la barre du bas.
-function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeemMoney, onRedeemProduct, onReturnSale, pushToast }) {
+function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeemMoney, onRedeemProduct, onReturnSale, auditLog, pushToast }) {
   const [sub, setSub] = useState("credit");
   const [scanOpen, setScanOpen] = useState(false);
   return (
@@ -6252,7 +6341,7 @@ function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeem
       ) : (
         <AvoirsScreen shop={shop} avoirs={avoirs} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} pushToast={pushToast} />
       )}
-      {scanOpen && <ScanReceiptModal sales={sales} avoirs={avoirs} shop={shop} clients={clients} onClose={() => setScanOpen(false)} pushToast={pushToast} onReturnSale={onReturnSale} onSettleCredit={onSettleCredit} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} />}
+      {scanOpen && <ScanReceiptModal sales={sales} avoirs={avoirs} shop={shop} clients={clients} auditLog={auditLog || []} onClose={() => setScanOpen(false)} pushToast={pushToast} onReturnSale={onReturnSale} onSettleCredit={onSettleCredit} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} />}
     </div>
   );
 }
@@ -14227,7 +14316,7 @@ function AppInner() {
                       <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={handleCheckout} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
                     )}
                     {view === "stock" && <StockScreen onRecordLoss={handleRecordLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
-                    {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} onReturnSale={handleReturnSale} pushToast={pushToast} />}
+                    {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} onReturnSale={handleReturnSale} auditLog={auditLog} pushToast={pushToast} />}
                     {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
                     {view === "expenses" && role === "vendeur" && (
                       <VendorExpensesScreen expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} vendorName={currentVendorName} />
