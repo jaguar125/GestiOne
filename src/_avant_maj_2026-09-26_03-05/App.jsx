@@ -6,10 +6,10 @@ import {
   Wallet, CreditCard, Truck, Users, Download, Printer, Store, ChevronDown, ChevronLeft, ChevronRight,
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
-  Zap, Rocket, Crown, TrendingDown, LayoutGrid, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
+  Zap, Rocket, Crown, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
   Phone, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3,
 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import * as Tone from "tone";
 import * as api from "./api.js";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
@@ -3876,7 +3876,6 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
   const [customTo, setCustomTo] = useState("");
   const [editingSale, setEditingSale] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [histQuery, setHistQuery] = useState("");
   // "Mes ventes" (vendeur) inclut aussi les ventes faites par
   // l'administrateur — la caisse est partagée, un vendeur doit voir
   // l'ensemble de l'activité du jour, pas seulement ce qu'il a lui-même
@@ -3933,39 +3932,22 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
   const revenueInPeriod = cashInPeriod + creditCollectedInPeriod;
   const PERIOD_LABELS = { all: "totale", today: "aujourd'hui", "7j": "sur 7 jours", "30j": "sur 30 jours", custom: "sur la plage" };
   const periodLabel = PERIOD_LABELS[periodFilter] || "";
-  const q = histQuery.trim().toLowerCase();
-  const shown = q ? sorted.filter((s) => receiptNumber(s.id).toLowerCase().includes(q) || (s.clientName || "").toLowerCase().includes(q) || (s.vendor || "").toLowerCase().includes(q) || s.items.some((i) => (i.product?.name || "").toLowerCase().includes(q))) : sorted;
-  const cashOnly = sorted.filter((s) => s.paymentMethod === "especes").reduce((t, x) => t + x.total, 0);
-  const mobileOnly = sorted.filter((s) => s.paymentMethod === "mobile").reduce((t, x) => t + x.total, 0);
-  const groups = [];
-  shown.forEach((s) => {
-    const key = new Date(s.date).toDateString();
-    let g = groups[groups.length - 1];
-    if (!g || g.key !== key) { g = { key, date: new Date(s.date), items: [], total: 0 }; groups.push(g); }
-    g.items.push(s); g.total += Number(s.total) || 0;
-  });
-  const yKey = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString(); })();
-  const dayLabel = (g) => g.key === today ? "Aujourd'hui" : g.key === yKey ? "Hier" : g.date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-  const H = { mut: "#66707A", line: "var(--line)" };
   return (
-    <div className="px-4 pt-4" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <div className="min-w-0">
-          <h2 className="font-display font-bold text-[22px] leading-tight">{vendorFilter ? "Mes ventes" : "Historique des ventes"}</h2>
-          <p className="text-[12.5px] mt-0.5" style={{ color: H.mut }}>{sorted.length} vente{sorted.length > 1 ? "s" : ""} · {periodLabel || "période choisie"}</p>
+    <div className="px-4 pt-4 pb-28">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2.5 mb-3">
+        <h2 className="font-display font-bold text-lg flex items-center gap-2 whitespace-nowrap"><History size={18} color="#0F6E56" /> {vendorFilter ? "Mes ventes" : "Historique des ventes"}</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          {onReturnSale && <button onClick={() => setFinderOpen(true)} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "#E1F5EE", color: "#0F6E56" }}><Undo2 size={13} /> Retour</button>}
+          <button onClick={() => exportSalesCSV(sorted, pushToast)} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "#E6F1FB", color: "#185FA5" }}><Download size={13} /> CSV</button>
+          <button onClick={() => setPdfPreview(true)} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: "var(--glass)" }}><Printer size={13} /> PDF</button>
         </div>
-      </div>
-      <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: onReturnSale ? "1fr 1fr 1fr" : "1fr 1fr" }}>
-        {onReturnSale && <button onClick={() => setFinderOpen(true)} className="gb-focus min-h-[46px] rounded-[14px] flex items-center justify-center gap-1.5 text-[13px] font-bold" style={{ background: "#E3F4EC", color: "#0F6E56", border: "1px solid #BFE3D2" }}><Undo2 size={16} /> Retour</button>}
-        <button onClick={() => exportSalesCSV(sorted, pushToast)} className="gb-focus min-h-[46px] rounded-[14px] flex items-center justify-center gap-1.5 text-[13px] font-bold" style={{ background: "#E8F0FB", color: "#1D5FA8", border: "1px solid #C7DAF3" }}><Download size={16} /> Excel / CSV</button>
-        <button onClick={() => setPdfPreview(true)} className="gb-focus min-h-[46px] rounded-[14px] flex items-center justify-center gap-1.5 text-[13px] font-bold text-white" style={{ background: "var(--glass)" }}><Printer size={16} /> PDF</button>
       </div>
 
       {pdfPreview && <SalesPdfPreview shop={shop} sales={sorted} vendorFilter={vendorFilter} onClose={() => setPdfPreview(false)} pushToast={pushToast} />}
 
-      <div className="flex gap-2 overflow-x-auto gb-scroll mb-3 -mx-4 px-4">
+      <div className="flex gap-2 overflow-x-auto gb-scroll mb-3">
         {[{ id: "all", label: "Tout" }, { id: "today", label: "Aujourd'hui" }, { id: "7j", label: "7 jours" }, { id: "30j", label: "30 jours" }, { id: "custom", label: "Plage", Icon: CalendarCheck }].map((p) => (
-          <button key={p.id} onClick={() => setPeriodFilter(p.id)} className="gb-focus shrink-0 min-h-[38px] flex items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold" style={{ background: periodFilter === p.id ? "var(--glass)" : "var(--card)", color: periodFilter === p.id ? "#fff" : "var(--ink)", border: periodFilter === p.id ? "1px solid var(--glass)" : "1px solid var(--line)", boxShadow: periodFilter === p.id ? "0 4px 12px rgba(0,0,0,0.18)" : "none" }}>{p.Icon && <p.Icon size={13} />}{p.label}</button>
+          <button key={p.id} onClick={() => setPeriodFilter(p.id)} className="gb-focus shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold" style={{ background: periodFilter === p.id ? "#0F6E56" : "var(--card)", color: periodFilter === p.id ? "#fff" : "var(--ink)", border: periodFilter === p.id ? "none" : "1px solid var(--line)" }}>{p.Icon && <p.Icon size={12} />}{p.label}</button>
         ))}
       </div>
       {periodFilter === "custom" && (
@@ -3977,103 +3959,72 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
       )}
 
       {vendorFilter && <VendorGoalCard shop={shop} sales={sales} vendorName={vendorFilter} />}
-
-      <div className="rounded-[24px] p-4 mb-3 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", boxShadow: "0 14px 30px -14px rgba(0,0,0,0.5)" }}>
-        <div className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
-        <div className="flex items-center justify-between relative">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.7)" }}>Recette {periodLabel}</p>
-          <span className="text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.14)" }}>{sorted.length} vente{sorted.length > 1 ? "s" : ""}</span>
-        </div>
-        <p className="font-display font-bold text-[30px] leading-tight mt-1 relative">{fmt(revenueInPeriod)}</p>
-        {revenueInPeriod > 0 && (
-          <div className="flex h-2 rounded-full overflow-hidden gap-[2px] mt-3 relative" style={{ background: "rgba(255,255,255,0.12)" }}>
-            {[[cashOnly, "#2FA565"], [mobileOnly, "#3B7DD8"], [creditCollectedInPeriod, "#E0A030"]].filter(([v]) => v > 0).map(([v, c]) => <div key={c} style={{ width: `${(v / revenueInPeriod) * 100}%`, background: c }} />)}
-          </div>
-        )}
-        <div className="grid grid-cols-3 gap-2 mt-2.5 relative">
-          {[["Espèces", cashOnly, "#2FA565"], ["Mobile", mobileOnly, "#3B7DD8"], ["Crédits reçus", creditCollectedInPeriod, "#E0A030"]].map(([l, v, c]) => (
-            <div key={l} className="min-w-0">
-              <p className="text-[10.5px] font-semibold flex items-center gap-1" style={{ color: "rgba(255,255,255,0.75)" }}><span className="w-2 h-2 rounded-full shrink-0" style={{ background: c }} /> {l}</p>
-              <p className="font-display font-bold text-[13.5px] truncate">{fmt(v)}</p>
-              <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.55)" }}>{revenueInPeriod > 0 ? Math.round((v / revenueInPeriod) * 100) : 0} %</p>
-            </div>
-          ))}
-        </div>
-        {creditGivenUnpaidInPeriod > 0 && (
-          <div className="mt-3 pt-2.5 flex justify-between text-[12px] relative" style={{ borderTop: "1px solid rgba(255,255,255,0.14)" }}>
-            <span style={{ color: "rgba(255,255,255,0.7)" }}>Nouveaux crédits accordés (non inclus)</span>
-            <span className="font-semibold" style={{ color: "#FFB4AB" }}>{fmt(creditGivenUnpaidInPeriod)}</span>
-          </div>
-        )}
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <StatCard icon={TrendingUp} label={`Recette ${periodLabel}`} value={fmt(revenueInPeriod)} dark compact />
+        <StatCard icon={Receipt} label={`Ventes ${periodLabel}`} value={sorted.length} tintBg="#E6F1FB" tintFg="#185FA5" compact />
       </div>
-
-      {sorted.length > 0 && (
-        <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px] mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-          <Search size={16} style={{ color: H.mut }} />
-          <input value={histQuery} onChange={(e) => setHistQuery(e.target.value)} placeholder="N° de reçu, client, vendeur, produit" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
-          {histQuery && <button onClick={() => setHistQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={14} /></button>}
+      {(creditCollectedInPeriod > 0 || creditGivenUnpaidInPeriod > 0) && (
+        <div className="flex flex-col gap-1 px-1 mb-4">
+          {creditCollectedInPeriod > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs opacity-50">Dont crédits encaissés {periodLabel} (inclus)</span>
+              <span className="font-mono text-xs font-semibold">{fmt(creditCollectedInPeriod)}</span>
+            </div>
+          )}
+          {creditGivenUnpaidInPeriod > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs opacity-50">Nouveaux crédits accordés (non inclus)</span>
+              <span className="font-mono text-xs font-semibold" style={{ color: "var(--danger)" }}>{fmt(creditGivenUnpaidInPeriod)}</span>
+            </div>
+          )}
         </div>
       )}
 
-      {shown.length === 0 && (
-        <div className="rounded-[20px] py-8 px-5 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
-          <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Receipt size={22} style={{ color: H.mut }} /></div>
-          <p className="font-semibold text-[14px]">{q ? "Aucune vente ne correspond" : "Aucune vente sur cette période"}</p>
-          <p className="text-[12px] mt-0.5" style={{ color: H.mut }}>{q ? "Vérifiez le numéro ou le nom." : "Choisissez une autre période ci-dessus."}</p>
-        </div>
-      )}
-      <div className="flex flex-col gap-4">
-        {groups.map((g) => (
-        <div key={g.key}>
-          <div className="flex items-baseline justify-between px-1 mb-2">
-            <p className="text-[12.5px] font-bold capitalize">{dayLabel(g)}</p>
-            <p className="text-[11.5px]" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <b style={{ color: "var(--ink)" }}>{fmt(g.total)}</b></p>
-          </div>
-          <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
-        {g.items.map((s, idx) => {
+      {sorted.length === 0 && <p className="text-sm opacity-50 py-6 text-center">Aucune vente pour l'instant.</p>}
+      <div className="flex flex-col gap-2.5">
+        {sorted.map((s) => {
           const unpaid = s.paymentMethod === "credit" && !s.paid;
-          const PayIcon = s.avoirPaid >= s.total ? Coins : s.paymentMethod === "especes" ? Banknote : s.paymentMethod === "mobile" ? Smartphone : unpaid ? AlertTriangle : Wallet;
-          const payTint = unpaid ? { bg: "#FCEBEA", fg: "#B3261E", bar: "#D9483B" }
-            : s.paymentMethod === "credit" ? { bg: "#E3F4EC", fg: "#0F6E56", bar: "#1E8E6A" }
-            : s.avoirPaid > 0 ? { bg: "#FFF1D6", fg: "#9A5B00", bar: "#E0A030" }
-            : s.paymentMethod === "mobile" ? { bg: "#E8F0FB", fg: "#1D5FA8", bar: "#3B7DD8" }
-            : { bg: "#E6F4EC", fg: "#1E7A46", bar: "#2FA565" };
-          const payLabel = s.avoirPaid >= s.total ? "AVOIR" : s.avoirPaid > 0 ? `AVOIR + ${PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}` : `${PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}${unpaid ? " · IMPAYÉ" : s.paymentMethod === "credit" ? " · SOLDÉ" : ""}`;
+          const PayIcon = s.paymentMethod === "especes" ? Banknote : s.paymentMethod === "mobile" ? Smartphone : AlertTriangle;
+          const payTint = unpaid ? { bg: "#FCEBEB", fg: "#A32D2D" } : s.paymentMethod === "mobile" ? { bg: "#E6F1FB", fg: "#0C447C" } : { bg: "#EAF3DE", fg: "#27500A" };
           const rets = saleReturnsOf(s);
           const fullyReturned = rets.length > 0 && s.items.length === 0;
-          const nbArt = s.items.reduce((t, i) => t + i.qty, 0);
           return (
-          <div key={s.id} className="relative" style={{ borderTop: idx ? "1px solid var(--line)" : "none", background: open === s.id ? "rgba(0,0,0,0.015)" : unpaid ? "#FFF8F7" : "transparent" }}>
-            <span className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full" style={{ background: payTint.bar }} />
-            <div className="flex items-stretch">
-            <button onClick={() => setOpen(open === s.id ? null : s.id)} className="gb-focus flex-1 min-w-0 flex items-center gap-3 py-3 pl-4 pr-1.5 text-left">
-              <div className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: payTint.bg }}>
-                <PayIcon size={18} color={payTint.fg} />
+          <div key={s.id} className="relative rounded-2xl overflow-hidden" style={{ border: unpaid ? "1.5px solid var(--danger)" : "1px solid var(--line)", background: "var(--card)", boxShadow: unpaid ? "0 4px 14px rgba(163,45,45,0.18)" : "0 4px 14px rgba(0,0,0,0.08)" }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setReprintSale(s); }}
+              className="gb-focus absolute top-2.5 right-2.5 z-10 w-7 h-7 rounded-full flex items-center justify-center"
+              style={{ background: "var(--paper-dim)" }}
+              aria-label="Réimprimer le reçu"
+            >
+              <Printer size={13} />
+            </button>
+            <button onClick={() => setOpen(open === s.id ? null : s.id)} className="gb-focus w-full flex items-center gap-3 p-3.5 pr-11">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: payTint.bg }}>
+                <PayIcon size={16} color={payTint.fg} />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[14.5px] font-bold">{new Date(s.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} <span className="font-mono text-[11px] font-normal" style={{ color: H.mut }}>· N° {receiptNumber(s.id)}</span></span>
-                  <span className="text-right shrink-0">
-                    {rets.length > 0 && <span className="font-mono text-[11px] line-through opacity-45 mr-1.5">{fmt(s.originalTotal ?? (s.total + returnedAmountOf(s)))}</span>}
-                    <span className="font-display font-bold text-[15.5px]" style={{ color: unpaid ? "#B3261E" : "var(--ink)" }}>{fmt(s.total)}</span>
-                  </span>
+              <div className="flex-1 text-left min-w-0">
+                <div className="text-sm font-semibold flex items-center gap-1.5 flex-wrap">
+                  <span>{new Date(s.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })} · {new Date(s.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                  <span className="text-[10px] font-mono font-normal opacity-40">N° {receiptNumber(s.id)}</span>
                 </div>
-                <p className="text-[11.5px] truncate mt-0.5" style={{ color: H.mut }}>{s.vendor} · {nbArt} article{nbArt > 1 ? "s" : ""}{s.clientName ? ` · ${s.clientName}` : ""}</p>
-                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: payTint.bg, color: payTint.fg }}>{payLabel}</span>
-                  {rets.length > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: "#EFEAFB", color: "#5B3FB0" }}>{fullyReturned ? "RETOURNÉE" : "RETOUR PARTIEL"}</span>}
-                  {(s.invoices || []).length > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: "#E8F0FB", color: "#1D5FA8" }}>FACTURÉE</span>}
+                <div className="text-xs opacity-50 flex items-center gap-1.5 mt-1 flex-wrap">
+                  <span>{(!vendorFilter || s.vendor !== vendorFilter) ? `${s.vendor} · ${s.items.length} article${s.items.length > 1 ? "s" : ""}` : `${s.items.length} article${s.items.length > 1 ? "s" : ""}`}</span>
                 </div>
+                <span className="inline-block mt-1.5 mr-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold tracking-wide" style={{ background: payTint.bg, color: payTint.fg }}>
+                  {PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}{unpaid ? " · IMPAYÉ" : ""}
+                </span>
+                {rets.length > 0 && (
+                  <span className="inline-block mt-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold tracking-wide" style={{ background: "#E1F5EE", color: "#0F6E56" }}>{fullyReturned ? "RETOURNÉE" : "RETOUR PARTIEL"}</span>
+                )}
                 {s.paymentMethod === "credit" && s.paid && s.paidBy && (
-                  <div className="text-[10.5px] font-semibold mt-1" style={{ color: "#0F6E56" }}>✓ Encaissé par {s.paidBy}{s.paidDate ? " · " + new Date(s.paidDate).toLocaleDateString("fr-FR") : ""}</div>
+                  <div className="text-[10px] font-semibold mt-1" style={{ color: "var(--glass)" }}>✓ Crédit encaissé par {s.paidBy}{s.paidDate ? " · " + new Date(s.paidDate).toLocaleDateString("fr-FR") : ""}</div>
                 )}
               </div>
+              <span className="shrink-0 ml-2 text-right">
+                {rets.length > 0 && <span className="block font-mono text-[11px] line-through opacity-45">{fmt(s.originalTotal ?? (s.total + returnedAmountOf(s)))}</span>}
+                <span className="font-mono font-bold text-sm" style={{ color: unpaid ? "var(--danger)" : "var(--glass)" }}>{fmt(s.total)}</span>
+              </span>
             </button>
-            <div className="flex flex-col items-center justify-center py-2 pr-2.5 gap-1 shrink-0">
-              <button onClick={(e) => { e.stopPropagation(); setReprintSale(s); }} className="gb-focus w-9 h-9 rounded-[11px] flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Réimprimer le reçu"><Printer size={15} /></button>
-              <button onClick={() => setOpen(open === s.id ? null : s.id)} className="gb-focus w-9 h-6 flex items-center justify-center" aria-label="Détails"><ChevronDown size={16} style={{ color: H.mut, transform: open === s.id ? "rotate(180deg)" : "none", transition: "transform .2s" }} /></button>
-            </div>
-            </div>
             {open === s.id && (
               <div className="px-3.5 pb-3.5 pt-1 border-t gb-slide-up" style={{ borderColor: "var(--line)" }}>
                 {s.items.map((i) => (
@@ -4111,9 +4062,6 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
           </div>
           );
         })}
-          </div>
-        </div>
-        ))}
       </div>
 
       {finderOpen && <ReturnFinderModal sales={scoped} onPick={(sale) => { setFinderOpen(false); setReturningSale(sale); }} onClose={() => setFinderOpen(false)} />}
@@ -6872,278 +6820,136 @@ function DailyReportPreview({ shop, sales, expenses, onClose, pushToast }) {
   );
 }
 
-function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }) {
+function StatsSection({ shop, products, sales, expenses, pushToast }) {
   const fmt = useFmt();
   const [period, setPeriod] = useState("semaine");
   const [showDailyReport, setShowDailyReport] = useState(false);
-  const now = new Date();
-  const today = now.toDateString();
-  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
-  const yesterday = yest.toDateString();
-  const thisMonth = now.getMonth();
-  const thisYear = now.getFullYear();
+  const today = new Date().toDateString();
+  const thisMonth = new Date().getMonth();
+  const thisYear = new Date().getFullYear();
   const todaySales = sales.filter((s) => new Date(s.date).toDateString() === today);
   const cashToday = todaySales.filter((s) => s.paymentMethod !== "credit").reduce((s, x) => s + x.total, 0);
   const creditGivenTodayUnpaid = todaySales.filter((s) => s.paymentMethod === "credit" && !s.paid).reduce((s, x) => s + (x.total - creditPaidSoFar(x)), 0);
   // Chaque règlement de crédit — même partiel — compte dans la recette le
-  // jour où il a réellement été encaissé.
-  const collectedOn = (dayKey) => sales
+  // jour où il a réellement été encaissé, pas le jour de la vente d'origine
+  // ni seulement une fois le crédit totalement soldé (voir HistoryScreen,
+  // même logique).
+  const creditCollectedToday = sales
     .filter((s) => s.paymentMethod === "credit")
-    .reduce((sum, s) => sum + creditPaymentsOf(s).filter((p) => new Date(p.date).toDateString() === dayKey).reduce((s2, p) => s2 + p.amount, 0), 0);
-  const creditCollectedToday = collectedOn(today);
+    .reduce((sum, s) => sum + creditPaymentsOf(s).filter((p) => new Date(p.date).toDateString() === today).reduce((s2, p) => s2 + p.amount, 0), 0);
   const revenueToday = cashToday + creditCollectedToday;
-  const ySales = sales.filter((s) => new Date(s.date).toDateString() === yesterday);
-  const revenueYesterday = ySales.filter((s) => s.paymentMethod !== "credit").reduce((s, x) => s + x.total, 0) + collectedOn(yesterday);
-  const dayDelta = revenueYesterday > 0 ? Math.round(((revenueToday - revenueYesterday) / revenueYesterday) * 100) : null;
-  const avgBasket = todaySales.length ? Math.round(todaySales.reduce((s, x) => s + x.total, 0) / todaySales.length) : 0;
-  const itemsToday = todaySales.reduce((s, x) => s + x.items.reduce((t, i) => t + i.qty, 0), 0);
-
-  const mixToday = [
-    { id: "especes", label: "Espèces", color: "#2FA565", v: todaySales.filter((x) => x.paymentMethod === "especes").reduce((t, x) => t + x.total, 0) },
-    { id: "mobile", label: "Mobile Money", color: "#3B7DD8", v: todaySales.filter((x) => x.paymentMethod === "mobile").reduce((t, x) => t + x.total, 0) },
-    { id: "credit", label: "Crédits reçus", color: "#E0A030", v: creditCollectedToday },
-  ];
-  const marginOf = (list) => list.reduce((t, x) => t + x.items.reduce((u, i) => { const c = Number(i.product?.costPrice) || 0; return c > 0 ? u + computeItemTotal(i.product, i.qty) - c * i.qty : u; }, 0), 0);
-  const marginToday = marginOf(todaySales.filter((x) => x.paymentMethod !== "credit" || x.paid));
-  const hasCost = sales.some((x) => x.items.some((i) => Number(i.product?.costPrice) > 0));
   const lowStock = products.filter((p) => p.stock <= p.minStock);
-  const outOfStock = lowStock.filter((p) => p.stock <= 0);
-  const monthExpenses = expenses.filter((e) => { const d = new Date(e.date); return d.getMonth() === thisMonth && d.getFullYear() === thisYear; });
-  const expensesThisMonth = monthExpenses.reduce((s, e) => s + Number(e.amount), 0);
+  const expensesThisMonth = expenses.filter((e) => { const d = new Date(e.date); return d.getMonth() === thisMonth && d.getFullYear() === thisYear; }).reduce((s, e) => s + Number(e.amount), 0);
   const creditSales = sales.filter((s) => s.paymentMethod === "credit" && !s.paid);
-  const creditRemaining = creditSales.reduce((s, x) => s + Math.max(0, x.total - creditPaidSoFar(x)), 0);
-
+  const creditTotal = creditSales.reduce((s, x) => s + x.total, 0);
   const series = period === "semaine" ? buildDailySeries(sales, 7) : buildMonthlySeries(sales, 6);
-  const seriesTotal = series.reduce((s, x) => s + x.total, 0);
-  const seriesAvg = series.length ? seriesTotal / series.length : 0;
-  const best = series.reduce((b, x) => (x.total > (b?.total || 0) ? x : b), null);
-  const topProducts = (() => {
-    const map = {};
-    sales.forEach((s) => s.items.forEach((i) => { const k = i.product?.name || "?"; if (!map[k]) map[k] = { name: k, qty: 0, revenue: 0 }; map[k].qty += i.qty; map[k].revenue += computeItemTotal(i.product, i.qty); }));
-    return Object.values(map).sort((a, b) => b.qty - a.qty).slice(0, 5);
-  })();
-  const topMax = topProducts[0]?.qty || 1;
+  const topProducts = buildTopProducts(sales);
   const hourlySeries = buildHourlySeries(sales);
-  const peak = hourlySeries.reduce((b, x) => (x.count > (b?.count || 0) ? x : b), null);
 
   const compareDays = period === "semaine" ? 7 : 30;
-  const mixFrom = new Date(); mixFrom.setDate(mixFrom.getDate() - compareDays);
-  const inMix = sales.filter((x) => new Date(x.date) >= mixFrom);
-  const mixPeriod = [
-    { label: "Espèces", color: "#2FA565", v: inMix.filter((x) => x.paymentMethod === "especes").reduce((t, x) => t + x.total, 0) },
-    { label: "Mobile Money", color: "#3B7DD8", v: inMix.filter((x) => x.paymentMethod === "mobile").reduce((t, x) => t + x.total, 0) },
-    { label: "Crédit", color: "#E0A030", v: inMix.filter((x) => x.paymentMethod === "credit").reduce((t, x) => t + x.total, 0) },
-  ];
-  const mixTotal = mixPeriod.reduce((t, x) => t + x.v, 0);
   const currentEnd = new Date();
   const currentStart = new Date(); currentStart.setDate(currentStart.getDate() - compareDays);
+  const prevEnd = currentStart;
   const prevStart = new Date(currentStart); prevStart.setDate(prevStart.getDate() - compareDays);
   const currentRevenue = sumRevenueBetween(sales, currentStart, currentEnd);
-  const prevRevenue = sumRevenueBetween(sales, prevStart, currentStart);
+  const prevRevenue = sumRevenueBetween(sales, prevStart, prevEnd);
   const deltaPct = prevRevenue > 0 ? Math.round(((currentRevenue - prevRevenue) / prevRevenue) * 100) : (currentRevenue > 0 ? 100 : 0);
 
-  const K = { card: "var(--card)", line: "var(--line)", mut: "#66707A", ok: "#1E7A46", okBg: "#E6F4EC", bad: "#B3261E", badBg: "#FCEBEA", warn: "#9A5B00", warnBg: "#FFF1D6" };
-  const Delta = ({ v, light }) => v === null ? null : (
-    <span className="inline-flex items-center gap-0.5 text-[11.5px] font-bold px-2 py-0.5 rounded-full" style={light
-      ? { background: "rgba(255,255,255,0.14)", color: v >= 0 ? "#9BE3B6" : "#FFB4AB" }
-      : { background: v >= 0 ? K.okBg : K.badBg, color: v >= 0 ? K.ok : K.bad }}>
-      {v >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}{v >= 0 ? "+" : ""}{v} %
-    </span>
-  );
-  const Card = ({ children, className = "" }) => <div className={`rounded-[20px] p-4 ${className}`} style={{ background: K.card, border: `1px solid ${K.line}`, boxShadow: "0 4px 14px rgba(22,32,42,0.04)" }}>{children}</div>;
-  const SectionTitle = ({ title, sub, right }) => (
-    <div className="flex items-end justify-between gap-2 mb-2.5">
-      <div className="min-w-0"><h3 className="font-display font-bold text-[16px] leading-tight">{title}</h3>{sub && <p className="text-[11.5px] mt-0.5" style={{ color: K.mut }}>{sub}</p>}</div>
-      {right}
-    </div>
-  );
-  const Tile = ({ Icon, label, value, sub, tone, onClick, accent }) => {
-    const t = tone === "bad" ? { fg: K.bad, bg: K.badBg } : tone === "warn" ? { fg: K.warn, bg: K.warnBg } : tone === "ok" ? { fg: K.ok, bg: K.okBg } : { fg: accent || "#3B5B7A", bg: "#EDF2F7" };
-    return (
-      <button onClick={onClick} disabled={!onClick} className="gb-focus w-full rounded-[18px] p-3.5 text-left flex flex-col gap-2 disabled:cursor-default relative overflow-hidden" style={{ background: K.card, border: `1px solid ${K.line}`, boxShadow: "0 3px 12px rgba(22,32,42,0.04)" }}>
-        <span className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full" style={{ background: t.fg }} />
-        <span className="flex items-center justify-between w-full">
-          <span className="w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: t.bg }}><Icon size={16} color={t.fg} /></span>
-          {onClick && <ChevronRight size={15} style={{ color: K.mut }} />}
-        </span>
-        <span className="block min-w-0 w-full">
-          <span className="block text-[11.5px] font-semibold truncate" style={{ color: K.mut }}>{label}</span>
-          <span className="block font-display font-bold text-[18px] leading-tight truncate" style={{ color: tone === "bad" || tone === "warn" ? t.fg : "var(--ink)" }}>{value}</span>
-          {sub && <span className="block text-[11px] truncate mt-0.5" style={{ color: K.mut }}>{sub}</span>}
-        </span>
-      </button>
-    );
-  };
-
   return (
-    <div style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
-      {/* En-tête */}
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="min-w-0">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.08em]" style={{ color: K.mut }}>{now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</p>
-          <h3 className="font-display font-bold text-[20px] leading-tight">Vue d'ensemble</h3>
-        </div>
-        <button onClick={() => setShowDailyReport(true)} className="gb-focus shrink-0 min-h-[40px] flex items-center gap-1.5 text-[12.5px] font-bold px-3.5 rounded-[12px]" style={{ background: K.card, border: `1px solid ${K.line}` }}><Printer size={15} /> Rapport du jour</button>
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-display font-bold text-base">Vue d'ensemble</h3>
+        <button onClick={() => setShowDailyReport(true)} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "var(--paper-dim)" }}><Printer size={13} /> Rapport du jour</button>
       </div>
-
-      {/* Recette du jour */}
-      <div className="rounded-[24px] p-4 mb-3 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", boxShadow: "0 14px 30px -14px rgba(0,0,0,0.5)" }}>
-        <div className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
-        <div className="flex items-center justify-between gap-2 relative">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.7)" }}>Recette aujourd'hui</p>
-          <Delta v={dayDelta} light />
-        </div>
-        <p className="font-display font-bold text-[32px] leading-tight mt-1 relative">{fmt(revenueToday)}</p>
-        <p className="text-[12px] relative" style={{ color: "rgba(255,255,255,0.65)" }}>{revenueYesterday > 0 ? `Hier : ${fmt(revenueYesterday)}` : "Aucune recette hier"}</p>
-        {revenueToday > 0 && (
-          <div className="mt-3 relative">
-            <div className="flex h-2 rounded-full overflow-hidden gap-[2px]" style={{ background: "rgba(255,255,255,0.12)" }}>
-              {mixToday.filter((m) => m.v > 0).map((m) => <div key={m.id} style={{ width: `${(m.v / revenueToday) * 100}%`, background: m.color }} />)}
-            </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
-              {mixToday.filter((m) => m.v > 0).map((m) => <span key={m.id} className="text-[11px] flex items-center gap-1" style={{ color: "rgba(255,255,255,0.8)" }}><span className="w-2 h-2 rounded-full" style={{ background: m.color }} />{m.label} {fmt(m.v)}</span>)}
-            </div>
-          </div>
-        )}
-        <div className="grid grid-cols-3 gap-2 mt-3.5 relative">
-          {[["Ventes", String(todaySales.length)], ["Panier moyen", avgBasket ? fmt(avgBasket) : "—"], hasCost ? ["Marge estimée", fmt(marginToday)] : ["Articles", String(itemsToday)]].map(([l, v]) => (
-            <div key={l} className="rounded-[14px] px-2.5 py-2" style={{ background: "rgba(255,255,255,0.1)" }}>
-              <p className="text-[10.5px] font-semibold" style={{ color: "rgba(255,255,255,0.65)" }}>{l}</p>
-              <p className="font-display font-bold text-[14.5px] truncate">{v}</p>
-            </div>
-          ))}
-        </div>
-        {(creditCollectedToday > 0 || creditGivenTodayUnpaid > 0) && (
-          <div className="mt-3 pt-2.5 flex flex-col gap-1 relative" style={{ borderTop: "1px solid rgba(255,255,255,0.14)" }}>
-            {creditCollectedToday > 0 && <div className="flex justify-between text-[12px]"><span style={{ color: "rgba(255,255,255,0.7)" }}>Dont crédits encaissés (inclus)</span><span className="font-semibold">{fmt(creditCollectedToday)}</span></div>}
-            {creditGivenTodayUnpaid > 0 && <div className="flex justify-between text-[12px]"><span style={{ color: "rgba(255,255,255,0.7)" }}>Nouveaux crédits accordés (non inclus)</span><span className="font-semibold" style={{ color: "#FFB4AB" }}>{fmt(creditGivenTodayUnpaid)}</span></div>}
-          </div>
-        )}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mb-2">
+        <StatCard icon={TrendingUp} label="Recette aujourd'hui" value={fmt(revenueToday)} dark />
+        <StatCard icon={Receipt} label="Ventes aujourd'hui" value={todaySales.length} />
       </div>
+      {(creditCollectedToday > 0 || creditGivenTodayUnpaid > 0) && (
+        <div className="flex flex-col gap-1 px-1 mb-4">
+          {creditCollectedToday > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs opacity-50">Dont crédits encaissés aujourd'hui (inclus)</span>
+              <span className="font-mono text-xs font-semibold">{fmt(creditCollectedToday)}</span>
+            </div>
+          )}
+          {creditGivenTodayUnpaid > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs opacity-50">Nouveaux crédits accordés (non inclus)</span>
+              <span className="font-mono text-xs font-semibold" style={{ color: "var(--danger)" }}>{fmt(creditGivenTodayUnpaid)}</span>
+            </div>
+          )}
+        </div>
+      )}
       {showDailyReport && <DailyReportPreview shop={shop} sales={sales} expenses={expenses} onClose={() => setShowDailyReport(false)} pushToast={pushToast} />}
-
-      {/* À surveiller */}
-      <SectionTitle title="À surveiller" />
-      <div className="grid grid-cols-2 gap-2.5 mb-5">
-        <Tile Icon={AlertTriangle} label="Stock en alerte" value={`${lowStock.length} produit${lowStock.length > 1 ? "s" : ""}`} sub={lowStock.length ? (outOfStock.length ? `dont ${outOfStock.length} en rupture` : "sous le seuil minimum") : "Tout est en stock"} tone={outOfStock.length ? "bad" : lowStock.length ? "warn" : "ok"} onClick={onNavigate ? () => onNavigate("produits") : null} />
-        <Tile Icon={CreditCard} label="Crédits à encaisser" value={fmt(creditRemaining)} sub={creditSales.length ? `${creditSales.length} crédit${creditSales.length > 1 ? "s" : ""} ouvert${creditSales.length > 1 ? "s" : ""}` : "Aucun crédit"} tone={creditRemaining > 0 ? "warn" : "ok"} />
-        <Tile Icon={Wallet} label={`Dépenses de ${now.toLocaleDateString("fr-FR", { month: "long" })}`} value={fmt(expensesThisMonth)} sub={`${monthExpenses.length} dépense${monthExpenses.length > 1 ? "s" : ""}`} accent="#6B4FB8" onClick={onNavigate ? () => onNavigate("depenses") : null} />
-        <Tile Icon={Receipt} label={period === "semaine" ? "Panier moyen · 7 j" : "Panier moyen · 30 j"} value={inMix.length ? fmt(Math.round(inMix.reduce((t, x) => t + x.total, 0) / inMix.length)) : "—"} sub={`${inMix.length} vente${inMix.length > 1 ? "s" : ""}`} accent="#1D5FA8" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mb-5">
+        <StatCard icon={AlertTriangle} label="Produits en alerte" value={lowStock.length} danger={lowStock.length > 0} />
+        <StatCard icon={Wallet} label="Dépenses (mois)" value={fmt(expensesThisMonth)} />
+        <StatCard icon={CreditCard} label="Crédits en cours (total)" value={fmt(creditTotal)} danger={creditTotal > 0} />
       </div>
 
-      {/* Évolution */}
-      <SectionTitle title="Évolution des ventes" right={
-        <div className="flex p-0.5 rounded-[11px] shrink-0" style={{ background: "var(--paper-dim)", border: `1px solid ${K.line}` }}>
-          {[["semaine", "7 jours"], ["mois", "6 mois"]].map(([id, l]) => (
-            <button key={id} onClick={() => setPeriod(id)} className="gb-focus px-3 py-1.5 rounded-[9px] text-[12px] font-bold" style={{ background: period === id ? K.card : "transparent", color: period === id ? "var(--ink)" : K.mut, boxShadow: period === id ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>{l}</button>
-          ))}
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-display font-bold text-base">Évolution des ventes</h3>
+        <div className="flex gap-1.5">
+          <button onClick={() => setPeriod("semaine")} className="gb-focus px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: period === "semaine" ? "var(--glass)" : "var(--paper-dim)", color: period === "semaine" ? "#fff" : "var(--ink)" }}>7 jours</button>
+          <button onClick={() => setPeriod("mois")} className="gb-focus px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: period === "mois" ? "var(--glass)" : "var(--paper-dim)", color: period === "mois" ? "#fff" : "var(--ink)" }}>6 mois</button>
         </div>
-      } />
-      <Card className="mb-5">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="text-[11.5px] font-semibold" style={{ color: K.mut }}>{period === "semaine" ? "7 derniers jours" : "30 derniers jours"}</p>
-            <p className="font-display font-bold text-[22px] leading-tight">{fmt(currentRevenue)}</p>
-            <p className="text-[11px]" style={{ color: K.mut }}>vs {fmt(prevRevenue)} la période précédente</p>
-          </div>
-          <Delta v={deltaPct} />
-        </div>
-        <div className="mt-3 -mx-1">
-          <ResponsiveContainer width="100%" height={170}>
-            <BarChart data={series} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="gbBar" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--glass-light)" /><stop offset="100%" stopColor="var(--glass)" /></linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#66707A" }} axisLine={false} tickLine={false} />
-              <YAxis width={34} tick={{ fontSize: 10, fill: "#8A939C" }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000000 ? `${Math.round(v / 100000) / 10}M` : v >= 1000 ? `${Math.round(v / 1000)}k` : v} />
-              <Tooltip cursor={{ fill: "rgba(0,0,0,0.04)" }} formatter={(v) => [fmt(v), "Ventes"]} contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--line)" }} />
-              {seriesAvg > 0 && <ReferenceLine y={seriesAvg} stroke="var(--cap)" strokeDasharray="4 4" />}
-              <Bar dataKey="total" radius={[7, 7, 0, 0]} maxBarSize={34}>
-                {series.map((x, i) => <Cell key={i} fill={i === series.length - 1 ? "var(--cap)" : "url(#gbBar)"} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex items-center justify-between gap-2 mt-2 text-[11.5px]" style={{ color: K.mut }}>
-          <span className="flex items-center gap-1.5"><span className="w-3 border-t-2 border-dashed" style={{ borderColor: "var(--cap)" }} /> Moyenne {fmt(Math.round(seriesAvg))}</span>
-          {best && best.total > 0 && <span>Meilleur : <b style={{ color: "var(--ink)" }}>{best.label}</b> · {fmt(best.total)}</span>}
-        </div>
-      </Card>
+      </div>
+      <div className="rounded-2xl border p-3 mb-3" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+        <ResponsiveContainer width="100%" height={160}>
+          <BarChart data={series}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+            <YAxis hide />
+            <Tooltip formatter={(v) => fmt(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <Bar dataKey="total" fill="var(--glass)" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
 
-      {/* Répartition des paiements */}
-      <SectionTitle title="Modes de paiement" sub={period === "semaine" ? "7 derniers jours" : "30 derniers jours"} />
-      <Card className="mb-5">
-        {mixTotal === 0 ? <p className="text-sm text-center py-4" style={{ color: K.mut }}>Pas de ventes sur la période.</p> : (
-          <div className="flex items-center gap-4">
-            <div className="relative w-[112px] h-[112px] shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={mixPeriod.filter((m) => m.v > 0)} dataKey="v" innerRadius={38} outerRadius={54} paddingAngle={2} stroke="none" startAngle={90} endAngle={-270}>
-                    {mixPeriod.filter((m) => m.v > 0).map((m) => <Cell key={m.label} fill={m.color} />)}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <p className="text-[10px] font-semibold" style={{ color: K.mut }}>Total</p>
-                <p className="font-display font-bold text-[12.5px]">{mixTotal >= 1000 ? `${Math.round(mixTotal / 1000)}k` : mixTotal}</p>
-              </div>
-            </div>
-            <div className="flex-1 min-w-0 flex flex-col gap-2.5">
-              {mixPeriod.map((m) => (
-                <div key={m.label}>
-                  <div className="flex items-center justify-between gap-2 text-[12.5px]">
-                    <span className="flex items-center gap-1.5 font-semibold min-w-0"><span className="w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ background: m.color }} /><span className="truncate">{m.label}</span></span>
-                    <span className="font-bold shrink-0">{Math.round((m.v / mixTotal) * 100)} %</span>
-                  </div>
-                  <p className="text-[11px] pl-4" style={{ color: K.mut }}>{fmt(m.v)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Card>
+      <div className="rounded-2xl border p-3.5 mb-5 flex items-center justify-between" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+        <div>
+          <p className="text-[10px] opacity-50">{period === "semaine" ? "7 derniers jours" : "30 derniers jours"}</p>
+          <p className="font-mono font-bold text-sm">{fmt(currentRevenue)}</p>
+          <p className="text-[10px] opacity-40 mt-0.5">vs {fmt(prevRevenue)} période précédente</p>
+        </div>
+        <span className="px-2.5 py-1.5 rounded-full text-xs font-bold shrink-0" style={{ background: deltaPct >= 0 ? "#E7F7EE" : "#FCEBE8", color: deltaPct >= 0 ? "#1CA857" : "var(--danger)" }}>
+          {deltaPct >= 0 ? "+" : ""}{deltaPct}%
+        </span>
+      </div>
 
-      {/* Top produits */}
-      <SectionTitle title="Produits les plus vendus" sub="Depuis le début · en quantité" />
-      <Card className="mb-5">
-        {topProducts.length === 0 ? <p className="text-sm text-center py-4" style={{ color: K.mut }}>Pas encore de ventes.</p> : (
-          <div className="flex flex-col gap-3">
-            {topProducts.map((p, i) => (
-              <div key={p.name} className="flex items-center gap-3">
-                <span className="w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0 text-[12px] font-bold" style={i === 0 ? { background: "var(--cap)", color: "#fff" } : { background: "var(--paper-dim)", color: "var(--ink)" }}>{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-[13.5px] font-semibold truncate">{p.name}</span>
-                    <span className="text-[12px] font-bold shrink-0">{p.qty} vendu{p.qty > 1 ? "s" : ""}</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}><div className="h-full rounded-full" style={{ width: `${Math.max(4, (p.qty / topMax) * 100)}%`, background: i === 0 ? "var(--cap)" : "var(--glass)" }} /></div>
-                    <span className="text-[11px] shrink-0" style={{ color: K.mut }}>{fmt(p.revenue)}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* Affluence */}
-      <SectionTitle title="Heures d'affluence" sub={peak && peak.count > 0 ? `Pic : ${peak.hour}h – ${peak.hour + 1}h · ${peak.count} vente${peak.count > 1 ? "s" : ""}` : "Nombre de ventes par heure"} />
-      <Card className="mb-2">
-        {sales.length === 0 ? <p className="text-sm text-center py-4" style={{ color: K.mut }}>Pas encore de ventes.</p> : (
+      <h3 className="font-display font-bold text-base mb-2">Heures de forte affluence</h3>
+      <div className="rounded-2xl border p-3 mb-5" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+        {sales.length === 0 ? <p className="text-sm opacity-50 text-center py-4">Pas encore de ventes.</p> : (
           <ResponsiveContainer width="100%" height={140}>
-            <BarChart data={hourlySeries} margin={{ top: 6, right: 0, left: 0, bottom: 0 }}>
-              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#66707A" }} axisLine={false} tickLine={false} interval={2} />
+            <BarChart data={hourlySeries}>
+              <XAxis dataKey="label" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} interval={2} />
               <YAxis hide />
-              <Tooltip cursor={{ fill: "rgba(0,0,0,0.04)" }} formatter={(v) => [`${v} vente${v > 1 ? "s" : ""}`, ""]} contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--line)" }} />
-              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                {hourlySeries.map((x, i) => <Cell key={i} fill={peak && x.hour === peak.hour ? "var(--cap)" : "var(--soda)"} />)}
-              </Bar>
+              <Tooltip formatter={(v, n) => [n === "count" ? `${v} vente${v > 1 ? "s" : ""}` : fmt(v), ""]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Bar dataKey="count" fill="var(--soda)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
-      </Card>
+      </div>
+
+      <h3 className="font-display font-bold text-base mb-2">Produits les plus vendus</h3>
+      <div className="rounded-2xl border p-3 mb-5" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+        {topProducts.length === 0 && <p className="text-sm opacity-50 text-center py-4">Pas encore de ventes.</p>}
+        {topProducts.length > 0 && (
+          <ResponsiveContainer width="100%" height={Math.max(topProducts.length * 36, 60)}>
+            <BarChart data={topProducts} layout="vertical" margin={{ left: 8 }}>
+              <XAxis type="number" hide />
+              <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={110} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Bar dataKey="qty" fill="var(--cap)" radius={[0, 6, 6, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {creditSales.length > 0 && (
+        <p className="text-xs opacity-50 text-center">{creditSales.length} crédit{creditSales.length > 1 ? "s" : ""} en attente — à encaisser depuis l'onglet <strong>Crédits</strong>.</p>
+      )}
     </div>
   );
 }
@@ -9990,34 +9796,25 @@ function SecuritySection({ shop, saveShopMeta, pushToast }) {
   );
 }
 
-const ADMIN_GROUP_COLORS = {
-  "Établissement": { fg: "#1D5FA8", bg: "#E8F0FB" },
-  "Gestion commerciale": { fg: "#1E7A46", bg: "#E6F4EC" },
-  "Finances": { fg: "#9A5B00", bg: "#FFF1D6" },
-  "Équipe et clients": { fg: "#6B4FB8", bg: "#EFEAFB" },
-  "Abonnement": { fg: "#B3261E", bg: "#FCEBEA" },
-  "Données": { fg: "#16808F", bg: "#E0F3F5" },
-  "Assistance": { fg: "#3B5B7A", bg: "#EDF2F7" },
-};
 const ADMIN_SECTIONS = [
-  { id: "stats", desc: "Recette, alertes, graphiques", label: "Vue d'ensemble", Icon: TrendingUp, group: null },
-  { id: "etablissement", desc: "Nom, coordonnées, facturation, thème", label: "Établissement", Icon: Store, group: "Établissement" },
-  { id: "boutiques", desc: "Changer ou créer une entreprise", label: "Entreprises", Icon: Layers, group: "Établissement" },
-  { id: "securite", desc: "Codes PIN, verrouillage auto", label: "Sécurité", Icon: ShieldCheck, group: "Établissement" },
-  { id: "journal", desc: "Qui a fait quoi, et quand", label: "Journal d'activité", Icon: ClipboardCheck, group: "Établissement" },
-  { id: "produits", desc: "Prix, stock, codes-barres", label: "Produits", Icon: Boxes, group: "Gestion commerciale" },
-  { id: "categories", desc: "Classer vos produits", label: "Catégories", Icon: ClipboardList, group: "Gestion commerciale" },
-  { id: "inventaire", desc: "Comptage, caisse, versements", label: "Inventaire", Icon: ArrowUpCircle, group: "Gestion commerciale" },
-  { id: "fournisseurs", desc: "Commandes et achats", label: "Fournisseurs", Icon: Truck, group: "Gestion commerciale" },
-  { id: "depenses", desc: "Sorties d'argent du mois", label: "Dépenses", Icon: Wallet, group: "Finances" },
-  { id: "export", desc: "Excel pour le comptable", label: "Export comptable", Icon: FileText, group: "Finances" },
-  { id: "vendeurs", desc: "Comptes et codes d'accès", label: "Vendeurs", Icon: Users, group: "Équipe et clients" },
-  { id: "performance", desc: "Objectifs et classement", label: "Performance vendeurs", Icon: TrendingUp, group: "Équipe et clients" },
-  { id: "clients", desc: "Fichier clients et historique", label: "Clients", Icon: UserPlus, group: "Équipe et clients" },
-  { id: "abonnement", desc: "Espace propriétaire", label: "Abonnement", Icon: CreditCard, group: "Abonnement" },
-  { id: "licence", desc: "Validité et activation", label: "Licence", Icon: Star, group: "Abonnement" },
-  { id: "donnees", desc: "Sauvegardes et restauration", label: "Données", Icon: Download, group: "Données" },
-  { id: "assistance", desc: "Messages du support", label: "Assistance", Icon: MessageCircle, group: "Assistance" },
+  { id: "stats", label: "Vue d'ensemble", Icon: TrendingUp, group: null },
+  { id: "etablissement", label: "Établissement", Icon: Store, group: "Établissement" },
+  { id: "boutiques", label: "Entreprises", Icon: Layers, group: "Établissement" },
+  { id: "securite", label: "Sécurité", Icon: ShieldCheck, group: "Établissement" },
+  { id: "journal", label: "Journal d'activité", Icon: ClipboardCheck, group: "Établissement" },
+  { id: "produits", label: "Produits", Icon: Boxes, group: "Gestion commerciale" },
+  { id: "categories", label: "Catégories", Icon: ClipboardList, group: "Gestion commerciale" },
+  { id: "inventaire", label: "Inventaire", Icon: ArrowUpCircle, group: "Gestion commerciale" },
+  { id: "fournisseurs", label: "Fournisseurs", Icon: Truck, group: "Gestion commerciale" },
+  { id: "depenses", label: "Dépenses", Icon: Wallet, group: "Finances" },
+  { id: "export", label: "Export comptable", Icon: FileText, group: "Finances" },
+  { id: "vendeurs", label: "Vendeurs", Icon: Users, group: "Équipe et clients" },
+  { id: "performance", label: "Performance vendeurs", Icon: TrendingUp, group: "Équipe et clients" },
+  { id: "clients", label: "Clients", Icon: UserPlus, group: "Équipe et clients" },
+  { id: "abonnement", label: "Abonnement", Icon: CreditCard, group: "Abonnement" },
+  { id: "licence", label: "Licence", Icon: Star, group: "Abonnement" },
+  { id: "donnees", label: "Données", Icon: Download, group: "Données" },
+  { id: "assistance", label: "Assistance", Icon: MessageCircle, group: "Assistance" },
 ];
 
 function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
@@ -10605,210 +10402,6 @@ function LicenseSection({ license, licenseStatus, onActivate, pushToast, shopNam
   );
 }
 
-// ---------- Centre de notifications ----------
-// Chaque type de notification est décrit une seule fois ici (icône, couleurs,
-// titre, détail, famille) — l'affichage est ensuite uniforme.
-const NOTIF_FAMILIES = [
-  { id: "all", label: "Tout" },
-  { id: "ventes", label: "Ventes" },
-  { id: "stock", label: "Stock" },
-  { id: "argent", label: "Caisse & crédits" },
-  { id: "compte", label: "Équipe & compte" },
-];
-function notifMeta(n, fmtM) {
-  const T = (Icon, fg, bg, fam, title, text) => ({ Icon, fg, bg, fam, title, text });
-  switch (n.type) {
-    case undefined: case "sale": return T(ShoppingCart, "#1E7A46", "#E6F4EC", "ventes", `Vente de ${fmtM(n.total)}`, `Encaissée par ${n.vendor || "—"}${n.paymentMethod ? ` · ${PAYMENT_LABELS[n.paymentMethod] || ""}` : ""}`);
-    case "sale_edited": return T(Pencil, "#9A5B00", "#FFF1D6", "ventes", `Vente N° ${n.receiptNumber} modifiée`, `Nouveau total : ${fmtM(n.total)}`);
-    case "sale_deleted": return T(Trash2, "#B3261E", "#FCEBEA", "ventes", `Vente N° ${n.receiptNumber} supprimée`, `Montant annulé : ${fmtM(n.total)}`);
-    case "sale_returned": return T(Undo2, "#0F6E56", "#E3F4EC", "ventes", `Retour · vente N° ${n.receiptNumber}`, `${n.itemCount} article${n.itemCount > 1 ? "s" : ""} (${fmtM(n.amount)})${n.refund > 0 ? ` · remboursé ${fmtM(n.refund)} en ${REFUND_LABELS[n.refundMode] || ""}` : " · déduit du crédit"}${n.by ? ` · ${n.by}` : ""}`);
-    case "lowstock": return T(AlertTriangle, "#B3261E", "#FCEBEA", "stock", `${n.count} produit${n.count > 1 ? "s" : ""} en stock bas`, `${(n.names || []).map((x) => String(x).trim()).join(", ")}${n.count > (n.names || []).length ? "…" : ""}`);
-    case "stock_alert": {
-      const lv = n.level;
-      if (lv === 0) return T(PackageX, "#fff", "#2C2C2A", "stock", `Rupture : ${n.productName}`, "Plus aucune unité en stock.");
-      if (lv <= 2) return T(AlertTriangle, "#B3261E", "#FCEBEA", "stock", `Stock critique : ${n.productName}`, `Il ne reste que ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""}. Rechargez le stock.`);
-      return T(AlertTriangle, "#9A5B00", "#FFF1D6", "stock", `Stock bas : ${n.productName}`, `Il reste ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""}. Pensez à réapprovisionner.`);
-    }
-    case "expiry_alert": return T(CalendarCheck, "#B3261E", "#FCEBEA", "stock", `Péremption : ${n.count} lot${n.count > 1 ? "s" : ""}`, `${n.expired ? `Dont ${n.expired} périmé${n.expired > 1 ? "s" : ""}` : "Expire(nt) sous 3 jours"} — ${n.first}${n.count > 1 ? "…" : ""} · Stock › Péremption`);
-    case "stock_movement": return T(ClipboardCheck, "#1D5FA8", "#E8F0FB", "stock", "Comptage validé", `${n.count} écart${n.count > 1 ? "s" : ""} ajusté${n.count > 1 ? "s" : ""}`);
-    case "product_created": return T(PackagePlus, "#1E7A46", "#E6F4EC", "stock", "Produit créé", n.productName);
-    case "product_updated": return T(Pencil, "#1D5FA8", "#E8F0FB", "stock", "Produit mis à jour", `${n.productName}${n.delta ? ` · stock ${n.delta > 0 ? "+" : ""}${n.delta}` : ""}`);
-    case "product_deleted": return T(Trash2, "#B3261E", "#FCEBEA", "stock", "Produit supprimé", n.productName);
-    case "order_validated": return T(Truck, "#1D5FA8", "#E8F0FB", "stock", `Commande validée · ${n.supplierName}`, `${n.itemCount} produit${n.itemCount > 1 ? "s" : ""} · ${fmtM(n.total)}`);
-    case "expense": return T(Wallet, "#6B4FB8", "#EFEAFB", "argent", `Dépense : ${fmtM(n.amount)}`, `${n.label}${n.author ? ` · ${n.author}` : ""}`);
-    case "credit_settled": return T(HandCoinsIcon, "#1E7A46", "#E6F4EC", "argent", `Crédit encaissé : ${fmtM(n.total)}`, `${n.clientName ? `${n.clientName} · ` : ""}${n.by || ""}`);
-    case "avoir_created": return n.avoirType === "produit"
-      ? T(PackageX, "#5B3FB0", "#EFEAFB", "argent", `Avoir produit · ${n.clientName}`, `${n.itemCount} article${n.itemCount > 1 ? "s" : ""} à remettre`)
-      : T(Coins, "#9A5B00", "#FFF1D6", "argent", `Avoir monnaie · ${n.clientName}`, `${fmtM(n.amount)} à rendre`);
-    case "trial": return T(Gift, "#9A5B00", "#FFF1D6", "compte", `Essai gratuit : ${n.daysLeft} jour${n.daysLeft > 1 ? "s" : ""} restant${n.daysLeft > 1 ? "s" : ""}`, "Activez une licence pour continuer sans interruption.");
-    case "vendor_blocked": return T(Lock, "#B3261E", "#FCEBEA", "compte", "Vendeur bloqué", n.vendorName);
-    case "vendor_unblocked": return T(Unlock, "#1E7A46", "#E6F4EC", "compte", "Vendeur débloqué", n.vendorName);
-    default: return T(Bell, "#3B5B7A", "#EDF2F7", "compte", "Notification", n.text || "");
-  }
-}
-function HandCoinsIcon(props) { return <CreditCard {...props} />; }
-function notifAgo(d) {
-  if (!d) return "";
-  const t = new Date(d); if (isNaN(t)) return "";
-  const m = Math.floor((Date.now() - t.getTime()) / 60000);
-  if (m < 1) return "à l'instant";
-  if (m < 60) return `il y a ${m} min`;
-  const sameDay = t.toDateString() === new Date().toDateString();
-  if (sameDay) return t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  return t.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + " · " + t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-}
-function NotificationPanel({ notifications, currency, onClear, onClose, voice }) {
-  const [fam, setFam] = useState("all");
-  const fmtM = (v) => formatMoney(Number(v) || 0, currency);
-  const items = notifications.map((n) => ({ n, m: notifMeta(n, fmtM) }));
-  const counts = items.reduce((c, x) => { c[x.m.fam] = (c[x.m.fam] || 0) + 1; return c; }, {});
-  const shown = fam === "all" ? items : items.filter((x) => x.m.fam === fam);
-  const yKey = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString(); })();
-  const groups = [];
-  shown.forEach((x) => {
-    const k = x.n.date ? new Date(x.n.date).toDateString() : "pinned";
-    const label = k === "pinned" ? "À noter" : k === new Date().toDateString() ? "Aujourd'hui" : k === yKey ? "Hier" : new Date(x.n.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-    let g = groups.find((y) => y.label === label);
-    if (!g) { g = { label, items: [] }; groups.push(g); }
-    g.items.push(x);
-  });
-  return (
-    <>
-      <div className="fixed inset-0 z-[95]" style={{ background: "rgba(15,20,25,0.28)" }} onClick={onClose} />
-      <div className="fixed z-[96] rounded-[22px] overflow-hidden gb-slide-up flex flex-col" style={{ right: "max(10px, env(safe-area-inset-right))", left: "max(10px, env(safe-area-inset-left))", marginLeft: "auto", top: "calc(max(22px, env(safe-area-inset-top)) + 52px)", width: "min(26rem, calc(100vw - 20px))", maxHeight: "calc(100vh - max(22px, env(safe-area-inset-top)) - 250px - env(safe-area-inset-bottom))", background: "var(--paper)", boxShadow: "0 24px 60px -16px rgba(15,27,22,0.45)", border: "1px solid var(--line)" }}>
-        <div className="shrink-0 px-4 pt-3.5 pb-3" style={{ background: "var(--card)", borderBottom: "1px solid var(--line)" }}>
-          <div className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "var(--glass)" }}><Bell size={17} color="#fff" /></span>
-            <div className="flex-1 min-w-0">
-              <p className="font-display font-bold text-[16px] leading-tight">Notifications</p>
-              <p className="text-[11.5px]" style={{ color: "#66707A" }}>{notifications.length ? `${notifications.length} élément${notifications.length > 1 ? "s" : ""}` : "Vous êtes à jour"}</p>
-            </div>
-            {notifications.length > 0 && <button onClick={onClear} className="gb-focus h-8 px-3 rounded-[10px] text-[12px] font-bold flex items-center gap-1.5" style={{ background: "var(--paper-dim)" }}><CheckSquare size={13} /> Tout effacer</button>}
-            <button onClick={onClose} className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={15} /></button>
-          </div>
-          {notifications.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto gb-scroll mt-3 -mx-1 px-1">
-              {NOTIF_FAMILIES.filter((f) => f.id === "all" || counts[f.id]).map((f) => {
-                const on = fam === f.id;
-                const c = f.id === "all" ? notifications.length : counts[f.id];
-                return (
-                  <button key={f.id} onClick={() => setFam(f.id)} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[12px] font-bold flex items-center gap-1.5" style={on ? { background: "var(--glass)", color: "#fff" } : { background: "var(--paper-dim)", color: "var(--ink)" }}>
-                    {f.label}<span className="text-[10.5px] px-1.5 rounded-full" style={{ background: on ? "rgba(255,255,255,0.2)" : "var(--card)" }}>{c}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <div className="overflow-y-auto gb-scroll px-3 pt-3 pb-3" style={{ flex: "1 1 auto", minHeight: 0 }}>
-          <VoiceSettingsCard prefs={voice.prefs} onChange={voice.onChange} expanded={voice.expanded} onToggleExpanded={voice.onToggle} />
-          {notifications.length === 0 && (
-            <div className="text-center py-8 px-4">
-              <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><Check size={22} color="#1E7A46" /></div>
-              <p className="text-[14px] font-semibold">Aucune notification</p>
-              <p className="text-[12px] mt-0.5" style={{ color: "#66707A" }}>Les ventes, alertes de stock et opérations importantes apparaîtront ici.</p>
-            </div>
-          )}
-          {groups.map((g) => (
-            <div key={g.label} className="mt-3 first:mt-1">
-              <p className="px-1 pb-1.5 text-[10.5px] font-bold uppercase tracking-[0.1em]" style={{ color: "#66707A" }}>{g.label}</p>
-              <div className="rounded-[16px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-                {g.items.map(({ n, m }, i) => (
-                  <div key={n.id || i} className="flex items-start gap-3 px-3 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
-                    <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: m.bg }}><m.Icon size={18} color={m.fg} strokeWidth={2.1} /></span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="text-[13.5px] font-bold leading-snug min-w-0">{m.title}</p>
-                        <span className="text-[10.5px] shrink-0" style={{ color: "#8A939C" }}>{notifAgo(n.date)}</span>
-                      </div>
-                      {m.text && <p className="text-[12px] leading-snug mt-0.5" style={{ color: "#66707A" }}>{m.text}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, onPick, onLegal, onClose }) {
-  const [q, setQ] = useState("");
-  const query = q.trim().toLowerCase();
-  const items = ADMIN_SECTIONS.filter((s) => !query || s.label.toLowerCase().includes(query) || (s.desc || "").toLowerCase().includes(query) || (s.group || "").toLowerCase().includes(query));
-  const groups = [];
-  items.forEach((s) => { const g = s.group || ""; let last = groups[groups.length - 1]; if (!last || last.name !== g) { last = { name: g, items: [] }; groups.push(last); } last.items.push(s); });
-  const daysLeft = license && !license.lifetime && license.expiresAt ? Math.ceil((new Date(license.expiresAt) - Date.now()) / MS_DAY) : null;
-  const lic = license?.lifetime ? { t: "Licence à vie", c: "#1E7A46", b: "#E6F4EC" }
-    : licenseStatus === "expired" || licenseStatus === "none" ? { t: "Licence expirée", c: "#B3261E", b: "#FCEBEA" }
-    : licenseStatus === "expiring" ? { t: `Expire dans ${daysLeft} j`, c: "#9A5B00", b: "#FFF1D6" }
-    : { t: `${license?.planId === "trial" ? "Essai" : "Licence active"}${daysLeft !== null ? ` · ${daysLeft} j restants` : ""}`, c: "#1E7A46", b: "#E6F4EC" };
-  const badge = (id) => id === "produits" && lowStockCount > 0 ? { t: String(lowStockCount), c: "#fff", b: "#D9483B" } : id === "licence" && (licenseStatus === "expiring" || licenseStatus === "expired") ? { t: "!", c: "#fff", b: "#D9483B" } : null;
-  return (
-    <div className="fixed inset-0 z-[15] flex no-print">
-      <div className="absolute inset-0 bg-black/45" onClick={onClose} />
-      <div className="relative h-full flex flex-col gb-slide-in-left" style={{ width: "min(88%, 380px)", background: "var(--paper)", boxShadow: "12px 0 40px rgba(0,0,0,0.25)" }}>
-        <div className="shrink-0 px-4 pb-4 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", paddingTop: "calc(max(22px, env(safe-area-inset-top)) + 64px)" }}>
-          <div className="absolute -right-10 -top-6 w-36 h-36 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
-          <div className="flex items-center gap-3 relative">
-            <div className="shrink-0 rounded-[12px] overflow-hidden" style={{ width: 42, height: 42 }}><GestiOneIcon size={42} /></div>
-            <div className="min-w-0 flex-1">
-              <p className="font-display font-bold text-[17px] truncate">{shop.name}</p>
-              <p className="text-[12px] truncate" style={{ color: "rgba(255,255,255,0.65)" }}>{shop.adminDisplayName?.trim() || "Administrateur"}</p>
-            </div>
-            <button onClick={onClose} className="gb-focus w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Fermer le menu"><X size={17} color="#fff" /></button>
-          </div>
-          <button onClick={() => onPick("licence")} className="gb-focus mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-bold relative" style={{ background: lic.b, color: lic.c }}><ShieldCheck size={13} /> {lic.t}</button>
-        </div>
-        <div className="shrink-0 px-3.5 pt-3 pb-2">
-          <div className="flex items-center gap-2 px-3 min-h-[42px] rounded-[13px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-            <Search size={16} className="opacity-50" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher une rubrique" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
-            {q && <button onClick={() => setQ("")} className="gb-focus p-1" aria-label="Effacer"><X size={14} /></button>}
-          </div>
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5" style={{ paddingBottom: "calc(110px + env(safe-area-inset-bottom))" }}>
-          {groups.length === 0 && <p className="text-center text-sm opacity-50 py-6">Aucune rubrique trouvée.</p>}
-          {groups.map((g) => {
-            const col = ADMIN_GROUP_COLORS[g.name] || { fg: "var(--glass)", bg: "var(--paper-dim)" };
-            return (
-              <div key={g.name || "top"} className="mb-3">
-                {g.name && <p className="px-1.5 pt-1 pb-1.5 text-[10.5px] font-bold uppercase tracking-[0.1em]" style={{ color: "#66707A" }}>{g.name}</p>}
-                <div className="rounded-[16px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-                  {g.items.map((s, i) => {
-                    const on = section === s.id;
-                    const bd = badge(s.id);
-                    return (
-                      <button key={s.id} onClick={() => onPick(s.id)} className="gb-focus w-full flex items-center gap-3 px-3 py-2.5 text-left relative" style={{ borderTop: i ? "1px solid var(--line)" : "none", background: on ? "rgba(0,0,0,0.035)" : "transparent" }}>
-                        {on && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full" style={{ background: "var(--glass)" }} />}
-                        <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: g.name ? col.bg : "var(--glass)" }}><s.Icon size={17} color={g.name ? col.fg : "#fff"} /></span>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[14px] truncate" style={{ fontWeight: on ? 800 : 600 }}>{s.label}</span>
-                          {s.desc && <span className="block text-[11.5px] truncate" style={{ color: "#66707A" }}>{s.desc}</span>}
-                        </span>
-                        {bd && <span className="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0" style={{ background: bd.b, color: bd.c }}>{bd.t}</span>}
-                        <ChevronRight size={16} className="shrink-0" style={{ color: on ? "var(--glass)" : "#B5BAC0" }} />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-          <div className="flex items-center justify-center gap-3 pt-1 pb-2 text-[11.5px]" style={{ color: "#66707A" }}>
-            <button onClick={() => onLegal("terms")} className="gb-focus underline">Conditions d'utilisation</button>
-            <span>·</span>
-            <button onClick={() => onLegal("privacy")} className="gb-focus underline">Confidentialité</button>
-          </div>
-          <p className="text-center text-[10.5px] opacity-40">GestiOne · Version 1.0</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function AdminScreen({
   cashRegisterEntries, versements, activeCashSession, onRecordVersement,
   shop, saveShopMeta, shops, activeShopId, onSwitchShop, onCreateShop, onDeleteShop,
@@ -10823,35 +10416,66 @@ function AdminScreen({
   const activeSection = ADMIN_SECTIONS.find((s) => s.id === section);
   return (
     <div className="px-4 pt-4 pb-28">
-      {/* En-tête fixe : reste visible pendant le défilement, juste sous la barre du haut. */}
-      <div className="h-[58px] -mt-1 mb-2" aria-hidden="true" />
-      <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[12] px-4 pt-2 pb-2.5 flex items-center gap-3 no-print" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 44px)", background: "var(--paper)", boxShadow: "0 8px 12px -12px rgba(0,0,0,0.35)" }}>
-        <button onClick={() => setMenuOpen(true)} className="gb-focus shrink-0 h-11 pl-3 pr-3.5 rounded-[14px] flex items-center gap-2 text-white text-[13px] font-bold" style={{ background: "var(--glass)", boxShadow: "0 6px 14px -6px rgba(0,0,0,0.45)" }} aria-label="Ouvrir le menu d'administration">
-          <LayoutGrid size={17} /> Menu
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-bold uppercase tracking-[0.08em] truncate" style={{ color: "#66707A" }}>{activeSection?.group || "Administration"}</p>
-          <h2 className="font-display font-bold text-[19px] leading-tight truncate flex items-center gap-2">
-            {activeSection?.Icon && <span className="w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: (ADMIN_GROUP_COLORS[activeSection.group] || { bg: "var(--paper-dim)" }).bg }}><activeSection.Icon size={15} color={(ADMIN_GROUP_COLORS[activeSection.group] || { fg: "var(--glass)" }).fg} /></span>}
-            <span className="truncate">{activeSection?.label}</span>
-          </h2>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2.5">
+          <button onClick={() => setMenuOpen(true)} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Ouvrir le menu d'administration">
+            <ClipboardList size={16} />
+          </button>
+          <div>
+            <h2 className="font-display font-bold text-lg leading-none">Administration</h2>
+            <p className="text-xs opacity-50 mt-1 flex items-center gap-1">
+              {activeSection?.Icon && <activeSection.Icon size={12} />} {activeSection?.label}
+            </p>
+          </div>
         </div>
-        {section !== "stats" && (
-          <button onClick={() => { setSection("stats"); onSectionChange?.("stats"); }} className="gb-focus shrink-0 w-11 h-11 rounded-[14px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Retour à la vue d'ensemble"><TrendingUp size={17} /></button>
-        )}
       </div>
 
       {menuOpen && (
-        <AdminMenu
-          shop={shop}
-          section={section}
-          license={license}
-          licenseStatus={licenseStatus}
-          lowStockCount={products.filter((p) => p.stock <= p.minStock).length}
-          onPick={(id) => { setSection(id); onSectionChange?.(id); setMenuOpen(false); }}
-          onLegal={(doc) => { setLegalDoc(doc); setMenuOpen(false); }}
-          onClose={() => setMenuOpen(false)}
-        />
+        <div className="fixed inset-0 z-[15] flex no-print">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMenuOpen(false)} />
+          <div className="relative w-64 max-w-[80%] h-full flex flex-col gb-slide-in-left" style={{ background: "var(--glass)" }}>
+            <div className="shrink-0 flex items-center gap-2.5 px-4 pb-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)", paddingTop: "calc(max(22px, env(safe-area-inset-top)) + 60px)" }}>
+              <div className="shrink-0" style={{ width: 32, height: 32 }}><GestiOneIcon size={32} /></div>
+              <div className="min-w-0">
+                <p className="text-white font-semibold text-sm truncate">{shop.name}</p>
+                <p className="text-white/50 text-[11px]">Administration</p>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto gb-scroll py-2 px-2.5" style={{ paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
+              {ADMIN_SECTIONS.map((s, i) => (
+                <div key={s.id}>
+                  {s.group && ADMIN_SECTIONS[i - 1]?.group !== s.group && (
+                    <p className="px-3 pt-3 pb-1 text-[10px] font-bold tracking-wide" style={{ color: "var(--cap)" }}>{s.group.toUpperCase()}</p>
+                  )}
+                  <button
+                    onClick={() => { setSection(s.id); onSectionChange?.(s.id); setMenuOpen(false); }}
+                    className="gb-focus w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left mb-0.5"
+                    style={{ background: section === s.id ? "var(--cap)" : "transparent", color: section === s.id ? "var(--glass)" : "rgba(255,255,255,0.85)" }}
+                  >
+                    <s.Icon size={16} color={section === s.id ? "var(--glass)" : "rgba(255,255,255,0.75)"} />
+                    <span className="text-sm" style={{ fontWeight: section === s.id ? 600 : 400 }}>{s.label}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="shrink-0 px-2.5 pt-1" style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-bold tracking-wide" style={{ color: "var(--cap)" }}>LÉGAL</p>
+              <button onClick={() => { setLegalDoc("terms"); setMenuOpen(false); }} className="gb-focus w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left" style={{ color: "rgba(255,255,255,0.7)" }}>
+                <FileText size={16} color="rgba(255,255,255,0.6)" />
+                <span className="text-sm">Conditions d'utilisation</span>
+              </button>
+              <button onClick={() => { setLegalDoc("privacy"); setMenuOpen(false); }} className="gb-focus w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left" style={{ color: "rgba(255,255,255,0.7)" }}>
+                <ShieldCheck size={16} color="rgba(255,255,255,0.6)" />
+                <span className="text-sm">Politique de confidentialité</span>
+              </button>
+              <p className="px-3 pt-1 text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>Version 1.0 · GestiOne</p>
+            </div>
+            <button onClick={() => setMenuOpen(false)} className="gb-focus flex items-center gap-2.5 px-3 py-3 rounded-xl" style={{ position: "absolute", left: 10, right: 10, bottom: "calc(10px + env(safe-area-inset-bottom))", background: "var(--glass)", borderTop: "1px solid rgba(255,255,255,0.12)", boxShadow: "0 -8px 16px -8px rgba(0,0,0,0.35)" }}>
+              <X size={15} color="rgba(255,255,255,0.6)" />
+              <span className="text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>Fermer</span>
+            </button>
+          </div>
+        </div>
       )}
       {legalDoc && <LegalScreen doc={legalDoc} onSwitch={() => setLegalDoc(legalDoc === "terms" ? "privacy" : "terms")} onClose={() => setLegalDoc(null)} />}
 
@@ -10862,7 +10486,7 @@ function AdminScreen({
       {section === "assistance" && <SupportInboxSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} pushToast={pushToast} />}
       {section === "licence" && <LicenseSection license={license} licenseStatus={licenseStatus} onActivate={onActivateLicense} pushToast={pushToast} shopName={shop.name} />}
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
-      {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} onNavigate={(id) => { setSection(id); onSectionChange?.(id); }} />}
+      {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} />}
       {section === "inventaire" && <InventorySection shop={shop} expenses={expenses} vendors={vendors} cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} products={products} sales={sales} saveSales={saveSales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "produits" && <ProductsSection requireAdmin={requireAdmin} products={products} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "categories" && <CategoriesSection categories={categories} saveCategories={saveCategories} products={products} pushToast={pushToast} />}
@@ -13192,7 +12816,7 @@ function AppInner() {
     <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}`} style={themeVars}>
       <GlobalStyle />
       <div className="w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] min-h-screen relative" style={{ background: "var(--paper)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
-        {role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && <SupportChatWidget shop={shop} />}
+        {role === "admin" && view === "admin" && !ownerAccess && <SupportChatWidget shop={shop} />}
         {homeScreenActive ? (
           <OnboardingScreen
             shops={shops}
@@ -13244,13 +12868,199 @@ function AppInner() {
                           )}
                         </button>
                         {notifPanelOpen && (
-                          <NotificationPanel
-                            notifications={notifications}
-                            currency={shop.currency}
-                            onClear={() => setNotifications([])}
-                            onClose={() => setNotifPanelOpen(false)}
-                            voice={{ prefs: voicePrefs, onChange: saveVoicePrefs, expanded: voiceSettingsOpen, onToggle: () => setVoiceSettingsOpen((v) => !v) }}
-                          />
+                          <>
+                            <div className="fixed inset-0 z-[95]" onClick={() => setNotifPanelOpen(false)} />
+                            <div className="fixed z-[96] rounded-2xl overflow-hidden gb-slide-up flex flex-col" style={{ right: "max(12px, env(safe-area-inset-right))", top: "calc(max(22px, env(safe-area-inset-top)) + 52px)", width: "min(22rem, calc(100vw - 24px))", maxHeight: "calc(100vh - max(22px, env(safe-area-inset-top)) - 160px - env(safe-area-inset-bottom))", background: "var(--card)", boxShadow: "0 16px 40px -12px rgba(15,27,22,0.32)", border: "1px solid var(--line)" }}>
+                              <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--line)" }}>
+                                <span className="text-sm font-semibold">Notifications</span>
+                                {notifications.length > 0 && (
+                                  <button onClick={() => setNotifications([])} className="gb-focus text-[11px] opacity-50 underline">Effacer</button>
+                                )}
+                              </div>
+                              <div className="overflow-y-auto gb-scroll" style={{ flex: "1 1 auto", minHeight: 0 }}>
+                                <VoiceSettingsCard prefs={voicePrefs} onChange={saveVoicePrefs} expanded={voiceSettingsOpen} onToggleExpanded={() => setVoiceSettingsOpen((v) => !v)} />
+                                {notifications.length === 0 && <p className="text-xs opacity-50 text-center py-8 px-4">Aucune notification récente.</p>}
+                                {notifications.map((n) => (
+                                  <div key={n.id} className="px-4 py-3 border-b last:border-0 flex items-start gap-2.5" style={{ borderColor: "var(--line)" }}>
+                                    {(!n.type || n.type === "sale") && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#E7F7EE" }}><ShoppingCart size={12} color="#1CA857" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">{formatMoney(n.total, shop.currency)} vendu par {n.vendor}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "trial" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FFF3E0" }}><Gift size={12} color="var(--cap)" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Essai gratuit — {n.daysLeft} jour{n.daysLeft > 1 ? "s" : ""} restant{n.daysLeft > 1 ? "s" : ""}. Pense à activer une licence pour continuer sans interruption.</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "lowstock" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FCEBE8" }}><AlertTriangle size={12} color="var(--danger)" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">{n.count} produit{n.count > 1 ? "s" : ""} en stock bas : {n.names.join(", ")}{n.count > n.names.length ? "…" : ""}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "stock_alert" && (() => {
+                                      const meta = {
+                                        5: { bg: "#FAEEDA", color: "#854F0B", Icon: AlertTriangle, text: `Stock bas : ${n.productName} — il reste ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""}.` },
+                                        4: { bg: "#FAEEDA", color: "#854F0B", Icon: AlertTriangle, text: `Stock bas : ${n.productName} — il reste ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""}. Pense à réapprovisionner.` },
+                                        2: { bg: "#FCEBEB", color: "#A32D2D", Icon: AlertTriangle, text: `Stock critique : ${n.productName} — il ne reste que ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""} !` },
+                                        1: { bg: "#FCEBEB", color: "#A32D2D", Icon: AlertTriangle, text: `Stock critique : ${n.productName} — il ne reste plus qu'${n.stock} ${n.unit} ! Recharge le stock.` },
+                                        0: { bg: "#2C2C2A", color: "#fff", Icon: X, text: `Rupture de stock : ${n.productName} n'est plus en stock.` },
+                                      }[n.level] || {};
+                                      return (
+                                        <>
+                                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: meta.bg }}><meta.Icon size={12} color={meta.color} /></div>
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-medium leading-snug">{meta.text}</p>
+                                          </div>
+                                        </>
+                                      );
+                                    })()}
+                                    {n.type === "sale_edited" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FFF3E0" }}><Pencil size={12} color="var(--cap)" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Vente N° {n.receiptNumber} modifiée — nouveau total {formatMoney(n.total, shop.currency)}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "expiry_alert" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FBE4E1" }}><CalendarCheck size={12} color="#B3261E" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Péremption : {n.count} lot{n.count > 1 ? "s" : ""} {n.expired ? `(dont ${n.expired} périmé${n.expired > 1 ? "s" : ""})` : "expire(nt) sous 3 jours"} — {n.first}{n.count > 1 ? "…" : ""}. Voir Stock › Péremption.</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "sale_returned" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#E1F5EE" }}><Undo2 size={12} color="#0F6E56" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Retour sur la vente N° {n.receiptNumber} — {n.itemCount} article{n.itemCount > 1 ? "s" : ""} ({formatMoney(n.amount, shop.currency)}){n.refund > 0 ? ` · remboursé ${formatMoney(n.refund, shop.currency)} en ${REFUND_LABELS[n.refundMode] || ""}` : " · déduit du crédit"}{n.by ? ` · ${n.by}` : ""}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "sale_deleted" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FCEBE8" }}><Trash2 size={12} color="var(--danger)" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Vente N° {n.receiptNumber} supprimée ({formatMoney(n.total, shop.currency)})</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "expense" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FAEEDA" }}><Wallet size={12} color="#854F0B" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Dépense ajoutée — {n.label} ({formatMoney(n.amount, shop.currency)}){n.author ? ` · ${n.author}` : ""}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "credit_settled" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#E7F7EE" }}><CreditCard size={12} color="#1CA857" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Crédit encaissé{n.clientName ? ` — ${n.clientName}` : ""} ({formatMoney(n.total, shop.currency)}) · {n.by}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "avoir_created" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: n.avoirType === "produit" ? "#EEEDFE" : "#FAEEDA" }}>
+                                          {n.avoirType === "produit" ? <PackageX size={12} color="#534AB7" /> : <Coins size={12} color="#854F0B" />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">
+                                            {n.avoirType === "produit"
+                                              ? `Avoir produit — ${n.clientName} (${n.itemCount} article${n.itemCount > 1 ? "s" : ""})`
+                                              : `Avoir monnaie — ${n.clientName} (${formatMoney(n.amount, shop.currency)})`}
+                                          </p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "order_validated" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#E6F1FB" }}><Truck size={12} color="#185FA5" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Commande validée — {n.supplierName} ({n.itemCount} produit{n.itemCount > 1 ? "s" : ""}, {formatMoney(n.total, shop.currency)})</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "vendor_blocked" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FCEBE8" }}><Lock size={12} color="var(--danger)" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Vendeur bloqué — {n.vendorName}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "vendor_unblocked" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#E7F7EE" }}><Unlock size={12} color="#1CA857" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Vendeur débloqué — {n.vendorName}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "stock_movement" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FAEEDA" }}><Boxes size={12} color="#854F0B" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Comptage validé — {n.count} écart{n.count > 1 ? "s" : ""} ajusté{n.count > 1 ? "s" : ""}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "product_created" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#E1F5EE" }}><PackagePlus size={12} color="#0F6E56" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Produit créé — {n.productName}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "product_updated" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#E6F1FB" }}><Pencil size={12} color="#185FA5" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Produit mis à jour — {n.productName}{n.delta ? ` (stock ${n.delta > 0 ? "+" : ""}${n.delta})` : ""}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                    {n.type === "product_deleted" && (
+                                      <>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "#FCEBEB" }}><Trash2 size={12} color="var(--danger)" /></div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium leading-snug">Produit supprimé — {n.productName}</p>
+                                          <p className="text-[10px] opacity-45 mt-0.5">{new Date(n.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </>
                         )}
                       </div>
                     )}
