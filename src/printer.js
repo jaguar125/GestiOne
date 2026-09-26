@@ -205,6 +205,10 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
     line(twoCol("Paye avec avoir", "-" + fmt(receipt.avoirPaid)));
     if (receipt.total - receipt.avoirPaid > 0) line(twoCol(receipt.paymentMethod === "credit" ? "Complement" : "Complement " + PAYMENT_LABEL(receipt.paymentMethod), fmt(receipt.total - receipt.avoirPaid)));
     line(twoCol("Avoir restant", fmt(receipt.avoirLeft || 0)));
+  } else if (receipt.mobilePaid > 0 && receipt.paymentMethod === "especes") {
+    line("Paiement mixte");
+    line(twoCol("  Mobile Money", fmt(receipt.mobilePaid)));
+    line(twoCol("  Especes", fmt(receipt.total - receipt.mobilePaid)));
   } else if (!receipt.isProductAvoir) line(PAYMENT_LABEL(receipt.paymentMethod));
   if (receipt.amountReceived != null) {
     line(twoCol("Recu", fmt(receipt.amountReceived)));

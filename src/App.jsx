@@ -236,6 +236,22 @@ function creditPaymentsOf(sale) {
   if (sale.paid && sale.paidDate) return [{ amount: sale.total, date: sale.paidDate, by: sale.paidBy }];
   return [];
 }
+// Paiement mixte : une vente « espèces » peut avoir une part payée par
+// Mobile Money (sale.mobilePaid). Ces deux fonctions répartissent le montant
+// d'une vente entre espèces et mobile pour tous les totaux.
+function mobilePartOf(s) {
+  const t = Number(s.total) || 0;
+  if (s.paymentMethod === "mobile") return t;
+  if (s.paymentMethod === "especes") return Math.min(t, Number(s.mobilePaid) || 0);
+  return 0;
+}
+function cashPartOf(s) {
+  return s.paymentMethod === "especes" ? (Number(s.total) || 0) - mobilePartOf(s) : 0;
+}
+function paymentLabelOf(s) {
+  if (s.paymentMethod === "especes" && Number(s.mobilePaid) > 0) return "Espèces + Mobile Money";
+  return PAYMENT_LABELS[s.paymentMethod] || s.paymentMethod;
+}
 // Solde d'une vente à crédit au moment du reçu : total moins la part payée
 // avec un avoir et moins les espèces reçues.
 function creditRestOf(r) {
@@ -399,7 +415,8 @@ function buildReceiptText(receipt, shop, fmt) {
   });
   lines.push("");
   lines.push(`Total : ${fmt(receipt.total)}`);
-  lines.push(`Paiement : ${PAYMENT_LABELS[receipt.paymentMethod]}`);
+  lines.push(`Paiement : ${paymentLabelOf(receipt)}`);
+  if (receipt.mobilePaid > 0) { lines.push(`  Mobile Money : ${fmt(receipt.mobilePaid)}`); lines.push(`  Espèces : ${fmt(receipt.total - receipt.mobilePaid)}`); }
   if (receipt.paymentMethod === "credit" && receipt.clientName) lines.push(`Client : ${receipt.clientName}`);
   if (receipt.avoirPaid > 0) {
     lines.push(`Payé avec avoir : ${fmt(receipt.avoirPaid)}`);
@@ -881,7 +898,12 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
       if (r.refundMode === "especes") { refundsCash += Number(r.refund) || 0; refundsCashCount += 1; const v = V(r.by); v.refunds += Number(r.refund) || 0; v.refundsCount += 1; }
       else if (r.refundMode === "mobile") refundsMobile += Number(r.refund) || 0;
     });
-    if (sale.paymentMethod === "especes" && inWindow(sale.date)) { cashSales += gross; cashSalesCount += 1; const v = V(sale.vendor); v.cash += gross; v.cashCount += 1; v.tickets += 1; }
+    if (sale.paymentMethod === "especes" && inWindow(sale.date)) {
+      // Paiement mixte : la part Mobile Money ne va pas dans le tiroir.
+      const mob = Math.min(gross, Number(sale.mobilePaid) || 0);
+      cashSales += gross - mob; cashSalesCount += 1; mobileSales += mob; if (mob > 0) mobileSalesCount += 1;
+      const v = V(sale.vendor); v.cash += gross - mob; v.mobile += mob; v.cashCount += 1; v.tickets += 1;
+    }
     else if (sale.paymentMethod === "mobile" && inWindow(sale.date)) {
       // Part payée avec un avoir monnaie : cet argent est déjà dans le tiroir
       // (monnaie non rendue lors d'un achat précédent) — il compte en espèces.
@@ -2417,7 +2439,14 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
             <div className="flex justify-between text-[11.5px] mt-1" style={{ color: "#854F0B" }}><span>Avoir restant · {receipt.avoirClientName || "Client"}</span><span className="font-mono font-bold">{fmt(receipt.avoirLeft || 0)}</span></div>
           </div>
         )}
-        {!receipt.isProductAvoir && !(receipt.avoirPaid >= receipt.total) && (
+        {receipt.mobilePaid > 0 && receipt.paymentMethod === "especes" && (
+          <div className="rounded-xl p-3 mt-3" style={{ background: "#EEF3FB" }}>
+            <p className="text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: "#2B4C8C" }}>Paiement mixte</p>
+            <div className="flex justify-between text-[12px]" style={{ color: "#1D5FA8" }}><span className="flex items-center gap-1.5"><Smartphone size={13} /> Mobile Money</span><span className="font-mono font-bold">{fmt(receipt.mobilePaid)}</span></div>
+            <div className="flex justify-between text-[12px] mt-1" style={{ color: "#1E7A46" }}><span className="flex items-center gap-1.5"><Banknote size={13} /> Espèces</span><span className="font-mono font-bold">{fmt(receipt.total - receipt.mobilePaid)}</span></div>
+          </div>
+        )}
+        {!receipt.isProductAvoir && !(receipt.avoirPaid >= receipt.total) && !(receipt.mobilePaid > 0) && (
           <div className="flex justify-between text-[11px] font-mono mt-2 opacity-60">
             <span>{PAYMENT_LABELS[receipt.paymentMethod]}</span>
             {receipt.paymentMethod === "credit" && <span>{receipt.clientName}</span>}
@@ -2426,7 +2455,7 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
         {receipt.amountReceived != null && (
           <>
             <div className="flex justify-between text-[11px] font-mono mt-1.5 opacity-60">
-              <span>Montant reçu</span>
+              <span>{receipt.mobilePaid > 0 ? "Espèces reçues" : "Montant reçu"}</span>
               <span>{fmt(receipt.amountReceived)}</span>
             </div>
             {receipt.paymentMethod === "credit" && creditRestOf(receipt) > 0 ? (
@@ -2524,6 +2553,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const [showCart, setShowCart] = useState(false);
   const [payment, setPayment] = useState("especes");
   const [amountReceived, setAmountReceived] = useState("");
+  const [mixMobile, setMixMobile] = useState(""); // paiement mixte : part Mobile Money
   const [clientName, setClientName] = useState("");
   const [clientId, setClientId] = useState(null);
   const [avoirMonnaie, setAvoirMonnaie] = useState(false);
@@ -2757,6 +2787,21 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       resetCheckoutFields();
       return;
     }
+    if (payment === "mixte") {
+      const mob = Math.round(Number(mixMobile) || 0);
+      const cashDue = total - mob;
+      if (!(mob > 0) || mob >= total) { pushToast(`Saisissez la part payée par Mobile Money (moins de ${fmt(total)})`, "error"); return; }
+      if (amountReceived === "") { pushToast(`Saisissez les espèces reçues : ${fmt(cashDue)} au moins`, "error"); return; }
+      const cashIn = Number(amountReceived) || 0;
+      if (cashIn < cashDue) { pushToast(`Espèces insuffisantes : il manque ${fmt(cashDue - cashIn)}`, "error"); return; }
+      const sale = onCheckout(cartItems, total, "especes", clientId, clientName || "Client", cashIn, undefined, undefined, mob);
+      playSound("sale", shop.soundsEnabled);
+      speak(`Vente enregistrée, ${spokenAmount(fmt(total))} : ${spokenAmount(fmt(cashDue))} en espèces et ${spokenAmount(fmt(mob))} par Mobile Money.`, voiceOn(shop, "sale"));
+      setReceipt(sale);
+      setShowCart(false);
+      resetCheckoutFields();
+      return;
+    }
     if (payment === "credit" && !clientId) { pushToast("Sélectionnez ou ajoutez un client pour le crédit", "error"); setClientFocusSignal((n) => n + 1); return; }
     if (avoirMonnaie && !canAvoirMonnaie) { pushToast("Le montant reçu doit être supérieur au total pour l'avoir monnaie", "error"); return; }
     if (avoirProduit && !canAvoirProduit) { pushToast("Saisissez le montant reçu du client pour l'avoir produit", "error"); return; }
@@ -2848,6 +2893,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     resetCheckoutFields();
   };
   const resetCheckoutFields = () => {
+    setMixMobile("");
     setPayAvoirId(null);
     setAvoirPickerOpen(false);
     setPayment("especes");
@@ -3153,6 +3199,71 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                     );
                   })}
                 </div>
+                {!payAvoir && (
+                  <button onClick={() => { setPayment(payment === "mixte" ? "especes" : "mixte"); setAmountReceived(""); setMixMobile(""); }} aria-pressed={payment === "mixte"} className="gb-focus w-full min-h-[52px] rounded-2xl px-3.5 mb-3 flex items-center gap-3 text-left transition-colors" style={payment === "mixte" ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px dashed var(--line)" }}>
+                    <span className="flex items-center -space-x-1.5 shrink-0">
+                      <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#E6F4EC", border: "2px solid " + (payment === "mixte" ? "#1F2A33" : "var(--card)") }}><Banknote size={15} color="#1E7A46" /></span>
+                      <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#E8F0FB", border: "2px solid " + (payment === "mixte" ? "#1F2A33" : "var(--card)") }}><Smartphone size={15} color="#1D5FA8" /></span>
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[13.5px] font-bold">Paiement mixte</span>
+                      <span className="block text-[11.5px]" style={{ opacity: 0.7 }}>Une partie en espèces, le reste par Mobile Money</span>
+                    </span>
+                    <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: payment === "mixte" ? "#2FA565" : "var(--line)" }}>
+                      <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: payment === "mixte" ? 18 : 2 }} />
+                    </span>
+                  </button>
+                )}
+                {payment === "mixte" && (() => {
+                  const mob = Math.max(0, Number(mixMobile) || 0);
+                  const cashDue = Math.max(0, total - mob);
+                  const cashIn = amountReceived === "" ? null : Number(amountReceived) || 0;
+                  const pctM = Math.min(100, (mob / Math.max(1, total)) * 100);
+                  const bad = mob >= total;
+                  return (
+                    <div className="mb-3 rounded-2xl p-3.5 gb-slide-up" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[11.5px] font-bold uppercase tracking-wide opacity-60">Répartition</span>
+                        <span className="font-mono text-[12px] font-bold">{fmt(total)}</span>
+                      </div>
+                      <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: "#E6F4EC" }}>
+                        <div className="h-full transition-all" style={{ width: `${pctM}%`, background: "#3B7DD8" }} />
+                        <div className="h-full flex-1" style={{ background: "#2FA565" }} />
+                      </div>
+                      <div className="flex justify-between text-[11.5px] font-semibold mt-1.5">
+                        <span style={{ color: "#1D5FA8" }}>● Mobile {fmt(mob)}</span>
+                        <span style={{ color: "#1E7A46" }}>● Espèces {fmt(cashDue)}</span>
+                      </div>
+
+                      <p className="text-[12px] font-bold mt-3.5 mb-1.5 flex items-center gap-1.5" style={{ color: "#1D5FA8" }}><Smartphone size={14} /> Part Mobile Money</p>
+                      <input type="number" inputMode="decimal" value={mixMobile} onChange={(e) => setMixMobile(e.target.value)} placeholder="Ex : 500" className="gb-focus w-full rounded-xl px-3 min-h-[46px] text-[15px] border font-mono" style={{ borderColor: bad ? "#E7A29B" : "#B9CFEE", background: "#F5F9FF" }} />
+                      {bad && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>La part Mobile Money doit être inférieure au total.</p>}
+
+                      <p className="text-[12px] font-bold mt-3 mb-1.5 flex items-center gap-1.5" style={{ color: "#1E7A46" }}><Banknote size={14} /> Espèces reçues <span className="font-normal opacity-70">· à payer {fmt(cashDue)}</span></p>
+                      {mob > 0 && !bad && (
+                        <div className="grid grid-cols-3 gap-1.5 mb-2">
+                          {[...new Set([cashDue, ...[500, 1000, 2000, 5000].map((step) => Math.ceil(cashDue / step) * step)])].slice(0, 3).map((v, idx) => (
+                            <button key={v} onClick={() => setAmountReceived(String(v))} className="gb-focus min-w-0 min-h-[40px] px-1 rounded-xl text-[12.5px] font-bold" style={Number(amountReceived) === v ? { background: "#1E8E50", color: "#fff", border: "1px solid #1E8E50" } : { background: "var(--paper-dim)", color: "var(--ink)", border: "1px solid var(--line)" }}>{idx === 0 ? "Compte juste" : fmt(v)}</button>
+                          ))}
+                        </div>
+                      )}
+                      <input type="number" inputMode="decimal" value={amountReceived} onChange={(e) => setAmountReceived(e.target.value)} placeholder={fmt(cashDue)} className="gb-focus w-full rounded-xl px-3 min-h-[46px] text-[15px] border font-mono" style={{ borderColor: "#BFE3CC", background: "#F5FBF7" }} />
+                      {cashIn != null && mob > 0 && !bad && (
+                        cashIn >= cashDue ? (
+                          <div className="rounded-xl px-3 py-2.5 mt-2 flex items-center justify-between" style={{ background: "#E7F7EE" }}>
+                            <span className="text-xs font-semibold" style={{ color: "#1CA857" }}>Monnaie à rendre</span>
+                            <span className="font-mono font-bold text-sm" style={{ color: "#1CA857" }}>{fmt(cashIn - cashDue)}</span>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl px-3 py-2.5 mt-2 flex items-center justify-between" style={{ background: "#FCEBE8" }}>
+                            <span className="text-xs font-semibold" style={{ color: "var(--danger)" }}>Espèces insuffisantes</span>
+                            <span className="font-mono font-bold text-sm" style={{ color: "var(--danger)" }}>- {fmt(cashDue - cashIn)}</span>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  );
+                })()}
                 {payAvoir && payment === "credit" && (
                   <div className="mb-3 rounded-xl p-3 gb-slide-up" style={{ background: "#FCEBEA" }}>
                     <div className="flex items-center justify-between"><span className="text-[12.5px] font-bold" style={{ color: "#8A2419" }}>Reste en crédit</span><span className="font-display font-bold text-[18px]" style={{ color: "#B3261E" }}>{fmt(due)}</span></div>
@@ -3231,7 +3342,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                     <p className="text-[10.5px] opacity-60 px-1">{avoirProduit ? "Les articles restent au magasin et seront remis plus tard à la personne indiquée ci-dessous." : "Activez si le client ne prend pas les articles maintenant, ou les offre à quelqu'un."}</p>
                   </div>
                 )}
-                {!payAvoir && payment !== "credit" && (payment === "mobile" || (amountReceived !== "" && Number(amountReceived) >= total)) && (
+                {!payAvoir && payment !== "credit" && payment !== "mixte" && (payment === "mobile" || (amountReceived !== "" && Number(amountReceived) >= total)) && (
                   <div className="flex flex-col gap-2 mt-3">
                     {payment !== "mobile" && (
                       <>
@@ -3289,7 +3400,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
               </div>
               <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : "0 10px 22px rgba(30,142,80,0.3)" }}>
                 <Check size={19} />
-                {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit ? (avoirMonnaie ? "Enregistrer l'avoir produit + monnaie" : "Enregistrer l'avoir produit") : (cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
+                {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit ? (avoirMonnaie ? "Enregistrer l'avoir produit + monnaie" : "Enregistrer l'avoir produit") : (payment === "mixte" ? `Encaisser ${fmt(total)} · espèces + mobile` : cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
               </button>
             </div>
           </div>
@@ -4327,8 +4438,8 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
   const periodLabel = PERIOD_LABELS[periodFilter] || "";
   const q = histQuery.trim().toLowerCase();
   const shown = q ? sorted.filter((s) => receiptNumber(s.id).toLowerCase().includes(q) || (s.clientName || "").toLowerCase().includes(q) || (s.vendor || "").toLowerCase().includes(q) || s.items.some((i) => (i.product?.name || "").toLowerCase().includes(q))) : sorted;
-  const cashOnly = sorted.filter((s) => s.paymentMethod === "especes").reduce((t, x) => t + x.total, 0);
-  const mobileOnly = sorted.filter((s) => s.paymentMethod === "mobile").reduce((t, x) => t + x.total, 0);
+  const cashOnly = sorted.reduce((t, x) => t + cashPartOf(x), 0);
+  const mobileOnly = sorted.reduce((t, x) => t + mobilePartOf(x), 0);
   const groups = [];
   shown.forEach((s) => {
     const key = new Date(s.date).toDateString();
@@ -4424,13 +4535,15 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
           <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
         {g.items.map((s, idx) => {
           const unpaid = s.paymentMethod === "credit" && !s.paid;
-          const PayIcon = s.avoirPaid >= s.total ? Coins : s.paymentMethod === "especes" ? Banknote : s.paymentMethod === "mobile" ? Smartphone : unpaid ? AlertTriangle : Wallet;
+          const isMixte = s.paymentMethod === "especes" && Number(s.mobilePaid) > 0;
+          const PayIcon = s.avoirPaid >= s.total ? Coins : isMixte ? Layers : s.paymentMethod === "especes" ? Banknote : s.paymentMethod === "mobile" ? Smartphone : unpaid ? AlertTriangle : Wallet;
           const payTint = unpaid ? { bg: "#FCEBEA", fg: "#B3261E", bar: "#D9483B" }
             : s.paymentMethod === "credit" ? { bg: "#E3F4EC", fg: "#0F6E56", bar: "#1E8E6A" }
             : s.avoirPaid > 0 ? { bg: "#FFF1D6", fg: "#9A5B00", bar: "#E0A030" }
             : s.paymentMethod === "mobile" ? { bg: "#E8F0FB", fg: "#1D5FA8", bar: "#3B7DD8" }
+            : isMixte ? { bg: "#E9EEF8", fg: "#2B4C8C", bar: "#4D7BD1" }
             : { bg: "#E6F4EC", fg: "#1E7A46", bar: "#2FA565" };
-          const payLabel = s.avoirPaid >= s.total ? "AVOIR" : s.avoirPaid > 0 ? `AVOIR + ${PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}` : `${PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}${unpaid ? " · IMPAYÉ" : s.paymentMethod === "credit" ? " · SOLDÉ" : ""}`;
+          const payLabel = s.avoirPaid >= s.total ? "AVOIR" : s.avoirPaid > 0 ? `AVOIR + ${PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}` : `${isMixte ? "ESPÈCES + MOBILE" : PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}${unpaid ? " · IMPAYÉ" : s.paymentMethod === "credit" ? " · SOLDÉ" : ""}`;
           const rets = saleReturnsOf(s);
           const fullyReturned = rets.length > 0 && s.items.length === 0;
           const nbArt = s.items.reduce((t, i) => t + i.qty, 0);
@@ -7359,8 +7472,8 @@ function DailyReportPreview({ shop, sales, expenses, onClose, pushToast }) {
   const today = new Date().toDateString();
   const todaySales = sales.filter((s) => new Date(s.date).toDateString() === today);
   const todayExpenses = expenses.filter((e) => new Date(e.date).toDateString() === today);
-  const cash = todaySales.filter((s) => s.paymentMethod === "especes").reduce((s, x) => s + x.total, 0);
-  const mobile = todaySales.filter((s) => s.paymentMethod === "mobile").reduce((s, x) => s + x.total, 0);
+  const cash = todaySales.reduce((s, x) => s + cashPartOf(x), 0);
+  const mobile = todaySales.reduce((s, x) => s + mobilePartOf(x), 0);
   const creditGiven = todaySales.filter((s) => s.paymentMethod === "credit").reduce((s, x) => s + x.total, 0);
   // Même correctif que HistoryScreen/StatsSection : chaque règlement de
   // crédit (même le premier versement partiel encaissé le jour même de la
@@ -7506,8 +7619,8 @@ function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }
   const itemsToday = todaySales.reduce((s, x) => s + x.items.reduce((t, i) => t + i.qty, 0), 0);
 
   const mixToday = [
-    { id: "especes", label: "Espèces", color: "#2FA565", v: todaySales.filter((x) => x.paymentMethod === "especes").reduce((t, x) => t + x.total, 0) },
-    { id: "mobile", label: "Mobile Money", color: "#3B7DD8", v: todaySales.filter((x) => x.paymentMethod === "mobile").reduce((t, x) => t + x.total, 0) },
+    { id: "especes", label: "Espèces", color: "#2FA565", v: todaySales.reduce((t, x) => t + cashPartOf(x), 0) },
+    { id: "mobile", label: "Mobile Money", color: "#3B7DD8", v: todaySales.reduce((t, x) => t + mobilePartOf(x), 0) },
     { id: "credit", label: "Crédits reçus", color: "#E0A030", v: creditCollectedToday },
   ];
   const marginOf = (list) => list.reduce((t, x) => t + x.items.reduce((u, i) => { const c = Number(i.product?.costPrice) || 0; return c > 0 ? u + computeItemTotal(i.product, i.qty) - c * i.qty : u; }, 0), 0);
@@ -7537,8 +7650,8 @@ function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }
   const mixFrom = new Date(); mixFrom.setDate(mixFrom.getDate() - compareDays);
   const inMix = sales.filter((x) => new Date(x.date) >= mixFrom);
   const mixPeriod = [
-    { label: "Espèces", color: "#2FA565", v: inMix.filter((x) => x.paymentMethod === "especes").reduce((t, x) => t + x.total, 0) },
-    { label: "Mobile Money", color: "#3B7DD8", v: inMix.filter((x) => x.paymentMethod === "mobile").reduce((t, x) => t + x.total, 0) },
+    { label: "Espèces", color: "#2FA565", v: inMix.reduce((t, x) => t + cashPartOf(x), 0) },
+    { label: "Mobile Money", color: "#3B7DD8", v: inMix.reduce((t, x) => t + mobilePartOf(x), 0) },
     { label: "Crédit", color: "#E0A030", v: inMix.filter((x) => x.paymentMethod === "credit").reduce((t, x) => t + x.total, 0) },
   ];
   const mixTotal = mixPeriod.reduce((t, x) => t + x.v, 0);
@@ -10272,8 +10385,9 @@ function buildMonthReport({ sales = [], expenses = [], products = [], versements
     ca += total;
     const dk = new Date(s.date).toLocaleDateString("fr-FR");
     if (!byDay[dk]) byDay[dk] = { date: dk, t: new Date(s.date).getTime(), tickets: 0, especes: 0, mobile: 0, credit: 0, total: 0 };
-    byDay[dk].tickets += 1; byDay[dk].total += total; byDay[dk][s.paymentMethod === "mobile" ? "mobile" : s.paymentMethod === "credit" ? "credit" : "especes"] += total;
-    if (s.paymentMethod === "especes") cashIn += total + returnedAmountOf(s);
+    byDay[dk].tickets += 1; byDay[dk].total += total;
+    if (s.paymentMethod === "credit") byDay[dk].credit += total; else { byDay[dk].especes += cashPartOf(s); byDay[dk].mobile += mobilePartOf(s); }
+    if (s.paymentMethod === "especes") { const mob = mobilePartOf(s); cashIn += total + returnedAmountOf(s) - mob; momoIn += mob; }
     else if (s.paymentMethod === "mobile") momoIn += total + returnedAmountOf(s);
     else if (s.paymentMethod === "credit") creditGiven += total;
     (s.items || []).forEach((it) => {
@@ -12670,6 +12784,23 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop?.backendLinked, shop?.joinCode, activeShopId]);
 
+  // Après chaque envoi, le serveur renvoie la liste fusionnée (ventes des
+  // autres appareils comprises) : on l'intègre tout de suite, sans attendre
+  // la relecture périodique.
+  useEffect(() => {
+    if (!activeShopId) return undefined;
+    const setters = { sales: setSales, avoirs: setAvoirs, movements: setMovements, clients: setClients, expenses: setExpenses, suppliers: setSuppliers, orders: setOrders, supplierProducts: setSupplierProducts, inventories: setInventories, snackLots: setSnackLots, products: setProducts, categories: setCategories };
+    return api.onMergedValue((key, merged, shopId) => {
+      if (shopId !== activeShopId || !setters[key]) return;
+      setters[key]((prev) => {
+        const next = api.mergeLocalWithServer(key, prev, merged, activeShopId);
+        if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+        window.storage.set(`${key}:${activeShopId}`, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    });
+  }, [activeShopId]);
+
   // Auto-réparation silencieuse : le code administrateur et les codes vendeurs
   // sont vérifiés localement (pas d'appel serveur à chaque connexion), donc si
   // la copie locale d'un appareil dérive de celle du serveur (ex: séquelle
@@ -12775,16 +12906,18 @@ function AppInner() {
         // secondes au maximum, sans rien avoir à faire.
         if (Array.isArray(freshProducts)) {
           setProducts((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(freshProducts)) return prev;
-            window.storage.set(`products:${activeShopId}`, JSON.stringify(freshProducts)).catch(() => {});
-            return freshProducts;
+            const next = api.mergeLocalWithServer("products", prev, freshProducts, activeShopId);
+            if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+            window.storage.set(`products:${activeShopId}`, JSON.stringify(next)).catch(() => {});
+            return next;
           });
         }
         if (Array.isArray(freshCategories)) {
           setCategories((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(freshCategories)) return prev;
-            window.storage.set(`categories:${activeShopId}`, JSON.stringify(freshCategories)).catch(() => {});
-            return freshCategories;
+            const next = api.mergeLocalWithServer("categories", prev, freshCategories, activeShopId);
+            if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+            window.storage.set(`categories:${activeShopId}`, JSON.stringify(next)).catch(() => {});
+            return next;
           });
         }
         // Données transactionnelles partagées (ventes, avoirs, mouvements de
@@ -12824,10 +12957,13 @@ function AppInner() {
         }
         SYNCED_LIST_KEYS.forEach(([key, freshValue, setter]) => {
           if (!Array.isArray(freshValue)) return;
+          // Fusion (et non remplacement) : une vente faite sur cet appareil
+          // pendant que la relecture était en route n'est jamais effacée.
           setter((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(freshValue)) return prev;
-            window.storage.set(`${key}:${activeShopId}`, JSON.stringify(freshValue)).catch(() => {});
-            return freshValue;
+            const next = api.mergeLocalWithServer(key, prev, freshValue, activeShopId);
+            if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+            window.storage.set(`${key}:${activeShopId}`, JSON.stringify(next)).catch(() => {});
+            return next;
           });
         });
 
@@ -13734,7 +13870,7 @@ function AppInner() {
   // encaissé est enregistré comme premier règlement du crédit (voir
   // SellScreen.confirmCheckout), le solde restant apparaissant dans
   // CreditsScreen comme pour tout crédit partiellement réglé.
-  const handleCheckout = (cartItemsIn, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment, avoirPay) => {
+  const handleCheckout = (cartItemsIn, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment, avoirPay, mobilePaid) => {
     // Chaque ligne retire son stock du produit qui porte réellement le stock
     // (pour un Pain fourré : le Pain). On garde aussi la « part de base »
     // (prix et coût du pain) pour calculer les bénéfices pain / garniture.
@@ -13758,6 +13894,11 @@ function AppInner() {
       changeDue: amountReceived != null ? Math.max(0, amountReceived - total) : null,
       payments,
     };
+    // Paiement mixte : une part en Mobile Money, le reste en espèces.
+    if (paymentMethod === "especes" && Number(mobilePaid) > 0) {
+      sale.mobilePaid = Math.min(total, Number(mobilePaid));
+      sale.changeDue = amountReceived != null ? Math.max(0, amountReceived - (total - sale.mobilePaid)) : null;
+    }
     // Paiement avec un avoir monnaie (total ou partiel) : la part d'avoir est
     // déduite de l'avoir du client (journalisée comme "achat", pas comme de
     // la monnaie rendue) et le reste de l'avoir reste disponible.
@@ -13824,7 +13965,7 @@ function AppInner() {
     setCart([]);
     setNotifications((prev) => [{ id: sale.id, vendor: sale.vendor, total: sale.total, date: sale.date, paymentMethod: sale.paymentMethod }, ...prev].slice(0, 30));
     setUnreadCount((c) => c + 1);
-    pushSaleToast(sale.total, sale.avoirPaid >= sale.total ? "Avoir" : sale.avoirPaid > 0 ? `Avoir + ${PAYMENT_LABELS[sale.paymentMethod]}` : PAYMENT_LABELS[sale.paymentMethod]);
+    pushSaleToast(sale.total, sale.avoirPaid >= sale.total ? "Avoir" : sale.avoirPaid > 0 ? `Avoir + ${PAYMENT_LABELS[sale.paymentMethod]}` : sale.mobilePaid > 0 ? "Espèces + Mobile" : PAYMENT_LABELS[sale.paymentMethod]);
     return sale;
   };
 

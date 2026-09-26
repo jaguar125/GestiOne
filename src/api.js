@@ -260,8 +260,86 @@ export function getPendingCount(shopId) {
   return Object.keys(getSyncQueue(id)).length;
 }
 
+/* ---------- Fusion des listes (anti-perte de ventes) ----------
+   Avant, chaque envoi REMPLAÇAIT toute la liste sur le serveur, et chaque
+   relecture remplaçait toute la liste locale. Une relecture partie juste
+   avant une vente revenait juste après… et effaçait la vente de l'appareil,
+   puis l'envoi suivant l'effaçait du serveur. Désormais :
+   - le serveur FUSIONNE par id (il ne perd jamais un élément qu'il ne sait
+     pas supprimé) ;
+   - l'appareil envoie explicitement les ids qu'il a supprimés ;
+   - à la relecture, les éléments créés sur l'appareil et pas encore
+     confirmés par le serveur sont CONSERVÉS (et renvoyés). */
+export const MERGE_KEYS = new Set([
+  "sales", "avoirs", "movements", "clients", "expenses", "suppliers", "orders",
+  "supplierProducts", "inventories", "snackLots", "products", "categories",
+]);
+const allHaveIds = (list) => Array.isArray(list) && list.every((x) => x && typeof x === "object" && x.id != null && x.id !== "");
+const knownKey = (shopId, key) => `synced_ids:${shopId}:${key}`;
+function getKnown(shopId, key) {
+  try { const raw = localStorage.getItem(knownKey(shopId, key)); return raw ? new Set(JSON.parse(raw)) : null; } catch { return null; }
+}
+function setKnown(shopId, key, ids) {
+  try { localStorage.setItem(knownKey(shopId, key), JSON.stringify([...ids])); } catch { /* quota : non bloquant */ }
+}
+let mergedListener = null;
+export function onMergedValue(fn) { mergedListener = fn; return () => { if (mergedListener === fn) mergedListener = null; }; }
+
+// Trie comme la liste locale (ancienne → récente, ou l'inverse) quand tous
+// les éléments sont datés ; sinon garde l'ordre, nouveaux éléments à la fin.
+function orderLike(reference, items) {
+  const dated = items.length > 1 && items.every((x) => x && typeof x.date === "string" && !Number.isNaN(Date.parse(x.date)));
+  if (!dated) return items;
+  const ref = (reference || []).filter((x) => x && typeof x.date === "string");
+  const asc = ref.length < 2 ? true : Date.parse(ref[0].date) <= Date.parse(ref[ref.length - 1].date);
+  return items.map((x, i) => [x, i]).sort((a, b) => { const d = Date.parse(a[0].date) - Date.parse(b[0].date); return (asc ? d : -d) || a[1] - b[1]; }).map((p) => p[0]);
+}
+
+// Fusionne la liste locale avec celle du serveur, sans jamais perdre un
+// élément créé sur cet appareil et pas encore envoyé.
+export function mergeLocalWithServer(key, local, fresh, shopId) {
+  if (!MERGE_KEYS.has(key) || !Array.isArray(fresh)) return fresh;
+  if (!Array.isArray(local) || !allHaveIds(local) || !allHaveIds(fresh)) return fresh;
+  const id = resolveShop(shopId);
+  if (!id) return fresh;
+  const known = getKnown(id, key);
+  const dirty = !!getSyncQueue(id)[key];
+  const localMap = new Map(local.map((x) => [String(x.id), x]));
+  const freshIds = new Set(fresh.map((x) => String(x.id)));
+  const out = [];
+  fresh.forEach((x) => {
+    const k = String(x.id);
+    // Supprimé sur cet appareil, suppression pas encore envoyée.
+    if (dirty && known && known.has(k) && !localMap.has(k)) return;
+    out.push(dirty && localMap.has(k) ? localMap.get(k) : x);
+  });
+  // Créés ici et jamais vus par le serveur : on les garde et on les renverra.
+  const pending = local.filter((x) => !freshIds.has(String(x.id)) && !(known && known.has(String(x.id))));
+  setKnown(id, key, freshIds);
+  if (pending.length > 0) markDirty(key, id);
+  if (pending.length === 0) return out;
+  return orderLike(local, [...out, ...pending]);
+}
+
 async function pushOne(shopId, key, value) {
+  if (MERGE_KEYS.has(key) && allHaveIds(value)) {
+    const known = getKnown(shopId, key);
+    const current = new Set(value.map((x) => String(x.id)));
+    const deleted = known ? [...known].filter((k) => !current.has(k)) : [];
+    const data = await callFunction("store", { ...shopAuthFields(shopId), action: "set", key, value, deleted_ids: deleted });
+    if (data && data.merged && Array.isArray(data.value)) {
+      setKnown(shopId, key, new Set(data.value.map((x) => String(x.id))));
+      return data.value;
+    }
+    setKnown(shopId, key, current);
+    return null;
+  }
   await callFunction("store", { ...shopAuthFields(shopId), action: "set", key, value });
+  return null;
+}
+function notifyMerged(shopId, key, merged) {
+  if (!merged || !mergedListener) return;
+  try { mergedListener(key, merged, shopId); } catch { /* jamais bloquant */ }
 }
 async function pullOne(shopId, key) {
   const data = await callFunction("store", { ...shopAuthFields(shopId), action: "get", key });
@@ -293,7 +371,7 @@ export async function flushSyncQueue(getLocalValue, shopId) {
   let lastError = null;
 
   const results = await Promise.allSettled(
-    keys.map((key) => pushOne(id, key, getLocalValue(key)).then(() => key))
+    keys.map((key) => pushOne(id, key, getLocalValue(key)).then((merged) => { notifyMerged(id, key, merged); return key; }))
   );
 
   let synced = 0;
@@ -320,10 +398,11 @@ export async function syncKeyNow(key, value, shopId) {
   const id = resolveShop(shopId);
   if (!id) return false;
   try {
-    await pushOne(id, key, value);
+    const merged = await pushOne(id, key, value);
     const q = getSyncQueue(id);
     delete q[key];
     setSyncQueue(id, q);
+    notifyMerged(id, key, merged);
     return true;
   } catch {
     return false;
