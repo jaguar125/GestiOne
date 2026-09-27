@@ -178,6 +178,15 @@ function shopProfile(shop) {
   if (/(boutique|epicerie|superette|alimentation|quincaill|cosmet|divers)/.test(low)) return "boutique";
   return "autre";
 }
+// Entreprises de pains fourrés : seules à voir « Formules de vente » et
+// « Suppléments » dans la fiche produit (pas les maquis, caves, buvettes,
+// bars ni restaurants).
+function isPainShop(shop) {
+  const t = shop?.type;
+  if (t === "snack") return true;
+  const low = String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return /(pain|panini|fourre|sandwich|boulang|patisserie)/.test(low);
+}
 const SNACK_CATEGORIES = [
   { id: "pain", label: "Pains", color: "#C98A1B", icon: "croissant" },
   { id: "chaud", label: "Boissons chaudes", color: "#8A5A12", icon: "coffee" },
@@ -1128,8 +1137,12 @@ function GlobalStyle() {
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
       html, body { overflow-x: hidden; width: 100%; max-width: 100vw; }
+      /* "clip" coupe le débordement horizontal SANS créer de zone de
+         défilement : indispensable pour que les en-têtes "sticky" restent
+         collés en haut pendant le défilement (Historique, etc.). */
+      @supports (overflow: clip) { html, body { overflow-x: clip; } }
       .gb-root{
-        overflow-x: hidden; max-width: 100vw;
+        overflow-x: hidden; overflow-x: clip; max-width: 100vw;
         --ink:#0F1B16; --glass:#0E3B2A; --glass-light:#175943;
         --cap:#E8A33D; --soda:#2C7DA0; --paper:#F4F6F1; --paper-dim:#E4E9DF;
         --danger:#C1442E; --line:#D8DFD4; --card:#FFFFFF;
@@ -4714,7 +4727,7 @@ function StockScreen({ products, categories, sales = [], movements = [], invento
         })}
       </section>
 
-      <div className="sticky z-10 -mx-4 px-4 pt-2 pb-3 mb-1 flex flex-col gap-2.5" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 48px)", background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+      <div className="sticky z-10 -mx-4 px-4 pt-2 pb-3 mb-1 flex flex-col gap-2.5" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 44px)", background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
         <label className="flex items-center gap-2.5 min-h-[46px] px-3.5 rounded-2xl border" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
           <Search size={17} className="opacity-50" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom ou code-barres" aria-label="Rechercher un produit" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
@@ -4963,6 +4976,8 @@ function DeleteSaleSheet({ sale, impact, currency, onCancel, onConfirm }) {
   );
 }
 
+// Bas de la barre d'en-tête fixe de l'application (nom de la boutique).
+const STICK_BASE = "calc(max(22px, env(safe-area-inset-top)) + 44px)";
 function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, onReturnSale, onSaveInvoice, pushToast }) {
   const fmt = useFmt();
   const [open, setOpen] = useState(null);
@@ -4978,6 +4993,23 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
   const [editingSale, setEditingSale] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [histQuery, setHistQuery] = useState("");
+  // En-tête (titre + boutons + périodes) et recherche + journée en cours
+  // restent collés en haut pendant le défilement : on mesure leur hauteur
+  // pour empiler les zones fixes sans chevauchement.
+  const stickTopRef = useRef(null);
+  const stickSearchRef = useRef(null);
+  const [stickH, setStickH] = useState({ top: 0, search: 0 });
+  useEffect(() => {
+    const measure = () => {
+      const top = stickTopRef.current?.offsetHeight || 0, search = stickSearchRef.current?.offsetHeight || 0;
+      setStickH((h) => (h.top === top && h.search === search ? h : { top, search }));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    [stickTopRef.current, stickSearchRef.current].forEach((el) => el && ro.observe(el));
+    return () => ro.disconnect();
+  });
   // "Mes ventes" (vendeur) inclut aussi les ventes faites par
   // l'administrateur — la caisse est partagée, un vendeur doit voir
   // l'ensemble de l'activité du jour, pas seulement ce qu'il a lui-même
@@ -5056,7 +5088,8 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
   const dayLabel = (g) => g.key === today ? "Aujourd'hui" : g.key === yKey ? "Hier" : g.date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const H = { mut: "#66707A", line: "var(--line)" };
   return (
-    <div className="px-4 pt-4" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <div ref={stickTopRef} className="sticky z-[11] -mx-4 px-4 pt-2 pb-2.5 mb-3 no-print" style={{ top: STICK_BASE, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.30)" }}>
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="min-w-0">
           <h2 className="font-display font-bold text-[22px] leading-tight">{vendorFilter ? "Mes ventes" : "Historique des ventes"}</h2>
@@ -5069,20 +5102,21 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
         <button onClick={() => setPdfPreview(true)} className="gb-focus min-h-[46px] rounded-[14px] flex items-center justify-center gap-1.5 text-[13px] font-bold text-white" style={{ background: "var(--glass)" }}><Printer size={16} /> PDF</button>
       </div>
 
-      {pdfPreview && <SalesPdfPreview shop={shop} sales={sorted} vendorFilter={vendorFilter} onClose={() => setPdfPreview(false)} pushToast={pushToast} />}
-
-      <div className="flex gap-2 overflow-x-auto gb-scroll mb-3 -mx-4 px-4">
+      <div className="flex gap-2 overflow-x-auto gb-scroll -mx-4 px-4">
         {[{ id: "all", label: "Tout" }, { id: "today", label: "Aujourd'hui" }, { id: "7j", label: "7 jours" }, { id: "30j", label: "30 jours" }, { id: "custom", label: "Plage", Icon: CalendarCheck }].map((p) => (
           <button key={p.id} onClick={() => setPeriodFilter(p.id)} className="gb-focus shrink-0 min-h-[38px] flex items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold" style={{ background: periodFilter === p.id ? "var(--glass)" : "var(--card)", color: periodFilter === p.id ? "#fff" : "var(--ink)", border: periodFilter === p.id ? "1px solid var(--glass)" : "1px solid var(--line)", boxShadow: periodFilter === p.id ? "0 4px 12px rgba(0,0,0,0.18)" : "none" }}>{p.Icon && <p.Icon size={13} />}{p.label}</button>
         ))}
       </div>
       {periodFilter === "custom" && (
-        <div className="flex items-center gap-2 mb-3 p-2.5 rounded-xl gb-slide-up" style={{ background: "#E1F5EE" }}>
+        <div className="flex items-center gap-2 mt-2.5 p-2.5 rounded-xl gb-slide-up" style={{ background: "#E1F5EE" }}>
           <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#9FE1CB", background: "var(--card)" }} />
           <span className="text-xs font-semibold" style={{ color: "#0F6E56" }}>à</span>
           <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#9FE1CB", background: "var(--card)" }} />
         </div>
       )}
+      </div>
+
+      {pdfPreview && <SalesPdfPreview shop={shop} sales={sorted} vendorFilter={vendorFilter} onClose={() => setPdfPreview(false)} pushToast={pushToast} />}
 
       {vendorFilter && <VendorGoalCard shop={shop} sales={sales} vendorName={vendorFilter} />}
 
@@ -5117,10 +5151,12 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
       </div>
 
       {sorted.length > 0 && (
-        <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px] mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <div ref={stickSearchRef} className="sticky z-[10] -mx-4 px-4 pb-2 no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top}px)`, background: "var(--paper)" }}>
+        <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
           <Search size={16} style={{ color: H.mut }} />
           <input value={histQuery} onChange={(e) => setHistQuery(e.target.value)} placeholder="N° de reçu, client, vendeur, produit" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
           {histQuery && <button onClick={() => setHistQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={14} /></button>}
+        </div>
         </div>
       )}
 
@@ -5134,6 +5170,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
       <div className="flex flex-col gap-4">
         {groups.map((g) => (
         <div key={g.key}>
+          <div className="sticky z-[9] -mx-4 px-4 pt-1.5 pb-1 no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top + stickH.search}px)`, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.30)" }}>
           <div className="flex items-baseline justify-between px-1 mb-2">
             <p className="text-[12.5px] font-bold capitalize">{dayLabel(g)}</p>
             <p className="text-[11.5px]" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <b style={{ color: "var(--ink)" }}>{fmt(g.total)}</b></p>
@@ -5148,6 +5185,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
               ))}
             </div>
           )}
+          </div>
           <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
         {g.items.map((s, idx) => {
           const unpaid = s.paymentMethod === "credit" && !s.paid;
@@ -7397,7 +7435,9 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
         </div>
       )}
 
-      {!isBoutique && <>
+      {/* Formules + suppléments : uniquement pour les pains fourrés (on les
+          garde visibles si le produit en possède déjà, pour pouvoir les retirer). */}
+      {!isBoutique && (V.painFourre || (f.variants || []).length > 0 || (f.options || []).length > 0) && <>
       <div className="rounded-xl mt-2.5 p-3" style={{ background: "#E6F4EC" }}>
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#1E7A46" }}><Layers size={13} /> Formules de vente (même stock, autre prix)</span>
@@ -15492,7 +15532,7 @@ function AppInner() {
         ) : shops.length === 0 ? (
           <OnboardingScreen shops={shops} onComplete={handleOnboardingComplete} onJoinShop={handleJoinShopComplete} pushToast={pushToast} trialUsed={trialUsed} onStartTrial={handleStartTrial} />
         ) : shop && (
-          <CurrencyContext.Provider value={shop.currency}><VocabContext.Provider value={VOCAB[shopProfile(shop)] || VOCAB.boissons}>
+          <CurrencyContext.Provider value={shop.currency}><VocabContext.Provider value={{ ...(VOCAB[shopProfile(shop)] || VOCAB.boissons), painFourre: isPainShop(shop) }}>
           <LanguageContext.Provider value={shop.language || "fr"}>
             {!role ? (
               <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); logAudit("connexion", `Connexion de ${name}`, { by: name, role: r }); setRole(r); setCurrentVendorName(name); setView("sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} />
