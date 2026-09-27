@@ -216,7 +216,7 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
       push(ESC, 0x45, 0x01);
       line(twoCol("Reste a payer", fmt(creditRest)));
       push(ESC, 0x45, 0x00);
-    } else if (!receipt.avoirMonnaie) {
+    } else if (!receipt.avoirMonnaie || receipt.changeDue > 0) {
       line(twoCol("Rendu", fmt(receipt.changeDue)));
     }
   }
@@ -443,7 +443,10 @@ export function buildCashReportEscPos(report, shop, fmt) {
   line("--------------------------------");
   line(twoCol("Fond de caisse", fmt(report.fund)));
   line(twoCol(`+ Ventes especes (${report.cashSalesCount})`, fmt(report.cashSales)));
-  line(twoCol(`+ Credits encaisses (${report.creditsCount})`, fmt(report.creditsCollected)));
+  if (report.creditsCollectedNew !== undefined) {
+    if (Number(report.creditsCollectedOld) > 0) line(twoCol(`+ Credits anciens (${report.creditsCountOld})`, fmt(report.creditsCollectedOld)));
+    line(twoCol(`+ Credits caisse (${report.creditsCountNew})`, fmt(report.creditsCollectedNew)));
+  } else line(twoCol(`+ Credits encaisses (${report.creditsCount})`, fmt(report.creditsCollected)));
   line(twoCol(`- Depenses (${report.expensesCount})`, fmt(report.expensesTotal)));
   if (Number(report.refundsCash) > 0) line(twoCol(`- Remboursements (${report.refundsCashCount || 0})`, fmt(report.refundsCash)));
   line("--------------------------------");
@@ -461,7 +464,13 @@ export function buildCashReportEscPos(report, shop, fmt) {
   line("--------------------------------");
   line(twoCol(`Mobile Money (${report.mobileSalesCount})`, fmt(report.mobileSales)));
   line("(hors caisse)");
-  line(twoCol("Total encaisse", fmt(report.cashSales + report.creditsCollected + report.mobileSales)));
+  if (report.creditsCollectedNew !== undefined) {
+    line(twoCol(`Credits en cours (${report.creditsOpenCount})`, fmt(report.creditsOpen)));
+    line(twoCol("Ventes totales hors MoMo", fmt(report.salesTotalExMobile)));
+    push(ESC, 0x45, 0x01);
+    line(twoCol("TOTAL GENERAL VENTES", fmt(report.grandTotal)));
+    push(ESC, 0x45, 0x00);
+  } else line(twoCol("Total encaisse", fmt(report.cashSales + report.creditsCollected + report.mobileSales)));
   if (Array.isArray(report.byVendor) && report.byVendor.length) {
     line("--------------------------------");
     push(ESC, 0x45, 0x01);

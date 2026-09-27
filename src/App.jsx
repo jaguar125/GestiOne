@@ -944,6 +944,10 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
   const to = until ? cashTime(until) : Date.now();
   const inWindow = (d) => { const t = cashTime(d); return t > from && t <= to; };
   let cashSales = 0, cashSalesCount = 0, mobileSales = 0, mobileSalesCount = 0, creditsCollected = 0, creditsCount = 0;
+  // Crédits encaissés répartis : ventes d'AVANT l'ouverture de la caisse
+  // (anciens crédits) et ventes faites PENDANT la caisse ; crédits de la
+  // période encore non encaissés à la clôture.
+  let creditsCollectedOld = 0, creditsCountOld = 0, creditsCollectedNew = 0, creditsCountNew = 0, creditsOpen = 0, creditsOpenCount = 0;
   let refundsCash = 0, refundsCashCount = 0, refundsMobile = 0;
   // Détail par vendeur : qui a encaissé quoi pendant cette session.
   const vend = {};
@@ -976,10 +980,21 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
       const v = V(sale.vendor); v.mobile += gross - avoirPart; v.cash += avoirPart; v.mobileCount += 1; v.tickets += 1;
     }
     else if (sale.paymentMethod === "credit") {
-      if (inWindow(sale.date)) V(sale.vendor).tickets += 1;
+      const saleInWindow = inWindow(sale.date);
+      if (saleInWindow) V(sale.vendor).tickets += 1;
+      let paidUpTo = 0;
       creditPaymentsOf(sale).forEach((pay) => {
-        if (inWindow(pay.date)) { creditsCollected += Number(pay.amount) || 0; creditsCount += 1; const v = V(pay.by || sale.vendor); v.credits += Number(pay.amount) || 0; v.creditsCount += 1; }
+        const amt = Number(pay.amount) || 0;
+        if (cashTime(pay.date) <= to) paidUpTo += amt;
+        if (inWindow(pay.date)) {
+          creditsCollected += amt; creditsCount += 1; const v = V(pay.by || sale.vendor); v.credits += amt; v.creditsCount += 1;
+          if (saleInWindow) { creditsCollectedNew += amt; creditsCountNew += 1; } else { creditsCollectedOld += amt; creditsCountOld += 1; }
+        }
       });
+      if (saleInWindow && !sale.writtenOff) {
+        const open = Math.max(0, (Number(sale.total) || 0) - paidUpTo);
+        if (open > 0.5) { creditsOpen += open; creditsOpenCount += 1; }
+      }
     }
   });
   const periodExpenses = (expenses || []).filter((e) => inWindow(e.date));
@@ -994,6 +1009,11 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
   const fund = Number(session?.amount) || 0;
   return {
     fund, cashSales, cashSalesCount, mobileSales: mobileSales - refundsMobile, mobileSalesCount, creditsCollected, creditsCount,
+    creditsCollectedOld, creditsCountOld, creditsCollectedNew, creditsCountNew, creditsOpen, creditsOpenCount,
+    // Ventes de la caisse hors Mobile Money : espèces + crédits accordés
+    // pendant la caisse (déjà encaissés ou encore en cours).
+    salesTotalExMobile: cashSales + creditsCollectedNew + creditsOpen,
+    grandTotal: cashSales + creditsCollectedNew + creditsOpen + (mobileSales - refundsMobile),
     expensesTotal, expensesCount: periodExpenses.length,
     refundsCash, refundsCashCount, refundsMobile, byVendor,
     expected: fund + cashSales + creditsCollected - expensesTotal - refundsCash,
@@ -2527,7 +2547,7 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
                 <span>Reste à payer</span>
                 <span>{fmt(creditRestOf(receipt))}</span>
               </div>
-            ) : !receipt.avoirMonnaie ? (
+            ) : (!receipt.avoirMonnaie || receipt.changeDue > 0) ? (
               <div className="flex justify-between text-[12px] font-mono font-bold mt-1">
                 <span>Monnaie rendue</span>
                 <span>{fmt(receipt.changeDue)}</span>
@@ -2551,7 +2571,7 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
         {(receipt.isProductAvoir || receipt.hasProductAvoir) && (
           <div className="rounded-xl p-3 mt-3 gb-slide-up" style={{ background: "#EEEDFE" }}>
             <p className="text-[12px] font-bold" style={{ color: "#26215C" }}>{receipt.productAvoirFor && receipt.productAvoirFor !== receipt.avoirClientName ? `Offert à : ${receipt.productAvoirFor}` : `Client : ${receipt.productAvoirFor || receipt.avoirClientName || receipt.clientName || "Client"}`}</p>
-            <p className="text-[11px] mt-0.5" style={{ color: "#3C3489" }}>Ces produits sont en avoir : à retirer ou à consommer sur place lors d'un prochain passage.</p>
+            <p className="text-[11px] mt-0.5" style={{ color: "#3C3489" }}>{receipt.isProductAvoir ? "Ces produits sont en avoir : à retirer ou à consommer sur place lors d'un prochain passage." : "Payé — articles gardés en réserve au magasin, à retirer ou à consommer sur place lors d'un prochain passage."}</p>
           </div>
         )}
 
@@ -3213,7 +3233,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const avoirShortfall = payAvoir && due > 0 ? (payment === "credit" ? due : payment === "especes" && amountReceived !== "" ? Math.max(0, due - (Number(amountReceived) || 0)) : 0) : 0;
 
   const canAvoirMonnaie = payment === "especes" && amountReceived !== "" && Number(amountReceived) > (payAvoir ? due : total) && (!payAvoir || due > 0);
-  const canAvoirProduit = payAvoir ? true : (payment === "especes" ? amountReceived !== "" : payment === "mobile");
+  const canAvoirProduit = payAvoir ? true : (payment === "especes" ? amountReceived !== "" : payment === "mobile" || payment === "credit");
   // Vente en espèces avec un montant reçu insuffisant : au lieu de bloquer,
   // on propose d'enregistrer automatiquement la différence en crédit client
   // (dès lors qu'un client est renseigné et qu'aucune puce avoir n'est active).
@@ -3282,6 +3302,23 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       resetCheckoutFields();
       return;
     }
+    // Crédit (total ou partiel) + avoir produit : le client paie une partie
+    // (ou rien), le reste passe en crédit à son nom, et les articles restent
+    // au magasin en avoir produit, à lui remettre plus tard. Le stock est
+    // retiré une seule fois, par la vente.
+    if (avoirProduit && !avoirMonnaie && (payment === "credit" || cashShortfall)) {
+      const name = (avoirClientName.trim() || clientName.trim());
+      if (!clientId && !name) { pushToast("Indiquez le nom du client (crédit et avoir produit)", "error"); setClientFocusSignal((n) => n + 1); return; }
+      const received = payment === "especes" && amountReceived !== "" ? Math.max(0, Number(amountReceived) || 0) : 0;
+      const sale = onCheckout(cartItems, total, "credit", clientId, clientName.trim() || name, received > 0 ? received : null, received);
+      onCreateProductAvoir(cartItems, name || clientName, { skipStock: true, saleId: sale?.id });
+      playSound("sale", shop.soundsEnabled);
+      speak(`Vente enregistrée. ${received > 0 ? `${spokenAmount(fmt(received))} payés, ` : ""}${spokenAmount(fmt(total - received))} en crédit. Articles en avoir pour ${name || clientName}.`, voiceOn(shop, "sale"));
+      setReceipt({ ...sale, hasProductAvoir: true, avoirClientName: name || clientName, changeDue: 0 });
+      setShowCart(false);
+      resetCheckoutFields();
+      return;
+    }
     if (payment === "credit" && !clientId) { pushToast("Sélectionnez ou ajoutez un client pour le crédit", "error"); setClientFocusSignal((n) => n + 1); return; }
     if (avoirMonnaie && !canAvoirMonnaie) { pushToast("Le montant reçu doit être supérieur au total pour l'avoir monnaie", "error"); return; }
     if (avoirProduit && !canAvoirProduit) { pushToast("Saisissez le montant reçu du client pour l'avoir produit", "error"); return; }
@@ -3323,39 +3360,19 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       return;
     }
 
-    // Avoir produit en espèces (seul ou combiné avec avoir monnaie) : les
-    // articles du panier sont dus au client, pas vendus maintenant — ça
-    // remplace la vente normale, pas de recette comptée. Si en plus l'avoir
-    // monnaie est actif, la monnaie non rendue est aussi enregistrée comme
-    // somme due, et le reçu affiche les deux messages. Les deux avoirs sont
-    // créés en un seul appel atomique (voir onCreateProductAndMoneyAvoir) —
-    // deux appels séparés se marchaient dessus l'un l'autre.
+    // Avoir produit payé en espèces : c'est une VENTE (le client a payé, le
+    // montant compte dans la recette du jour et apparaît dans l'historique),
+    // mais les articles restent au magasin, « en réserve », au nom du client.
+    // Le stock est retiré une seule fois par la vente. Si l'avoir monnaie est
+    // aussi actif, la monnaie non rendue devient une somme due, rattachée.
     if (avoirProduit) {
       const hasMoney = avoirMonnaie && changeDue > 0;
-      const { productAvoir, moneyAvoir } = hasMoney
-        ? onCreateProductAndMoneyAvoir(cartItems, changeDue, avoirClient)
-        : { productAvoir: onCreateProductAvoir(cartItems, avoirClient), moneyAvoir: null };
+      const sale = onCheckout(cartItems, total, "especes", clientId, clientName || avoirClient, receivedAmount);
+      const { productAvoir, moneyAvoir } = onCreateProductAndMoneyAvoir(cartItems, hasMoney ? changeDue : 0, avoirClient, { skipStock: true, saleId: sale?.id });
       playSound("sale", shop.soundsEnabled);
-      speak(`Avoir enregistré pour ${avoirClient}.`, voiceOn(shop, "credit"));
+      speak(`Vente enregistrée, ${spokenAmount(fmt(total))}. Articles en réserve pour ${avoirClient}.`, voiceOn(shop, "sale"));
       setShowCart(false);
-      setReceipt({
-        isProductAvoir: true,
-        avoirMonnaie: !!moneyAvoir,
-        avoirAmount: changeDue,
-        id: productAvoir?.id || uid(),
-        date: productAvoir?.date || new Date().toISOString(),
-        items: cartItems,
-        total,
-        amountReceived: receivedAmount,
-        // La monnaie ne s'annule que si l'avoir monnaie est aussi actif (la
-        // différence devient alors une somme due, pas rendue en espèces).
-        // Sinon (avoir produit seul), le client reçoit sa vraie monnaie et
-        // le reçu doit l'afficher, comme pour une vente normale.
-        changeDue: hasMoney ? 0 : changeDue,
-        clientName: avoirClient,
-        avoirClientName: avoirClient,
-        vendor: productAvoir?.vendor || "",
-      });
+      setReceipt({ ...sale, hasProductAvoir: !!productAvoir, avoirClientName: avoirClient, avoirMonnaie: !!moneyAvoir, avoirAmount: hasMoney ? changeDue : 0, changeDue: hasMoney ? 0 : changeDue });
       resetCheckoutFields();
       return;
     }
@@ -3830,7 +3847,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                             <span className="text-xs font-semibold" style={{ color: "var(--danger)" }}>Montant insuffisant</span>
                             <span className="font-mono font-bold text-sm" style={{ color: "var(--danger)" }}>- {fmt(due - Number(amountReceived))}</span>
                           </div>
-                          <p className="text-[10px] mt-1" style={{ color: "var(--danger)" }}>{payAvoir ? `Le manque passera en crédit au nom de ${clientName || payAvoir.clientName || "client"}.` : "Sera enregistré en crédit client pour la différence — indiquez le nom du client ci-dessous."}</p>
+                          <p className="text-[10px] mt-1" style={{ color: "var(--danger)" }}>{payAvoir ? `Le manque passera en crédit au nom de ${clientName || payAvoir.clientName || "client"}.` : (avoirProduit ? `Le reste (${fmt(total - (Number(amountReceived) || 0))}) passe en crédit et les articles restent en avoir produit — indiquez le nom du client.` : "Sera enregistré en crédit client pour la différence — indiquez le nom du client ci-dessous.")}</p>
                         </div>
                       )
                     )}
@@ -3871,9 +3888,9 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                     <p className="text-[10.5px] opacity-60 px-1">{avoirProduit ? "Les articles restent au magasin et seront remis plus tard à la personne indiquée ci-dessous." : "Activez si le client ne prend pas les articles maintenant, ou les offre à quelqu'un."}</p>
                   </div>
                 )}
-                {!payAvoir && payment !== "credit" && payment !== "mixte" && (payment === "mobile" || (amountReceived !== "" && Number(amountReceived) >= total)) && (
+                {!payAvoir && payment !== "mixte" && (payment === "mobile" || payment === "credit" || amountReceived !== "") && (
                   <div className="flex flex-col gap-2 mt-3">
-                    {payment !== "mobile" && (
+                    {payment === "especes" && !cashShortfall && (
                       <>
                         <button
                           onClick={toggleAvoirMonnaie}
@@ -3930,7 +3947,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
               </div>
               <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : "0 10px 22px rgba(30,142,80,0.3)" }}>
                 <Check size={19} />
-                {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit ? (avoirMonnaie ? "Enregistrer l'avoir produit + monnaie" : "Enregistrer l'avoir produit") : (payment === "mixte" ? `Encaisser ${fmt(total)} · espèces + mobile` : cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
+                {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit && !avoirMonnaie && (payment === "credit" || cashShortfall) ? (payment === "credit" || !(Number(amountReceived) > 0) ? `Crédit ${fmt(total)} · avoir produit` : `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))} · avoir produit`) : avoirProduit ? `Encaisser ${fmt(total)} · articles en réserve${avoirMonnaie ? " + monnaie en avoir" : ""}` : (payment === "mixte" ? `Encaisser ${fmt(total)} · espèces + mobile` : cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
               </button>
             </div>
           </div>
@@ -5101,6 +5118,20 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
                 <p className="text-[11.5px] truncate mt-0.5" style={{ color: H.mut }}>{s.vendor} · {nbArt} article{nbArt > 1 ? "s" : ""}{s.clientName ? ` · ${s.clientName}` : ""}</p>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: payTint.bg, color: payTint.fg }}>{payLabel}</span>
+                  {(() => {
+                    const res = (avoirs || []).filter((a) => a.type === "produit" && a.saleId === s.id);
+                    if (!res.length) return null;
+                    const left = res.reduce((t, a) => t + avoirProductProgress(a).remainingQty, 0);
+                    const who = res[0].clientName;
+                    return left > 0
+                      ? <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#EEEDFE", color: "#534AB7" }}><PackageX size={10} /> {left} EN RÉSERVE · {who}</span>
+                      : <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#E6F4EC", color: "#1E7A46" }}><Check size={10} /> RÉSERVE REMISE</span>;
+                  })()}
+                  {shop?.backendLinked && api.isServerConfirmed("sales", s.id, shop.id) === false && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#FFF1D6", color: "#9A5B00" }} title="Vente enregistrée sur ce téléphone, envoi au serveur en cours">
+                      <RefreshCw size={10} /> ENVOI EN COURS
+                    </span>
+                  )}
                   {rets.length > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: "#EFEAFB", color: "#5B3FB0" }}>{fullyReturned ? "RETOURNÉE" : "RETOUR PARTIEL"}</span>}
                   {(s.invoices || []).length > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: "#E8F0FB", color: "#1D5FA8" }}>FACTURÉE</span>}
                 </div>
@@ -5809,8 +5840,9 @@ function creditAgeMeta(days) {
   return { label: `${days} j`, full: `Depuis ${days} jours`, color: CR.mut, bg: CR.soft };
 }
 
-function CreditsScreen({ shop, sales, clients, onSettle, pushToast }) {
+function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, onDeleteSale }) {
   const fmt = useFmt();
+  const [deleting, setDeleting] = useState(null);
   const [settling, setSettling] = useState(null);
   const [confirmReceipt, setConfirmReceipt] = useState(null);
   const [periodFilter, setPeriodFilter] = useState("all");
@@ -5966,13 +5998,18 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast }) {
                 <span className="flex items-center gap-2.5 text-[15px] font-bold"><span className="w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: "rgba(255,255,255,0.16)" }}><Banknote size={17} /></span>{hasPartial ? "Encaisser le solde" : "Encaisser le crédit"}</span>
                 <span className="font-display font-bold text-[15px] px-2.5 py-1 rounded-[9px]" style={{ background: "rgba(255,255,255,0.16)" }}>{fmt(remaining)}</span>
               </button>
-              <div className="grid gap-2 mt-2" style={{ gridTemplateColumns: hasPartial ? "1fr 1fr" : "1fr" }}>
+              <div className="grid gap-2 mt-2" style={{ gridTemplateColumns: `${hasPartial ? "1fr 1fr" : "1fr"}${onWriteOff ? " auto" : ""}` }}>
                 <button onClick={() => remind(s)} className="gb-focus min-h-[46px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "#fff", color: "#128C4A", border: "1.5px solid #25D366", boxShadow: "0 3px 8px -4px rgba(37,211,102,0.5)" }} aria-label={`Relancer ${s.clientName || "le client"} sur WhatsApp`}>
                   <span className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "#25D366" }}><MessageCircle size={13} color="#fff" strokeWidth={2.6} /></span> {hasPartial ? "Relancer" : "Relancer sur WhatsApp"}
                 </button>
                 {hasPartial && (
                   <button onClick={() => setConfirmReceipt(s)} className="gb-focus min-h-[46px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "#fff", color: CR.ink, border: `1.5px solid ${CR.line}`, boxShadow: "0 3px 8px -5px rgba(0,0,0,0.25)" }} aria-label="Historique des règlements">
                     <History size={16} /> Règlements
+                  </button>
+                )}
+                {onWriteOff && (
+                  <button onClick={() => setDeleting(s)} className="gb-focus min-h-[46px] w-[46px] rounded-[14px] flex items-center justify-center active:scale-[0.98] transition-transform" style={{ background: "#FCEBEB", border: "1.5px solid #F0C4BF" }} aria-label={`Supprimer le crédit de ${s.clientName || "ce client"}`}>
+                    <Trash2 size={17} color="#B3261E" />
                   </button>
                 )}
               </div>
@@ -5995,7 +6032,7 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast }) {
                 <div className="w-9 h-9 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: CR.greenBg }}><Check size={16} color={CR.green} strokeWidth={2.6} /></div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[14px] font-semibold truncate">{s.clientName || "Client"}</p>
-                  <p className="text-[11.5px] truncate" style={{ color: CR.mut }}>Soldé{s.paidDate ? ` le ${new Date(s.paidDate).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}{s.paidBy ? ` · ${s.paidBy}` : ""}</p>
+                  <p className="text-[11.5px] truncate" style={{ color: CR.mut }}>{s.writtenOff ? `Dette annulée (${fmt(s.writtenOff.amount)})` : "Soldé"}{s.paidDate ? ` le ${new Date(s.paidDate).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}{s.paidBy ? ` · ${s.paidBy}` : ""}</p>
                 </div>
                 <span className="font-display font-bold text-[14px] shrink-0" style={{ color: CR.green }}>{fmt(s.total)}</span>
                 <Printer size={14} color={CR.mut} className="shrink-0" />
@@ -6006,6 +6043,7 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast }) {
       )}
 
       {settling && <SettleCreditModal sale={settling} onConfirm={handleConfirmSettle} onClose={() => setSettling(null)} />}
+      {deleting && <DeleteCreditSheet sale={deleting} onClose={() => setDeleting(null)} onWriteOff={(id) => { setDeleting(null); onWriteOff(id); }} onDeleteSale={(id) => { setDeleting(null); onDeleteSale(id); }} />}
       {confirmReceipt && <CreditReceiptModal sale={confirmReceipt} shop={shop} onClose={() => setConfirmReceipt(null)} pushToast={pushToast} />}
     </div>
   );
@@ -6021,6 +6059,20 @@ function avoirTakenByProduct(avoir) {
 function avoirRemainingItems(avoir) {
   const taken = avoirTakenByProduct(avoir);
   return (avoir.items || []).map((i) => ({ ...i, qty: Math.max(0, i.qty - (taken[i.productId] || 0)) })).filter((i) => i.qty > 0);
+}
+// Bouteilles « en réserve » : articles d'avoirs produit pas encore remis.
+// Elles sont déjà sorties du stock disponible (vendues), mais sont toujours
+// physiquement au magasin — le comptage doit les ajouter.
+function reservedByProduct(avoirs) {
+  const map = {};
+  (avoirs || []).filter((a) => a.type === "produit" && !a.settled).forEach((a) => {
+    avoirRemainingItems(a).forEach((i) => {
+      if (!map[i.productId]) map[i.productId] = { qty: 0, clients: [] };
+      map[i.productId].qty += i.qty;
+      if (!map[i.productId].clients.includes(a.clientName)) map[i.productId].clients.push(a.clientName);
+    });
+  });
+  return map;
 }
 function avoirProductProgress(avoir) {
   const totalQty = (avoir.items || []).reduce((s, i) => s + i.qty, 0);
@@ -6408,8 +6460,9 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
   );
 }
 
-function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast }) {
+function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast, onDeleteAvoirs }) {
   const fmt = useFmt();
+  const [deletingAvoirs, setDeletingAvoirs] = useState(null);
   const [periodFilter, setPeriodFilter] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -6523,10 +6576,11 @@ function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast 
                   </div>
                 )}
 
-                <div className="p-2.5 pt-0">
-                  <button onClick={() => (isProduit ? setRedeemProduct(a) : setRedeemMoney(a))} className="gb-focus w-full rounded-xl py-2.5 text-xs font-semibold text-white" style={{ background: "#0F6E56" }}>
+                <div className="p-2.5 pt-0 flex gap-2">
+                  <button onClick={() => (isProduit ? setRedeemProduct(a) : setRedeemMoney(a))} className="gb-focus flex-1 rounded-xl py-2.5 text-xs font-semibold text-white" style={{ background: "#0F6E56" }}>
                     Marquer comme reçu
                   </button>
+                  {onDeleteAvoirs && <button onClick={() => setDeletingAvoirs([a])} className="gb-focus w-11 shrink-0 rounded-xl flex items-center justify-center" style={{ background: "#FCEBEB", border: "1px solid #F0C4BF" }} aria-label={`Supprimer l'avoir de ${a.clientName}`}><Trash2 size={16} color="#B3261E" /></button>}
                 </div>
               </div>
             );
@@ -6606,6 +6660,11 @@ function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast 
                   </>
                 )}
               </div>
+              {onDeleteAvoirs && (
+                <div className="px-3.5 pb-3.5 -mt-1.5">
+                  <button onClick={() => setDeletingAvoirs([produit, monnaie].filter((x) => !x.settled))} className="gb-focus w-full min-h-[40px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5" style={{ background: "#FCEBEB", color: "#B3261E" }}><Trash2 size={14} /> Supprimer ces avoirs</button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -6674,6 +6733,7 @@ function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast 
         />
       )}
       {viewingReceipt && <AvoirReceiptModal avoir={viewingReceipt} shop={shop} onClose={() => setViewingReceipt(null)} pushToast={pushToast} />}
+      {deletingAvoirs && <DeleteAvoirSheet list={deletingAvoirs} onClose={() => setDeletingAvoirs(null)} onConfirm={(ids, restock) => { setDeletingAvoirs(null); setExpanded(null); onDeleteAvoirs(ids, restock); }} />}
       {viewingCombinedReceipt && <CombinedAvoirReceiptModal produit={viewingCombinedReceipt.produit} monnaie={viewingCombinedReceipt.monnaie} shop={shop} onClose={() => setViewingCombinedReceipt(null)} pushToast={pushToast} />}
     </div>
   );
@@ -7016,7 +7076,81 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
 
 // Regroupe Crédits et Avoirs sous un seul onglet de navigation, avec un
 // sous-menu à l'intérieur — évite de surcharger la barre du bas.
-function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeemMoney, onRedeemProduct, onReturnSale, auditLog, pushToast }) {
+
+// Suppression d'un avoir en cours (administrateur). Pour un avoir produit,
+// les articles pas encore remis peuvent revenir dans le stock.
+function DeleteAvoirSheet({ list, onConfirm, onClose }) {
+  const fmt = useFmt();
+  const produits = list.filter((a) => a.type === "produit");
+  const remainingItems = produits.flatMap((a) => avoirRemainingItems(a));
+  const remQty = remainingItems.reduce((t, i) => t + i.qty, 0);
+  const moneyLeft = list.filter((a) => a.type !== "produit").reduce((t, a) => t + avoirMoneyProgress(a).remaining, 0);
+  const [restock, setRestock] = useState(true);
+  const client = list[0]?.clientName || "Client";
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end no-print">
+      <div className="absolute inset-0 bg-black/45" onClick={onClose} />
+      <div className="relative w-full rounded-t-3xl px-5 pt-5 gb-slide-up max-h-[90vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <span className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center" style={{ background: "#FCEBEB" }}><Trash2 size={24} color="#A32D2D" /></span>
+        <p className="font-display font-bold text-[18px] text-center mt-3">Supprimer {list.length > 1 ? "ces avoirs" : "cet avoir"} ?</p>
+        <p className="text-[13px] text-center opacity-70 mt-1">{client} · {list.map((a) => (a.type === "produit" ? "avoir produit" : "avoir monnaie")).join(" + ")}</p>
+        <div className="rounded-xl p-3 mt-3.5 flex flex-col gap-1.5 text-[13px]" style={{ background: "var(--paper-dim)" }}>
+          {moneyLeft > 0 && <div className="flex justify-between"><span className="opacity-70">Monnaie encore due</span><span className="font-mono font-bold">{fmt(moneyLeft)}</span></div>}
+          {remainingItems.map((i, k) => <div key={k} className="flex justify-between"><span className="opacity-70">{i.qty} × {i.name}</span><span className="font-mono">{fmt(i.qty * (Number(i.price) || 0))}</span></div>)}
+        </div>
+        {remQty > 0 && (
+          <button onClick={() => setRestock((v) => !v)} className="gb-focus w-full mt-2.5 flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-left" style={{ background: "#EEEDFE" }}>
+            <span className="text-[12.5px] font-semibold" style={{ color: "#26215C" }}>Remettre en stock les {remQty} article{remQty > 1 ? "s" : ""} non remis</span>
+            <span className="w-10 h-6 rounded-full relative shrink-0 transition-colors" style={{ background: restock ? "#7F77DD" : "var(--line)" }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: restock ? 18 : 2 }} /></span>
+          </button>
+        )}
+        <p className="text-[11.5px] opacity-60 mt-2.5">{moneyLeft > 0 ? "Le client ne pourra plus réclamer cette monnaie. " : ""}La suppression est inscrite dans le journal d'activité.</p>
+        <div className="flex gap-2 mt-4">
+          <button onClick={onClose} className="gb-focus flex-1 min-h-[48px] rounded-xl text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+          <button onClick={() => onConfirm(list.map((a) => a.id), remQty > 0 && restock)} className="gb-focus flex-1 min-h-[48px] rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "#B3261E" }}><Trash2 size={16} /> Supprimer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Suppression d'un crédit en cours (administrateur) : soit on annule la
+// dette (la vente reste, le client ne doit plus rien), soit on supprime la
+// vente elle-même (les articles reviennent en stock).
+function DeleteCreditSheet({ sale, onWriteOff, onDeleteSale, onClose }) {
+  const fmt = useFmt();
+  const paid = creditPaidSoFar(sale);
+  const remaining = Math.max(0, sale.total - paid);
+  const [mode, setMode] = useState("writeoff");
+  const Opt = ({ id, title, desc, Icon, tone }) => (
+    <button onClick={() => setMode(id)} className="gb-focus w-full rounded-2xl p-3 flex items-start gap-3 text-left" style={{ background: mode === id ? tone.bg : "var(--card)", border: `1.5px solid ${mode === id ? tone.fg : "var(--line)"}` }}>
+      <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: tone.bg }}><Icon size={17} color={tone.fg} /></span>
+      <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">{title}</span><span className="block text-[12px] opacity-70 mt-0.5 leading-snug">{desc}</span></span>
+      <span className="w-5 h-5 rounded-full shrink-0 mt-1 flex items-center justify-center" style={{ border: `2px solid ${mode === id ? tone.fg : "var(--line)"}` }}>{mode === id && <span className="w-2.5 h-2.5 rounded-full" style={{ background: tone.fg }} />}</span>
+    </button>
+  );
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end no-print">
+      <div className="absolute inset-0 bg-black/45" onClick={onClose} />
+      <div className="relative w-full rounded-t-3xl px-5 pt-5 gb-slide-up max-h-[90vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        <span className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center" style={{ background: "#FCEBEB" }}><Trash2 size={24} color="#A32D2D" /></span>
+        <p className="font-display font-bold text-[18px] text-center mt-3">Supprimer le crédit de {sale.clientName || "ce client"} ?</p>
+        <p className="text-[13px] text-center opacity-70 mt-1">Vente N° {receiptNumber(sale.id)} · reste <b>{fmt(remaining)}</b>{paid > 0 ? ` · ${fmt(paid)} déjà réglés` : ""}</p>
+        <div className="flex flex-col gap-2 mt-4">
+          <Opt id="writeoff" Icon={Check} tone={{ bg: "#FFF1D6", fg: "#9A5B00" }} title="Annuler la dette" desc={`Le client ne doit plus rien. La vente reste dans l'historique, les articles restent vendus. ${fmt(remaining)} ne seront jamais encaissés.`} />
+          <Opt id="delete" Icon={Trash2} tone={{ bg: "#FCEBEB", fg: "#B3261E" }} title="Supprimer la vente à crédit" desc={`La vente disparaît et les articles reviennent en stock (erreur de saisie).${paid > 0 ? ` Les ${fmt(paid)} déjà réglés sont retirés de la recette.` : ""}`} />
+        </div>
+        <p className="text-[11.5px] opacity-60 mt-3">L'opération est inscrite dans le journal d'activité.</p>
+        <div className="flex gap-2 mt-4">
+          <button onClick={onClose} className="gb-focus flex-1 min-h-[48px] rounded-xl text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+          <button onClick={() => (mode === "writeoff" ? onWriteOff(sale.id) : onDeleteSale(sale.id))} className="gb-focus flex-1 min-h-[48px] rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "#B3261E" }}><Trash2 size={16} /> Confirmer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeemMoney, onRedeemProduct, onReturnSale, auditLog, pushToast, onDeleteAvoirs, onWriteOffCredit, onDeleteCreditSale }) {
   const [sub, setSub] = useState("credit");
   const [scanOpen, setScanOpen] = useState(false);
   return (
@@ -7029,9 +7163,9 @@ function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeem
         </button>
       </div>
       {sub === "credit" ? (
-        <CreditsScreen shop={shop} sales={sales} clients={clients} onSettle={onSettleCredit} pushToast={pushToast} />
+        <CreditsScreen shop={shop} sales={sales} clients={clients} onSettle={onSettleCredit} pushToast={pushToast} onWriteOff={onWriteOffCredit} onDeleteSale={onDeleteCreditSale} />
       ) : (
-        <AvoirsScreen shop={shop} avoirs={avoirs} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} pushToast={pushToast} />
+        <AvoirsScreen shop={shop} avoirs={avoirs} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} pushToast={pushToast} onDeleteAvoirs={onDeleteAvoirs} />
       )}
       {scanOpen && <ScanReceiptModal sales={sales} avoirs={avoirs} shop={shop} clients={clients} auditLog={auditLog || []} onClose={() => setScanOpen(false)} pushToast={pushToast} onReturnSale={onReturnSale} onSettleCredit={onSettleCredit} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} />}
     </div>
@@ -8630,17 +8764,24 @@ function MovementsLedger({ movements, categories }) {
   );
 }
 
-function StockCountSection({ products, saveProducts, movements, saveMovements, categories, author, pushToast, pushNotification }) {
+function StockCountSection({ products, saveProducts, movements, saveMovements, categories, author, pushToast, pushNotification, avoirs = [] }) {
   const [counts, setCounts] = useState({});
   const [query, setQuery] = useState("");
   const setCount = (id, v) => setCounts((c) => ({ ...c, [id]: v }));
+  const reserved = reservedByProduct(avoirs);
+  const reservedTotal = Object.values(reserved).reduce((t, r) => t + r.qty, 0);
 
+  // On compte ce qui est PHYSIQUEMENT sur place : stock disponible + bouteilles
+  // en réserve (avoirs produit). Le nouveau stock disponible = compté − réserve.
   const filtered = products.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()));
   const rows = filtered.map((p) => {
+    const res = reserved[p.id]?.qty || 0;
+    const expected = (Number(p.stock) || 0) + res;
     const raw = counts[p.id];
     const hasEntry = raw !== undefined && raw !== "";
-    const countedNum = hasEntry ? Number(raw) : p.stock;
-    return { p, hasEntry, countedNum, diff: countedNum - p.stock };
+    const countedNum = hasEntry ? Number(raw) : expected;
+    const newStock = Math.max(0, countedNum - res);
+    return { p, res, expected, hasEntry, countedNum, newStock, diff: countedNum - expected };
   });
   const changed = rows.filter((r) => r.hasEntry && r.diff !== 0);
 
@@ -8648,10 +8789,10 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
     if (changed.length === 0) { pushToast("Aucun écart à valider", "error"); return; }
     const nextProducts = products.map((p) => {
       const row = changed.find((r) => r.p.id === p.id);
-      return row ? { ...p, stock: row.countedNum } : p;
+      return row ? { ...p, stock: row.newStock } : p;
     });
     saveProducts(nextProducts);
-    const newMovements = changed.map((r) => ({ id: uid(), date: new Date().toISOString(), productId: r.p.id, productName: r.p.name, type: "comptage", delta: r.diff, before: r.p.stock, after: r.countedNum, author, note: "" }));
+    const newMovements = changed.map((r) => ({ id: uid(), date: new Date().toISOString(), productId: r.p.id, productName: r.p.name, type: "comptage", delta: r.newStock - r.p.stock, before: r.p.stock, after: r.newStock, author, note: r.res ? `Compté ${r.countedNum} dont ${r.res} en réserve` : "", counted: r.countedNum, reserved: r.res }));
     saveMovements([...newMovements, ...movements]);
     pushToast(`Comptage validé — ${changed.length} écart${changed.length > 1 ? "s" : ""} ajusté${changed.length > 1 ? "s" : ""}`, "ok");
     pushNotification?.({ type: "stock_movement", movementType: "comptage", count: changed.length });
@@ -8662,25 +8803,41 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
     <div className="pb-16">
       <div className="rounded-2xl p-3.5 mb-4 flex items-start gap-2.5" style={{ background: "var(--paper-dim)" }}>
         <ClipboardCheck size={16} className="shrink-0 mt-0.5" />
-        <p className="text-xs opacity-70">Saisis la quantité physiquement comptée pour chaque produit. Seuls les écarts seront appliqués au stock, avec traçabilité dans les mouvements.</p>
+        <p className="text-xs opacity-70">Saisis la quantité physiquement comptée pour chaque produit, <b>bouteilles en réserve comprises</b>. Seuls les écarts seront appliqués au stock, avec traçabilité dans les mouvements.</p>
       </div>
+      {reservedTotal > 0 && (
+        <div className="rounded-2xl p-3.5 mb-3" style={{ background: "#EEEDFE", color: "#26215C" }}>
+          <p className="text-[13px] font-bold flex items-center gap-1.5"><PackageX size={15} /> {reservedTotal} article{reservedTotal > 1 ? "s" : ""} en réserve (avoirs produit)</p>
+          <p className="text-[11.5px] mt-0.5 opacity-80">Déjà payés et sortis du stock disponible, mais toujours sur place : ils sont ajoutés au stock attendu pour le comptage.</p>
+          <div className="mt-2 flex flex-col gap-1">
+            {Object.entries(reserved).map(([pid, r]) => { const p = products.find((x) => x.id === pid); return <div key={pid} className="flex justify-between text-[12px]"><span className="truncate">{p?.name || "Produit"} · {r.clients.join(", ")}</span><span className="font-mono font-bold shrink-0 ml-2">{r.qty}</span></div>; })}
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2 rounded-xl px-3 py-2 mb-3" style={{ background: "var(--paper-dim)" }}>
         <Search size={15} className="opacity-50" />
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un produit" className="gb-focus bg-transparent outline-none text-sm flex-1 min-w-0" />
       </div>
       <div className="flex flex-col gap-2">
-        {rows.map(({ p, diff, hasEntry }) => (
+        {rows.map(({ p, diff, hasEntry, res, expected, newStock }) => (
           <div key={p.id} className="rounded-xl p-3 border flex items-center gap-3" style={{ borderColor: hasEntry && diff !== 0 ? "var(--cap)" : "var(--line)", background: "var(--card)" }}>
             <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><CategoryIcon cat={p.category} categories={categories} size={14} /></div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate">{p.name}</div>
-              <div className="text-[11px] opacity-50 font-mono">Système : {p.stock} {p.unit}s</div>
+              {res > 0 ? (
+                <>
+                  <div className="text-[11px] font-mono"><span className="opacity-50">Disponible {p.stock} + </span><span className="font-bold" style={{ color: "#534AB7" }}>{res} en réserve</span><span className="opacity-50"> = {expected} attendus</span></div>
+                  {hasEntry && <div className="text-[11px] font-mono mt-0.5" style={{ color: "#1E7A46" }}>Stock réel disponible → {newStock}</div>}
+                </>
+              ) : (
+                <div className="text-[11px] opacity-50 font-mono">Système : {p.stock} {p.unit}s</div>
+              )}
             </div>
             <input
               type="number"
               value={counts[p.id] ?? ""}
               onChange={(e) => setCount(p.id, e.target.value)}
-              placeholder={String(p.stock)}
+              placeholder={String(expected)}
               className="gb-focus w-16 text-center rounded-lg px-2 py-1.5 text-sm border font-mono shrink-0"
               style={{ borderColor: "var(--line)" }}
             />
@@ -9028,6 +9185,75 @@ function CashByVendor({ list, compact }) {
   );
 }
 
+
+// Récapitulatif de caisse en 3 parties : ventes de la caisse, espèces
+// attendues, Mobile Money + total général. Sert à la caisse en cours, au
+// versement, au détail d'un versement et à la clôture.
+const CASH_DETAIL_KEYS = ["creditsCollectedOld", "creditsCountOld", "creditsCollectedNew", "creditsCountNew", "creditsOpen", "creditsOpenCount", "salesTotalExMobile", "grandTotal"];
+function cashDetailOf(v) { const o = {}; CASH_DETAIL_KEYS.forEach((k) => { if (v && v[k] !== undefined) o[k] = v[k]; }); return o; }
+function CashBreakdown({ r, compact = false }) {
+  const fmt = useFmt();
+  const split = r.creditsCollectedNew !== undefined;
+  const n = (x) => Number(x) || 0;
+  const salesTotal = split ? n(r.salesTotalExMobile) : n(r.cashSales) + n(r.creditsCollected);
+  const grand = split ? n(r.grandTotal) : salesTotal + n(r.mobileSales);
+  const Ln = ({ l, c, v, color, strong, sub }) => (
+    <div className={`flex justify-between items-baseline gap-3 ${sub ? "pl-3" : ""}`} style={{ padding: compact ? "2px 0" : "3px 0" }}>
+      <span className={`${sub ? "text-[12px]" : "text-[13px]"} min-w-0`} style={{ color: color && !strong ? color : strong ? "var(--ink)" : "#6B7280", fontWeight: strong ? 700 : 400 }}>{l}{c !== undefined && <span className="text-[10.5px] opacity-70 ml-1">({c})</span>}</span>
+      <span className={`font-mono ${sub ? "text-[12px]" : "text-[13px]"} whitespace-nowrap`} style={{ color: color || "var(--ink)", fontWeight: strong ? 700 : 400 }}>{v}</span>
+    </div>
+  );
+  const Tot = ({ l, v, bg, fg, hint }) => (
+    <div className="flex justify-between items-center gap-3 rounded-[14px] px-3 py-2.5 mt-1.5" style={{ background: bg, color: fg }}>
+      <span className="min-w-0"><span className="block text-[13px] font-bold leading-tight">{l}</span>{hint && <span className="block text-[10.5px] opacity-75">{hint}</span>}</span>
+      <span className="font-display font-bold text-[17px] whitespace-nowrap">{v}</span>
+    </div>
+  );
+  const Kick = ({ i, t, color }) => <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] mb-1 flex items-center gap-1.5" style={{ color }}><span className="w-4 h-4 rounded-full text-[9.5px] flex items-center justify-center text-white" style={{ background: color }}>{i}</span>{t}</p>;
+  return (
+    <div className="flex flex-col">
+      <div className="py-2.5">
+        <Kick i="1" t="Ventes de la caisse" color="#1D5FA8" />
+        <Ln l="Ventes payées en espèces" c={r.cashSalesCount || 0} v={fmt(n(r.cashSales))} />
+        {split ? (
+          <>
+            <Ln l="Crédits de la période encaissés" c={r.creditsCountNew || 0} v={fmt(n(r.creditsCollectedNew))} color="#1E7A46" />
+            <Ln l="Crédits de la période en cours" c={r.creditsOpenCount || 0} v={fmt(n(r.creditsOpen))} color="#B3261E" />
+          </>
+        ) : (
+          <Ln l="Crédits encaissés" c={r.creditsCount || 0} v={fmt(n(r.creditsCollected))} />
+        )}
+        <Tot l="Ventes totales (hors Mobile Money)" v={fmt(salesTotal)} bg="#E8F0FB" fg="#16457A" hint={split ? "espèces + crédits accordés pendant la caisse" : null} />
+      </div>
+      <div className="py-2.5" style={{ borderTop: "1px solid var(--line)" }}>
+        <Kick i="2" t="Espèces attendues en caisse" color="#1E7A46" />
+        <Ln l="Fond de caisse" v={fmt(n(r.fund))} />
+        <Ln l="+ Ventes en espèces" v={`+${fmt(n(r.cashSales))}`} color="#1E7A46" />
+        {split ? (
+          <>
+            {n(r.creditsCollectedOld) > 0 || n(r.creditsCountOld) > 0 ? <Ln l="+ Crédits encaissés · ventes d'avant l'ouverture" c={r.creditsCountOld || 0} v={`+${fmt(n(r.creditsCollectedOld))}`} color="#1E7A46" /> : null}
+            <Ln l="+ Crédits encaissés · ventes de la caisse" c={r.creditsCountNew || 0} v={`+${fmt(n(r.creditsCollectedNew))}`} color="#1E7A46" />
+          </>
+        ) : (
+          <Ln l="+ Crédits encaissés" c={r.creditsCount || 0} v={`+${fmt(n(r.creditsCollected))}`} color="#1E7A46" />
+        )}
+        <Ln l="− Dépenses" c={r.expensesCount || 0} v={`−${fmt(n(r.expensesTotal))}`} color="#B3261E" />
+        {n(r.refundsCash) > 0 && <Ln l="− Remboursements retours" c={r.refundsCashCount || 0} v={`−${fmt(n(r.refundsCash))}`} color="#B3261E" />}
+        <Tot l="Attendu en caisse" v={fmt(n(r.expected))} bg="#E6F4EC" fg="#1E7A46" />
+        {split && n(r.creditsOpen) > 0 && <p className="text-[10.5px] opacity-60 mt-1.5">Les {fmt(n(r.creditsOpen))} de crédits non encaissés ne sont pas dans le tiroir.</p>}
+      </div>
+      <div className="py-2.5" style={{ borderTop: "1px solid var(--line)" }}>
+        <Kick i="3" t="Hors caisse & total général" color="#6B4FB8" />
+        <Ln l="Ventes Mobile Money" c={r.mobileSalesCount || 0} v={fmt(n(r.mobileSales))} color="#1D5FA8" />
+        <div className="flex justify-between items-center gap-3 rounded-[16px] px-3.5 py-3 mt-1.5 text-white" style={{ background: "var(--glass)" }}>
+          <span className="min-w-0"><span className="block text-[13.5px] font-bold leading-tight">Total général des ventes</span><span className="block text-[10.5px] opacity-70">Ventes totales + Mobile Money</span></span>
+          <span className="font-display font-bold text-[20px] whitespace-nowrap" style={{ color: "var(--cap)" }}>{fmt(grand)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CashReportModal({ shop, report, onClose, pushToast }) {
   const fmt = useFmt();
   const [busy, setBusy] = useState("");
@@ -9039,7 +9265,12 @@ function CashReportModal({ shop, report, onClose, pushToast }) {
   const rows = [
     ["Fond de caisse", fmt(report.fund), null, `Saisi${report.openedBy ? ` par ${report.openedBy}` : ""}`],
     [`Ventes en espèces`, `+ ${fmt(report.cashSales)}`, "#1E8E50", `${report.cashSalesCount} vente${report.cashSalesCount > 1 ? "s" : ""}`],
-    [`Crédits encaissés`, `+ ${fmt(report.creditsCollected)}`, "#1E8E50", `${report.creditsCount} règlement${report.creditsCount > 1 ? "s" : ""}`],
+    ...(report.creditsCollectedNew !== undefined
+      ? [
+        ...(Number(report.creditsCollectedOld) > 0 ? [[`Crédits encaissés (ventes d'avant)`, `+ ${fmt(report.creditsCollectedOld)}`, "#1E8E50", `${report.creditsCountOld} règlement${report.creditsCountOld > 1 ? "s" : ""} · ventes avant l'ouverture`]] : []),
+        [`Crédits encaissés (ventes de la caisse)`, `+ ${fmt(report.creditsCollectedNew)}`, "#1E8E50", `${report.creditsCountNew} règlement${report.creditsCountNew > 1 ? "s" : ""}`],
+      ]
+      : [[`Crédits encaissés`, `+ ${fmt(report.creditsCollected)}`, "#1E8E50", `${report.creditsCount} règlement${report.creditsCount > 1 ? "s" : ""}`]]),
     [`Dépenses`, `− ${fmt(report.expensesTotal)}`, "#B3261E", `${report.expensesCount} dépense${report.expensesCount > 1 ? "s" : ""}`],
     ...(Number(report.refundsCash) > 0 ? [[`Remboursements (retours)`, `− ${fmt(report.refundsCash)}`, "#B3261E", `${report.refundsCashCount || 0} retour${(report.refundsCashCount || 0) > 1 ? "s" : ""} remboursé${(report.refundsCashCount || 0) > 1 ? "s" : ""} en espèces`]] : []),
   ];
@@ -9052,6 +9283,11 @@ function CashReportModal({ shop, report, onClose, pushToast }) {
     `Espèces attendues : ${fmt(report.expected)}`,
     ...(closed ? [`Montant versé : ${fmt(report.versement.amount)}`, `Écart : ${gap > 0 ? "+" : ""}${fmt(gap)}`] : []),
     `Mobile Money (hors caisse) : ${fmt(report.mobileSales)}`,
+    ...(report.creditsCollectedNew !== undefined ? [
+      `Crédits de la période en cours (non encaissés) : ${fmt(report.creditsOpen)}`,
+      `Ventes totales (hors Mobile Money) : ${fmt(report.salesTotalExMobile)}`,
+      `TOTAL GÉNÉRAL DES VENTES : ${fmt(report.grandTotal)}`,
+    ] : []),
     ...((report.byVendor || []).length ? ["", "Par vendeur :", ...(report.byVendor || []).map((v) => `- ${v.name} : ${v.tickets} ticket(s), espèces à remettre ${fmt(v.expectedCash)}, MoMo ${fmt(v.mobile)}`)] : []),
   ].map(plain).join("\n");
 
@@ -9102,7 +9338,16 @@ function CashReportModal({ shop, report, onClose, pushToast }) {
       }
       doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(74, 82, 92);
       doc.text(plain(`Mobile Money encaissé (hors caisse) — ${report.mobileSalesCount} vente${report.mobileSalesCount > 1 ? "s" : ""}`), L, y); doc.text(plain(fmt(report.mobileSales)), R, y, { align: "right" }); y += 20;
-      doc.text("Total encaissé sur la période", L, y); doc.text(plain(fmt(report.cashSales + report.creditsCollected + report.mobileSales)), R, y, { align: "right" }); y += 30;
+      if (report.creditsCollectedNew !== undefined) {
+        doc.text("Crédits de la période en cours (non encaissés)", L, y); doc.text(plain(fmt(report.creditsOpen)), R, y, { align: "right" }); y += 20;
+        doc.text("Ventes totales (hors Mobile Money)", L, y); doc.text(plain(fmt(report.salesTotalExMobile)), R, y, { align: "right" }); y += 24;
+        doc.setFillColor(14, 59, 42); doc.roundedRect(L, y - 16, R - L, 34, 8, 8, "F");
+        doc.setTextColor(255); doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+        doc.text("TOTAL GÉNÉRAL DES VENTES", L + 14, y + 6); doc.text(plain(fmt(report.grandTotal)), R - 14, y + 6, { align: "right" });
+        doc.setTextColor(74, 82, 92); doc.setFont("helvetica", "normal"); doc.setFontSize(11); y += 40;
+      } else {
+        doc.text("Total encaissé sur la période", L, y); doc.text(plain(fmt(report.cashSales + report.creditsCollected + report.mobileSales)), R, y, { align: "right" }); y += 30;
+      }
       if ((report.byVendor || []).length) {
         doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(22, 32, 42); doc.text("Détail par vendeur", L, y); y += 16;
         doc.setFontSize(9); doc.setTextColor(91, 100, 112);
@@ -9160,9 +9405,15 @@ function CashReportModal({ shop, report, onClose, pushToast }) {
                 {(report.versement.by || report.versement.receivedBy) && <p className="text-[12px]" style={{ color: "#5B6470" }}>{report.versement.by ? `Versé par ${report.versement.by}` : ""}{report.versement.receivedBy ? ` · reçu par ${report.versement.receivedBy}` : ""}</p>}
               </div>
             )}
-            <div className="mt-3 pt-3 flex justify-between gap-3 text-[12.5px]" style={{ borderTop: "1.5px dashed #D5D2C8", color: "#4A525C" }}>
-              <span>Mobile Money, hors caisse ({report.mobileSalesCount})</span><span className="font-mono font-semibold whitespace-nowrap">{fmt(report.mobileSales)}</span>
-            </div>
+            {report.creditsCollectedNew !== undefined ? (
+              <div className="mt-3 pt-1" style={{ borderTop: "1.5px dashed #D5D2C8" }}>
+                <CashBreakdown r={report} compact />
+              </div>
+            ) : (
+              <div className="mt-3 pt-3 flex justify-between gap-3 text-[12.5px]" style={{ borderTop: "1.5px dashed #D5D2C8", color: "#4A525C" }}>
+                <span>Mobile Money, hors caisse ({report.mobileSalesCount})</span><span className="font-mono font-semibold whitespace-nowrap">{fmt(report.mobileSales)}</span>
+              </div>
+            )}
           </div>
           {(report.byVendor || []).length > 0 && <CashByVendor list={report.byVendor} />}
         </div>
@@ -9178,8 +9429,12 @@ function CashReportModal({ shop, report, onClose, pushToast }) {
   );
 }
 
-function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries, versements, activeCashSession, onRecordVersement, author, pushToast }) {
+function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries, versements, activeCashSession, onRecordVersement, onUpdateVersement, onDeleteVersement, author, pushToast }) {
   const [showVendors, setShowVendors] = useState(false);
+  const [editV, setEditV] = useState(null); // versement en cours de modification
+  const [deleteV, setDeleteV] = useState(null); // versement à supprimer (confirmation)
+  const [daysOpen, setDaysOpen] = useState(() => { try { return localStorage.getItem("cashDaysOpen") === "1"; } catch { return false; } });
+  const toggleDays = () => setDaysOpen((o) => { try { localStorage.setItem("cashDaysOpen", o ? "0" : "1"); } catch { /* ignore */ } return !o; });
   const fmt = useFmt();
   const shopId = shop?.id;
   const [formOpen, setFormOpen] = useState(false);
@@ -9206,7 +9461,7 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
     if (v) {
       setFormOpen(false); setAmount(""); setNote(""); setError("");
       // Le versement clôture la caisse : on propose aussitôt d'imprimer la clôture.
-      if (typeof v === "object") setCashReport({ ...buildCashReport(session, { sales, expenses, versement: v, printedBy: author }), fund: Number(v.fund) || 0, cashSales: Number(v.cashSales) || 0, cashSalesCount: v.cashSalesCount || 0, creditsCollected: Number(v.creditsCollected) || 0, creditsCount: v.creditsCount || 0, expensesTotal: Number(v.expensesTotal) || 0, expensesCount: v.expensesCount || 0, mobileSales: Number(v.mobileSales) || 0, mobileSalesCount: v.mobileSalesCount || 0, refundsCash: Number(v.refundsCash) || 0, refundsCashCount: v.refundsCashCount || 0, expected: Number(v.expected) || 0 });
+      if (typeof v === "object") setCashReport({ ...buildCashReport(session, { sales, expenses, versement: v, printedBy: author }), fund: Number(v.fund) || 0, cashSales: Number(v.cashSales) || 0, cashSalesCount: v.cashSalesCount || 0, creditsCollected: Number(v.creditsCollected) || 0, creditsCount: v.creditsCount || 0, expensesTotal: Number(v.expensesTotal) || 0, expensesCount: v.expensesCount || 0, mobileSales: Number(v.mobileSales) || 0, mobileSalesCount: v.mobileSalesCount || 0, refundsCash: Number(v.refundsCash) || 0, refundsCashCount: v.refundsCashCount || 0, expected: Number(v.expected) || 0, ...CASH_DETAIL_KEYS.reduce((o, k) => ({ ...o, [k]: undefined }), {}), ...cashDetailOf(v) });
     }
   };
 
@@ -9253,15 +9508,7 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
         {activeCashSession && live ? (
           <>
             <p className="text-[11px] opacity-55 mb-3">Ouverte le {fmtDateTime(activeCashSession.timestamp || activeCashSession.date)}{activeCashSession.setBy ? ` par ${activeCashSession.setBy}` : ""} · non versée</p>
-            <div className="flex flex-col gap-1.5">
-              <Line label="Fond de caisse" value={fmt(live.fund)} />
-              <Line label={`+ Ventes en espèces (${live.cashSalesCount})`} value={`+${fmt(live.cashSales)}`} color="#3B6D11" />
-              <Line label={`+ Crédits encaissés (${live.creditsCount})`} value={`+${fmt(live.creditsCollected)}`} color="#3B6D11" />
-              <Line label={`− Dépenses (${live.expensesCount})`} value={`−${fmt(live.expensesTotal)}`} color="#A32D2D" />
-              {live.refundsCash > 0 && <Line label={`− Remboursements retours (${live.refundsCashCount})`} value={`−${fmt(live.refundsCash)}`} color="#A32D2D" />}
-              <div className="pt-1.5 mt-0.5" style={{ borderTop: "1px solid var(--line)" }}><Line label="Espèces attendues en caisse" value={fmt(live.expected)} strong /></div>
-              <div className="text-[11px] opacity-50 flex justify-between"><span>Mobile Money, hors caisse ({live.mobileSalesCount})</span><span className="font-mono">{fmt(live.mobileSales)}</span></div>
-            </div>
+            <CashBreakdown r={live} />
             {(live.byVendor || []).length > 0 && (
               <>
                 <button onClick={() => setShowVendors(!showVendors)} className="gb-focus w-full mt-3 flex items-center justify-between rounded-xl px-3 py-2.5 text-[13px] font-bold" style={{ background: "var(--paper-dim)" }}>
@@ -9290,7 +9537,14 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
       {/* Formulaire de versement */}
       {formOpen && live && (
         <div className="rounded-2xl p-4 mb-3 gb-slide-up" style={{ border: "1.5px solid var(--cap)", background: "var(--card)" }}>
-          <p className="font-display font-bold text-sm mb-3">Nouveau versement</p>
+          <p className="font-display font-bold text-sm mb-1">Nouveau versement</p>
+          <div className="rounded-2xl px-3 mb-3" style={{ background: "var(--paper-dim)" }}>
+            <div className="flex justify-between text-[12.5px] pt-2.5"><span className="opacity-70">Ventes totales (hors Mobile)</span><span className="font-mono">{fmt(live.salesTotalExMobile)}</span></div>
+            <div className="flex justify-between text-[11.5px] pl-3"><span className="opacity-60">dont crédits en cours</span><span className="font-mono" style={{ color: "#B3261E" }}>{fmt(live.creditsOpen)}</span></div>
+            <div className="flex justify-between text-[12.5px]"><span className="opacity-70">Mobile Money</span><span className="font-mono" style={{ color: "#1D5FA8" }}>{fmt(live.mobileSales)}</span></div>
+            <div className="flex justify-between text-[13px] font-bold py-2 mt-1" style={{ borderTop: "1px dashed var(--line)" }}><span>Total général des ventes</span><span className="font-mono">{fmt(live.grandTotal)}</span></div>
+            <div className="flex justify-between items-center text-[13px] font-bold py-2.5 -mx-3 px-3 rounded-b-2xl" style={{ background: "#E6F4EC", color: "#1E7A46" }}><span>Espèces attendues en caisse</span><span className="font-display text-[17px]">{fmt(live.expected)}</span></div>
+          </div>
           <label className="text-[11px] font-bold opacity-60 block mb-1">Montant versé ({shop?.currency || "FCFA"})</label>
           <input type="number" min="0" inputMode="numeric" value={amount} onChange={(e) => { setAmount(e.target.value); setError(""); }} className="gb-focus w-full rounded-xl px-3 py-2.5 text-lg font-bold border-2 mb-2.5" style={{ borderColor: "var(--cap)" }} />
           <div className="grid grid-cols-2 gap-2 mb-2.5">
@@ -9353,11 +9607,18 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
         const label = (k) => new Date(k + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
         return (
           <div className="rounded-2xl mb-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-            <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
-              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "#854F0B" }}><Banknote size={14} /> Caisse par jour</span>
-              <span className="text-[11px] opacity-50">{days.length} jour{days.length > 1 ? "s" : ""}</span>
-            </div>
-            {days.map(({ day, snap }) => {
+            <button onClick={toggleDays} aria-expanded={daysOpen} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-3 text-left">
+              <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "#FAEEDA" }}><Banknote size={17} color="#854F0B" /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-xs font-bold uppercase tracking-wide" style={{ color: "#854F0B" }}>Caisse par jour</span>
+                <span className="block text-[11.5px] opacity-60 mt-0.5">{days.length} jour{days.length > 1 ? "s" : ""} · {days.filter((d) => !d.snap.versedOnOrBefore).length} non versé{days.filter((d) => !d.snap.versedOnOrBefore).length > 1 ? "s" : ""}</span>
+              </span>
+              <span className="shrink-0 h-9 pl-3 pr-2.5 rounded-xl text-[12.5px] font-bold flex items-center gap-1" style={{ background: "var(--paper-dim)" }}>
+                {daysOpen ? "Replier" : "Déplier"}
+                <ChevronDown size={16} style={{ transform: daysOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+              </span>
+            </button>
+            {daysOpen && days.map(({ day, snap }) => {
               const versed = snap.versedOnOrBefore;
               const detail = snap.carried
                 ? `Reporté du ${label(snap.sessionDay)}${snap.setBy ? ` · saisi par ${snap.setBy}` : ""}`
@@ -9396,28 +9657,105 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
               <p className="text-[11px] font-semibold mt-0.5" style={{ color: gapColor(g) }}>Attendu {fmt(v.expected)} · écart {g > 0 ? "+" : ""}{fmt(g)}</p>
               {open && (
                 <div className="mt-2.5 pt-2.5 flex flex-col gap-1" style={{ borderTop: "1px solid var(--line)" }}>
-                  <Line label="Fond de caisse" value={fmt(v.fund)} />
-                  <Line label={`+ Ventes en espèces (${v.cashSalesCount || 0})`} value={`+${fmt(v.cashSales || 0)}`} color="#3B6D11" />
-                  <Line label={`+ Crédits encaissés (${v.creditsCount || 0})`} value={`+${fmt(v.creditsCollected || 0)}`} color="#3B6D11" />
-                  <Line label={`− Dépenses (${v.expensesCount || 0})`} value={`−${fmt(v.expensesTotal || 0)}`} color="#A32D2D" />
-                  {Number(v.refundsCash) > 0 && <Line label={`− Remboursements retours (${v.refundsCashCount || 0})`} value={`−${fmt(v.refundsCash)}`} color="#A32D2D" />}
-                  <Line label="Espèces attendues" value={fmt(v.expected)} strong />
-                  <Line label="Montant versé" value={fmt(v.amount)} strong />
-                  <Line label="Mobile Money (hors caisse)" value={fmt(v.mobileSales || 0)} />
+                  <CashBreakdown r={v} compact />
+                  <div className="rounded-xl px-3 py-2 mt-1" style={{ background: "var(--paper-dim)" }}>
+                    <Line label="Montant versé" value={fmt(v.amount)} strong />
+                  </div>
                   {v.note && <p className="text-[11px] opacity-60 mt-1">Note : {v.note}</p>}
                   {v.recordedBy && <p className="text-[11px] opacity-45">Enregistré par {v.recordedBy}</p>}
-                  <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const session = ownCashEntries(cashRegisterEntries, shopId).find((x) => x.id === v.sessionId) || { id: v.sessionId, amount: v.fund, timestamp: v.openedAt, setBy: v.openedBy }; setCashReport({ ...buildCashReport(session, { sales, expenses, versement: v, printedBy: author }), fund: Number(v.fund) || 0, cashSales: Number(v.cashSales) || 0, cashSalesCount: v.cashSalesCount || 0, creditsCollected: Number(v.creditsCollected) || 0, creditsCount: v.creditsCount || 0, expensesTotal: Number(v.expensesTotal) || 0, expensesCount: v.expensesCount || 0, mobileSales: Number(v.mobileSales) || 0, mobileSalesCount: v.mobileSalesCount || 0, refundsCash: Number(v.refundsCash) || 0, refundsCashCount: v.refundsCashCount || 0, expected: Number(v.expected) || 0 }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus mt-2 min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Printer size={15} /> Imprimer la clôture</span>
+                  {v.editedAt && <p className="text-[11px] opacity-45">Modifié le {fmtDateTime(v.editedAt)}{v.editedBy ? ` par ${v.editedBy}` : ""}</p>}
+                  {(onUpdateVersement || onDeleteVersement) && (
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {onUpdateVersement && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setEditV({ id: v.id, amount: String(v.amount ?? ""), by: v.by || "", receivedBy: v.receivedBy || "", note: v.note || "", expected: Number(v.expected) || 0, date: v.date }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "#E6F1FB", color: "#185FA5" }}><Pencil size={15} /> Modifier</span>}
+                      {onDeleteVersement && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setDeleteV(v); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "#FCEBEB", color: "#A32D2D" }}><Trash2 size={15} /> Supprimer</span>}
+                    </div>
+                  )}
+                  <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const session = ownCashEntries(cashRegisterEntries, shopId).find((x) => x.id === v.sessionId) || { id: v.sessionId, amount: v.fund, timestamp: v.openedAt, setBy: v.openedBy }; setCashReport({ ...buildCashReport(session, { sales, expenses, versement: v, printedBy: author }), fund: Number(v.fund) || 0, cashSales: Number(v.cashSales) || 0, cashSalesCount: v.cashSalesCount || 0, creditsCollected: Number(v.creditsCollected) || 0, creditsCount: v.creditsCount || 0, expensesTotal: Number(v.expensesTotal) || 0, expensesCount: v.expensesCount || 0, mobileSales: Number(v.mobileSales) || 0, mobileSalesCount: v.mobileSalesCount || 0, refundsCash: Number(v.refundsCash) || 0, refundsCashCount: v.refundsCashCount || 0, expected: Number(v.expected) || 0, ...CASH_DETAIL_KEYS.reduce((o, k) => ({ ...o, [k]: undefined }), {}), ...cashDetailOf(v) }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus mt-2 min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Printer size={15} /> Imprimer la clôture</span>
                 </div>
               )}
             </button>
           );
         })}
       </div>
+
+      {editV && (() => {
+        const amt = Number(editV.amount);
+        const g = editV.amount === "" || isNaN(amt) ? null : amt - editV.expected;
+        return (
+          <div className="fixed inset-0 z-[80] flex items-end no-print">
+            <div className="absolute inset-0 bg-black/45" onClick={() => setEditV(null)} />
+            <div className="relative w-full rounded-t-3xl px-5 pt-3 gb-slide-up" style={{ background: "var(--card)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+              <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+              <div className="flex items-center gap-3 mb-3">
+                <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "#E6F1FB" }}><Pencil size={19} color="#185FA5" /></span>
+                <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px] leading-tight">Modifier le versement</p><p className="text-[12px] opacity-60">Du {fmtDateTime(editV.date)} · attendu {fmt(editV.expected)}</p></div>
+                <button onClick={() => setEditV(null)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+              </div>
+              <label className="text-[11px] font-bold opacity-60 block mb-1">Montant versé ({shop?.currency || "FCFA"})</label>
+              <input type="number" min="0" inputMode="numeric" value={editV.amount} onChange={(e) => setEditV({ ...editV, amount: e.target.value })} className="gb-focus w-full rounded-xl px-3 py-2.5 text-lg font-bold border-2 mb-2.5" style={{ borderColor: "var(--cap)" }} />
+              {g !== null && (
+                <div className="flex justify-between rounded-xl px-3 py-2 text-[13px] mb-2.5" style={{ background: g === 0 ? "#EAF3DE" : g < 0 ? "#FCEBEB" : "#FAEEDA", color: gapColor(g) }}>
+                  <span>Nouvel écart (versé − attendu)</span><span className="font-mono font-bold">{g > 0 ? "+" : ""}{fmt(g)}</span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2 mb-2.5">
+                <div className="min-w-0"><label className="text-[11px] font-bold opacity-60 block mb-1">Versé par</label><input list="versement-people" value={editV.by} onChange={(e) => setEditV({ ...editV, by: e.target.value })} className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} /></div>
+                <div className="min-w-0"><label className="text-[11px] font-bold opacity-60 block mb-1">Reçu par</label><input list="versement-people" value={editV.receivedBy} onChange={(e) => setEditV({ ...editV, receivedBy: e.target.value })} className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} /></div>
+              </div>
+              <datalist id="versement-people">{vendorNames.map((n) => <option key={n} value={n} />)}</datalist>
+              <label className="text-[11px] font-bold opacity-60 block mb-1">Note</label>
+              <input value={editV.note} onChange={(e) => setEditV({ ...editV, note: e.target.value })} placeholder="Ex : erreur de saisie corrigée" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-3.5" style={{ borderColor: "var(--line)" }} />
+              <div className="flex gap-2">
+                <button onClick={() => setEditV(null)} className="gb-focus flex-1 min-h-[48px] rounded-xl text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+                <button onClick={() => { if (editV.amount === "" || isNaN(amt) || amt < 0) { pushToast("Indique un montant valide", "error"); return; } onUpdateVersement(editV.id, editV); setEditV(null); }} className="gb-focus flex-1 min-h-[48px] rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Check size={16} /> Enregistrer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {deleteV && (
+        <div className="fixed inset-0 z-[80] flex items-end no-print">
+          <div className="absolute inset-0 bg-black/45" onClick={() => setDeleteV(null)} />
+          <div className="relative w-full rounded-t-3xl px-5 pt-5 gb-slide-up" style={{ background: "var(--card)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+            <span className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center" style={{ background: "#FCEBEB" }}><Trash2 size={24} color="#A32D2D" /></span>
+            <p className="font-display font-bold text-[18px] text-center mt-3">Supprimer ce versement ?</p>
+            <p className="text-[13px] text-center opacity-70 mt-1">Versement du {fmtDateTime(deleteV.date)} · <b>{fmt(deleteV.amount)}</b></p>
+            {(() => {
+              const newer = own.filter((x) => x.id !== deleteV.id && cashTime(x.date) > cashTime(deleteV.date));
+              const funds = ownCashEntries(cashRegisterEntries, shopId).filter((e) => e.afterVersementId === deleteV.id || cashTime(e.timestamp || e.date) > cashTime(deleteV.date));
+              if (newer.length) return (
+                <>
+                  <div className="rounded-xl p-3 mt-3 text-[12.5px]" style={{ background: "#FCEBEB", color: "#8A2419" }}>
+                    Un versement plus récent existe ({fmtDateTime(newer[0].date)}). Supprimez d'abord le plus récent, puis celui-ci, pour que tout revienne exactement comme avant.
+                  </div>
+                  <button onClick={() => setDeleteV(null)} className="gb-focus w-full min-h-[48px] rounded-xl text-sm font-semibold mt-4" style={{ background: "var(--paper-dim)" }}>Compris</button>
+                </>
+              );
+              return (
+                <>
+                  <p className="text-[12px] font-bold uppercase tracking-wide opacity-60 mt-4 mb-1.5">Tout revient comme avant le versement</p>
+                  <div className="rounded-xl p-3 flex flex-col gap-2 text-[12.5px]" style={{ background: "#FFF6E6", color: "#6E4300" }}>
+                    <span className="flex gap-2"><Check size={15} className="shrink-0 mt-0.5" /> <span>La caisse ouverte le {fmtDateTime(deleteV.openedAt)} (fond {fmt(deleteV.fund || 0)}) redevient la <b>caisse en cours</b>, non versée.</span></span>
+                    {funds.length > 0 && <span className="flex gap-2"><Check size={15} className="shrink-0 mt-0.5" /> <span>Le fond saisi après le versement ({funds.map((f) => fmt(f.amount)).join(", ")}) est retiré.</span></span>}
+                    <span className="flex gap-2"><Check size={15} className="shrink-0 mt-0.5" /> <span>Les ventes, crédits et dépenses faits depuis restent enregistrés et comptent dans cette caisse.</span></span>
+                    <span className="flex gap-2"><Check size={15} className="shrink-0 mt-0.5" /> <span>L'annulation est inscrite dans le journal d'activité.</span></span>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <button onClick={() => setDeleteV(null)} className="gb-focus flex-1 min-h-[48px] rounded-xl text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+                    <button onClick={() => { onDeleteVersement(deleteV.id); setDeleteV(null); setOpenId(null); }} className="gb-focus flex-1 min-h-[48px] rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "#B3261E" }}><Trash2 size={16} /> Annuler le versement</button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function InventorySection({ shop, expenses, vendors, cashRegisterEntries, versements, activeCashSession, onRecordVersement, products, sales, saveSales, saveProducts, categories, movements, saveMovements, inventories, saveInventories, author, pushToast, pushNotification }) {
+function InventorySection({ shop, avoirs = [], expenses, vendors, cashRegisterEntries, versements, activeCashSession, onRecordVersement, onUpdateVersement, onDeleteVersement, products, sales, saveSales, saveProducts, categories, movements, saveMovements, inventories, saveInventories, author, pushToast, pushNotification }) {
   const [tab, setTab] = useState("apercu");
   const TABS = [
     { id: "apercu", label: "Aperçu" },
@@ -9436,9 +9774,9 @@ function InventorySection({ shop, expenses, vendors, cashRegisterEntries, versem
       </div>
       {tab === "apercu" && <InventoryOverview products={products} categories={categories} movements={movements} />}
       {tab === "mouvements" && <MovementsLedger movements={movements} categories={categories} />}
-      {tab === "comptage" && <StockCountSection products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} categories={categories} author={author} pushToast={pushToast} pushNotification={pushNotification} />}
+      {tab === "comptage" && <StockCountSection products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} categories={categories} author={author} pushToast={pushToast} pushNotification={pushNotification} avoirs={avoirs} />}
       {tab === "rentabilite" && <ProfitabilitySection products={products} sales={sales} saveSales={saveSales} movements={movements} saveProducts={saveProducts} inventories={inventories} saveInventories={saveInventories} categories={categories} author={author} pushToast={pushToast} />}
-      {tab === "versements" && <VersementsSection shop={shop} sales={sales || []} expenses={expenses || []} vendors={vendors || []} cashRegisterEntries={cashRegisterEntries || []} versements={versements || []} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} author={author} pushToast={pushToast} />}
+      {tab === "versements" && <VersementsSection shop={shop} sales={sales || []} expenses={expenses || []} vendors={vendors || []} cashRegisterEntries={cashRegisterEntries || []} versements={versements || []} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} onUpdateVersement={onUpdateVersement} onDeleteVersement={onDeleteVersement} author={author} pushToast={pushToast} />}
       {tab === "historique" && <InventoryHistorySection inventories={inventories} />}
     </div>
   );
@@ -12518,7 +12856,7 @@ function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, onPic
 }
 
 function AdminScreen({
-  cashRegisterEntries, versements, activeCashSession, onRecordVersement,
+  cashRegisterEntries, versements, activeCashSession, onRecordVersement, onUpdateVersement, onDeleteVersement,
   shop, saveShopMeta, shops, activeShopId, onSwitchShop, onCreateShop, onDeleteShop,
   products, saveProducts, categories, saveCategories, movements, saveMovements, inventories, saveInventories, sales, saveSales, suppliers, saveSuppliers, expenses, saveExpenses, vendors, saveVendors, clients, saveClients,
   license, licenseStatus, onActivateLicense, onRestoreBackup, ownerAccess, onVerifyOwner, pushToast,
@@ -12572,7 +12910,7 @@ function AdminScreen({
       {section === "licence" && <LicenseSection license={license} licenseStatus={licenseStatus} onActivate={onActivateLicense} pushToast={pushToast} shopName={shop.name} />}
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
       {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} onNavigate={(id) => { setSection(id); onSectionChange?.(id); }} />}
-      {section === "inventaire" && <InventorySection shop={shop} expenses={expenses} vendors={vendors} cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} products={products} sales={sales} saveSales={saveSales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
+      {section === "inventaire" && <InventorySection shop={shop} avoirs={avoirs || []} expenses={expenses} vendors={vendors} cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} onUpdateVersement={onUpdateVersement} onDeleteVersement={onDeleteVersement} products={products} sales={sales} saveSales={saveSales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "produits" && <ProductsSection requireAdmin={requireAdmin} products={products} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "snack" && <SnackSection shop={shop} products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} expenses={expenses} saveExpenses={saveExpenses} sales={sales} snackLots={snackLots} saveSnackLots={saveSnackLots} pushToast={pushToast} author={shop?.adminDisplayName?.trim() || "Administrateur"} />}
       {section === "vitrine" && <VitrineSection shop={shop} saveShopMeta={saveShopMeta} products={products} pushToast={pushToast} />}
@@ -13139,6 +13477,7 @@ function AppInner() {
   // Journal d'activité : on ne fait qu'ajouter (le serveur refuse aussi
   // toute suppression ou modification d'une ligne déjà enregistrée).
   const [auditLog, setAuditLog] = useState([]);
+  const [syncVersion, setSyncVersion] = useState(0); // redessine l'historique quand le serveur confirme une vente
   // Profil Snack : lots de pains achetés et réserve d'ingrédients (lots datés).
   const [snackLots, setSnackLots] = useState([]);
   const auditRef = useRef([]);
@@ -13354,6 +13693,7 @@ function AppInner() {
     const setters = { sales: setSales, avoirs: setAvoirs, movements: setMovements, clients: setClients, expenses: setExpenses, suppliers: setSuppliers, orders: setOrders, supplierProducts: setSupplierProducts, inventories: setInventories, snackLots: setSnackLots, products: setProducts, categories: setCategories };
     return api.onMergedValue((key, merged, shopId) => {
       if (shopId !== activeShopId || !setters[key]) return;
+      if (key === "sales") setSyncVersion((v) => v + 1);
       setters[key]((prev) => {
         const next = api.mergeLocalWithServer(key, prev, merged, activeShopId);
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
@@ -13946,6 +14286,12 @@ function AppInner() {
   const recordCashRegister = (amount) => {
     const author = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
     const entry = { id: uid(), shopId: activeShopId, date: todayCashDateKey(shop?.cashRegisterResetHour), amount: Math.max(0, Number(amount) || 0), setBy: author, timestamp: new Date().toISOString() };
+    // Fond saisi juste après un versement : on garde le lien, pour pouvoir
+    // tout annuler proprement si ce versement est supprimé.
+    if (cashModalAfterVersement) {
+      const lastV = ownCashEntries(versements, activeShopId).slice().sort((a, b) => cashTime(b.date) - cashTime(a.date))[0];
+      if (lastV) entry.afterVersementId = lastV.id;
+    }
     // Plusieurs sessions possibles le même jour (une par versement) : on
     // ajoute la nouvelle sans effacer les précédentes.
     const next = [...ownCashEntries(cashRegisterEntries, activeShopId), entry];
@@ -13977,6 +14323,36 @@ function AppInner() {
     setCashModalAfterVersement(true);
     setCashRegisterModalOpen(true);
     return v;
+  };
+  // Correction d'un versement déjà enregistré : montant, personnes, note.
+  // L'écart est recalculé à partir des espèces attendues de la clôture.
+  const updateVersement = (id, patch) => {
+    const list = ownCashEntries(versements, activeShopId);
+    const old = list.find((v) => v.id === id);
+    if (!old) return;
+    const amount = Math.max(0, Number(patch.amount) || 0);
+    const next = { ...old, amount, gap: amount - (Number(old.expected) || 0), by: (patch.by || "").trim(), receivedBy: (patch.receivedBy || "").trim(), note: (patch.note || "").trim(), editedAt: new Date().toISOString(), editedBy: actorName() };
+    saveVersements(list.map((v) => (v.id === id ? next : v)));
+    logAudit("caisse", `Versement du ${new Date(old.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} modifié : ${formatMoney(Number(old.amount) || 0, shop?.currency)} → ${formatMoney(amount, shop?.currency)}`, { amount: amount - (Number(old.amount) || 0) });
+    pushToast("Versement modifié", "ok");
+  };
+  // Suppression : tout revient comme si le versement n'avait jamais eu lieu.
+  // La caisse qu'il clôturait redevient la caisse ouverte (avec toutes les
+  // ventes faites depuis), et le fond saisi après le versement (« montant
+  // restant en caisse ») est retiré. Seul le versement le plus récent peut
+  // être supprimé : annuler un versement plus ancien casserait les suivants.
+  const deleteVersement = (id) => {
+    const list = ownCashEntries(versements, activeShopId);
+    const old = list.find((v) => v.id === id);
+    if (!old) return;
+    if (list.some((v) => v.id !== id && cashTime(v.date) > cashTime(old.date))) { pushToast("Supprimez d'abord le versement le plus récent", "error"); return; }
+    const entries = ownCashEntries(cashRegisterEntries, activeShopId);
+    const after = entries.filter((e) => e.afterVersementId === id || cashTime(e.timestamp || e.date) > cashTime(old.date));
+    const afterIds = new Set(after.map((e) => e.id));
+    if (after.length) saveCashRegisterEntries(entries.filter((e) => !afterIds.has(e.id)));
+    saveVersements(list.filter((v) => v.id !== id));
+    logAudit("caisse", `Versement du ${new Date(old.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} annulé (${formatMoney(Number(old.amount) || 0, shop?.currency)}) · caisse du ${new Date(old.openedAt || old.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} rouverte${after.length ? ` · ${after.length} fond${after.length > 1 ? "s" : ""} saisi${after.length > 1 ? "s" : ""} après retiré${after.length > 1 ? "s" : ""}` : ""}`, { amount: -(Number(old.amount) || 0) });
+    pushToast("Versement annulé — la caisse est rouverte comme avant", "ok");
   };
   const saveMovements = (next) => {
     try {
@@ -14450,7 +14826,7 @@ function AppInner() {
     const paidNow = initialCashPayment > 0 ? initialCashPayment : 0;
     const payments = paidNow > 0 ? [{ amount: paidNow, date: new Date().toISOString(), by: currentVendorName }] : undefined;
     const sale = {
-      id: uid(), date: new Date().toISOString(), items: cartItems, total, vendor: currentVendorName, paymentMethod, clientId: clientId || null, clientName: clientId ? clientName : undefined,
+      id: uid(), date: new Date().toISOString(), items: cartItems, total, vendor: currentVendorName, paymentMethod, clientId: clientId || null, clientName: clientId || (paymentMethod === "credit" && clientName && clientName !== "Client") ? clientName : undefined,
       paid: paymentMethod !== "credit" ? true : paidNow >= total,
       amountReceived: amountReceived ?? null,
       changeDue: amountReceived != null ? Math.max(0, amountReceived - total) : null,
@@ -14690,22 +15066,24 @@ function AppInner() {
   // premier — l'avoir produit disparaissait silencieusement. Le lien entre
   // les deux (moneyAvoir.saleId === productAvoir.id) permet à AvoirsScreen de
   // les afficher regroupés tant qu'ils sont en cours.
-  const handleCreateProductAndMoneyAvoir = (items, moneyAmount, clientName) => {
+  const handleCreateProductAndMoneyAvoir = (items, moneyAmount, clientName, { skipStock = false, saleId = null } = {}) => {
     if (!items || items.length === 0) return { productAvoir: null, moneyAvoir: null };
-    const nextProducts = products.map((p) => {
-      const line = items.find((i) => i.product.id === p.id);
-      return line ? { ...p, stock: Math.max(0, p.stock - line.qty) } : p;
-    });
-    saveProducts(nextProducts);
+    if (!skipStock) {
+      const nextProducts = products.map((p) => {
+        const line = items.find((i) => i.product.id === p.id);
+        return line ? { ...p, stock: Math.max(0, p.stock - line.qty) } : p;
+      });
+      saveProducts(nextProducts);
+    }
     const author = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
     const now = new Date().toISOString();
     const productAvoir = {
       id: uid(), type: "produit", clientName: clientName || "Client",
-      items: items.map((i) => ({ productId: i.product.id, name: i.product.name, qty: i.qty, price: i.product.price })),
-      date: now, vendor: author, settled: false, saleId: null, history: [],
+      items: items.map((i) => ({ productId: i.productId || i.product.id, name: i.product.name, qty: i.qty, price: i.product.price })),
+      date: now, vendor: author, settled: false, saleId: saleId || null, history: [],
     };
     const moneyAvoir = moneyAmount > 0
-      ? { id: uid(), type: "monnaie", clientName: clientName || "Client", amount: moneyAmount, date: now, vendor: author, settled: false, saleId: productAvoir.id, redemptions: [] }
+      ? { id: uid(), type: "monnaie", clientName: clientName || "Client", amount: moneyAmount, date: now, vendor: author, settled: false, saleId: saleId || productAvoir.id, redemptions: [] }
       : null;
     saveAvoirs(moneyAvoir ? [productAvoir, moneyAvoir, ...avoirs] : [productAvoir, ...avoirs]);
     pushNotification?.({ type: "avoir_created", avoirType: "produit", clientName: productAvoir.clientName, itemCount: items.length });
@@ -14762,6 +15140,40 @@ function AppInner() {
       pushToast("Impossible d'enregistrer la remise de produits", "error");
       return null;
     }
+  };
+
+  // Supprime des avoirs en cours (administrateur) ; option : remettre en
+  // stock les articles d'un avoir produit qui n'ont pas encore été remis.
+  const handleDeleteAvoirs = (ids, restock) => {
+    const set = new Set(ids);
+    const gone = avoirs.filter((a) => set.has(a.id));
+    if (!gone.length) return;
+    if (restock) {
+      const back = {};
+      gone.filter((a) => a.type === "produit").forEach((a) => avoirRemainingItems(a).forEach((i) => { back[i.productId] = (back[i.productId] || 0) + i.qty; }));
+      if (Object.keys(back).length) {
+        const now = new Date().toISOString();
+        const nextProducts = products.map((p) => (back[p.id] ? { ...p, stock: (Number(p.stock) || 0) + back[p.id] } : p));
+        const mv = Object.entries(back).map(([pid, q]) => { const p = products.find((x) => x.id === pid); const before = Number(p?.stock) || 0; return { id: uid(), date: now, productId: pid, productName: p?.name || "?", type: "ajustement", delta: q, before, after: before + q, author: actorName(), note: "Avoir supprimé" }; });
+        saveProducts(nextProducts);
+        saveMovements([...mv, ...movements]);
+      }
+    }
+    saveAvoirs(avoirs.filter((a) => !set.has(a.id)));
+    gone.forEach((a) => logAudit("caisse", `Avoir ${a.type === "produit" ? "produit" : "monnaie"} de ${a.clientName || "client"} supprimé${a.type === "produit" ? ` (${avoirProductProgress(a).remainingQty} article(s) non remis${restock ? ", remis en stock" : ""})` : ` (${formatMoney(avoirMoneyProgress(a).remaining, shop?.currency)} non rendus)`}`));
+    pushToast(gone.length > 1 ? "Avoirs supprimés" : "Avoir supprimé", "ok");
+  };
+  // Annule la dette d'une vente à crédit : la vente reste (articles vendus),
+  // mais le client ne doit plus rien. Le reste n'entre jamais en caisse.
+  const handleWriteOffCredit = (saleId) => {
+    const sale = sales.find((s) => s.id === saleId);
+    if (!sale) return;
+    const remaining = Math.max(0, sale.total - creditPaidSoFar(sale));
+    const now = new Date().toISOString();
+    const by = actorName();
+    saveSales(sales.map((s) => (s.id === saleId ? { ...s, paid: true, paidDate: now, paidBy: by, writtenOff: { amount: remaining, date: now, by } } : s)));
+    logAudit("caisse", `Crédit de ${sale.clientName || "client"} annulé (vente N° ${receiptNumber(saleId)}) · ${formatMoney(remaining, shop?.currency)} non encaissés`, { amount: -remaining, saleId });
+    pushToast("Dette annulée", "ok");
   };
 
   // Supprime une vente déjà enregistrée : restitue le stock vendu et journalise
@@ -15084,7 +15496,10 @@ function AppInner() {
                       <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={handleCheckout} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
                     )}
                     {view === "stock" && <StockScreen onRecordLoss={handleRecordLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
-                    {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} onReturnSale={handleReturnSale} auditLog={auditLog} pushToast={pushToast} />}
+                    {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} onReturnSale={handleReturnSale} auditLog={auditLog} pushToast={pushToast}
+                      onDeleteAvoirs={role === "admin" ? (ids, restock) => requireAdmin("Supprimer un avoir", () => handleDeleteAvoirs(ids, restock)) : undefined}
+                      onWriteOffCredit={role === "admin" ? (id) => requireAdmin("Annuler une dette", () => handleWriteOffCredit(id)) : undefined}
+                      onDeleteCreditSale={role === "admin" ? (id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id)) : undefined} />}
                     {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
                     {view === "expenses" && role === "vendeur" && (
                       <VendorExpensesScreen expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} vendorName={currentVendorName} />
@@ -15092,6 +15507,7 @@ function AppInner() {
                     {view === "admin" && role === "admin" && (
                       <AdminScreen
                         cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={recordVersement}
+                        onUpdateVersement={(id, patch) => requireAdmin("Modifier un versement", () => updateVersement(id, patch))} onDeleteVersement={(id) => requireAdmin("Supprimer un versement", () => deleteVersement(id))}
                         shop={shop} saveShopMeta={saveShopMeta} shops={shops} activeShopId={activeShopId}
                         onSwitchShop={handleSwitchShop} onCreateShop={handleCreateShop} onDeleteShop={handleDeleteShop}
                         products={products} saveProducts={saveProducts} categories={categories} saveCategories={saveCategories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} sales={sales} saveSales={saveSales}

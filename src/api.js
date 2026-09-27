@@ -282,6 +282,15 @@ function getKnown(shopId, key) {
 function setKnown(shopId, key, ids) {
   try { localStorage.setItem(knownKey(shopId, key), JSON.stringify([...ids])); } catch { /* quota : non bloquant */ }
 }
+// L'élément a-t-il été confirmé par le serveur ? (null = pas encore de
+// référence sur cet appareil : on ne peut pas savoir, on ne signale rien.)
+export function isServerConfirmed(key, id, shopId) {
+  const sid = resolveShop(shopId);
+  if (!sid || !isShopLinked(sid)) return null;
+  const known = getKnown(sid, key);
+  if (!known) return null;
+  return known.has(String(id));
+}
 let mergedListener = null;
 export function onMergedValue(fn) { mergedListener = fn; return () => { if (mergedListener === fn) mergedListener = null; }; }
 
