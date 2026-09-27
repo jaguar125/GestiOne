@@ -197,6 +197,10 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
     line(`  ${i.qty} x ${fmt(i.product.price)}`);
   });
   line("--------------------------------");
+  if (receipt.remise > 0) {
+    line(twoCol("Sous-total", fmt(receipt.subtotal || receipt.total + receipt.remise)));
+    line(twoCol("Remise", "-" + fmt(receipt.remise)));
+  }
   push(ESC, 0x45, 0x01);
   line(twoCol(receipt.isProductAvoir ? "VALEUR EN AVOIR" : "TOTAL", fmt(receipt.total)));
   push(ESC, 0x45, 0x00);
@@ -207,9 +211,9 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
     line(twoCol("Avoir restant", fmt(receipt.avoirLeft || 0)));
   } else if (receipt.mobilePaid > 0 && receipt.paymentMethod === "especes") {
     line("Paiement mixte");
-    line(twoCol("  Mobile Money", fmt(receipt.mobilePaid)));
+    line(twoCol("  " + (receipt.mobileOperator || "Mobile Money"), fmt(receipt.mobilePaid)));
     line(twoCol("  Especes", fmt(receipt.total - receipt.mobilePaid)));
-  } else if (!receipt.isProductAvoir) line(PAYMENT_LABEL(receipt.paymentMethod));
+  } else if (!receipt.isProductAvoir) line(PAYMENT_LABEL(receipt.paymentMethod) + (receipt.paymentMethod === "mobile" && receipt.mobileOperator ? " - " + receipt.mobileOperator : ""));
   if (receipt.amountReceived != null) {
     line(twoCol("Recu", fmt(receipt.amountReceived)));
     if (receipt.paymentMethod === "credit" && creditRest > 0) {

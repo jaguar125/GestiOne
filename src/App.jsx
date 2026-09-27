@@ -7,7 +7,7 @@ import {
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
   Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
-  Phone, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3,
+  Phone, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
 import * as Tone from "tone";
@@ -319,7 +319,8 @@ function cashPartOf(s) {
   return s.paymentMethod === "especes" ? (Number(s.total) || 0) - mobilePartOf(s) : 0;
 }
 function paymentLabelOf(s) {
-  if (s.paymentMethod === "especes" && Number(s.mobilePaid) > 0) return "Espèces + Mobile Money";
+  if (s.paymentMethod === "especes" && Number(s.mobilePaid) > 0) return `Espèces + ${s.mobileOperator || "Mobile Money"}`;
+  if (s.paymentMethod === "mobile" && s.mobileOperator) return s.mobileOperator === "Carte bancaire" || s.mobileOperator === "Autre" ? s.mobileOperator : `Mobile Money · ${s.mobileOperator}`;
   return PAYMENT_LABELS[s.paymentMethod] || s.paymentMethod;
 }
 // Solde d'une vente à crédit au moment du reçu : total moins la part payée
@@ -386,6 +387,21 @@ const THEME_PRESETS = [
   { id: "violet", label: "Violet", glass: "#2E1A47", glassLight: "#432764", cap: "#C9A6FF" },
   { id: "ardoise", label: "Ardoise", glass: "#1E2A32", glassLight: "#2C3E49", cap: "#7FD1D9" },
   { id: "prune", label: "Prune & corail", glass: "#4B2142", glassLight: "#6A2E5C", cap: "#F07A55" },
+  // Thème « Bleu nuit » : nouvelle présentation (Accueil, barre Accueil ·
+  // Vendre · Stock · Rapports · Plus, paiement et ticket plein écran).
+  { id: "nuit", label: "Bleu nuit & orange", glass: "#0E2240", glassLight: "#16325C", cap: "#F27A1A" },
+];
+const isNuit = (shop) => shop?.theme === "nuit";
+const NUIT_PAY = { especes: "#1FA25B", mobile: "#2D6BE0", credit: "#E0433A" };
+// Opérateurs proposés quand le client paie par Mobile Money (enregistrés
+// comme « Mobile Money » dans la caisse, avec l'opérateur en détail).
+const MOBILE_OPERATORS = [
+  { id: "Orange Money", short: "OM", bg: "#FF7900", fg: "#fff" },
+  { id: "MTN MoMo", short: "MTN", bg: "#FFCC00", fg: "#1A1A1A" },
+  { id: "Moov Money", short: "M", bg: "#0066B3", fg: "#fff" },
+  { id: "Wave", short: "W", bg: "#1DC4FF", fg: "#fff" },
+  { id: "Carte bancaire", short: "CB", bg: "#7B4DDB", fg: "#fff" },
+  { id: "Autre", short: "…", bg: "#6B7686", fg: "#fff" },
 ];
 function getTheme(id) { return THEME_PRESETS.find((t) => t.id === id) || THEME_PRESETS[0]; }
 
@@ -487,9 +503,10 @@ function buildReceiptText(receipt, shop, fmt) {
     lines.push(`${i.qty} × ${i.product.name} — ${fmt(computeItemTotal(i.product, i.qty))}`);
   });
   lines.push("");
+  if (receipt.remise > 0) { lines.push(`Sous-total : ${fmt(receipt.subtotal || receipt.total + receipt.remise)}`); lines.push(`Remise : -${fmt(receipt.remise)}`); }
   lines.push(`Total : ${fmt(receipt.total)}`);
   lines.push(`Paiement : ${paymentLabelOf(receipt)}`);
-  if (receipt.mobilePaid > 0) { lines.push(`  Mobile Money : ${fmt(receipt.mobilePaid)}`); lines.push(`  Espèces : ${fmt(receipt.total - receipt.mobilePaid)}`); }
+  if (receipt.mobilePaid > 0) { lines.push(`  ${receipt.mobileOperator || "Mobile Money"} : ${fmt(receipt.mobilePaid)}`); lines.push(`  Espèces : ${fmt(receipt.total - receipt.mobilePaid)}`); }
   if (receipt.paymentMethod === "credit" && receipt.clientName) lines.push(`Client : ${receipt.clientName}`);
   if (receipt.avoirPaid > 0) {
     lines.push(`Payé avec avoir : ${fmt(receipt.avoirPaid)}`);
@@ -2507,11 +2524,37 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
     }
   };
 
+  const nuit = isNuit(shop);
+  const shareReceipt = () => {
+    const text = buildReceiptText(receipt, shop, fmt);
+    if (typeof navigator !== "undefined" && navigator.share) navigator.share({ title: `Reçu — ${shop.name}`, text }).catch(() => {});
+    else shareText(`Reçu — ${shop.name}`, text).catch(() => {});
+  };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
-      <div className="absolute inset-0 bg-black/50 no-print" onClick={onClose} />
-      <div className="relative w-full max-w-xs bg-white rounded-t-2xl gb-pop flex flex-col overflow-hidden" style={{ maxHeight: "85vh" }}>
-      <div id="receipt-print-area" className="overflow-y-auto gb-scroll ticket-edge px-5 pt-5" style={{ paddingBottom: 24 }}>
+    <div className={nuit ? "fixed inset-0 z-50 flex flex-col" : "fixed inset-0 z-50 flex items-center justify-center px-6"} style={nuit ? { background: "var(--paper)" } : undefined}>
+      {nuit ? (
+        <div className="px-4 pb-3 flex items-center gap-3 text-white shrink-0 no-print" style={{ background: "var(--glass)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
+          <button onClick={onClose} className="gb-focus w-10 h-10 -ml-1 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Retour"><ArrowLeft size={19} /></button>
+          <h2 className="font-display font-bold text-[18px] flex-1">Ticket de vente</h2>
+          <button onClick={shareReceipt} className="gb-focus w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Partager"><Share2 size={17} /></button>
+          <button onClick={handlePrintReceipt} disabled={printing} className="gb-focus w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Imprimer"><Printer size={17} /></button>
+        </div>
+      ) : <div className="absolute inset-0 bg-black/50 no-print" onClick={onClose} />}
+      <div className={nuit ? "flex-1 min-h-0 w-full max-w-[460px] mx-auto px-4 pt-4 flex flex-col" : "relative w-full max-w-xs bg-white rounded-t-2xl gb-pop flex flex-col overflow-hidden"} style={nuit ? undefined : { maxHeight: "85vh" }}>
+      <div id="receipt-print-area" className={`overflow-y-auto gb-scroll ticket-edge px-5 pt-5${nuit ? " bg-white rounded-t-[18px] min-h-0" : ""}`} style={{ paddingBottom: 24, ...(nuit ? { boxShadow: "0 8px 24px -12px rgba(14,34,64,0.25)" } : {}) }}>
+        {nuit && (
+          <div className="text-center mb-3">
+            <div className="inline-flex items-center gap-2.5">
+              <span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--cap)" }}><ShoppingCart size={20} color="#fff" /></span>
+              <span className="text-left">
+                <span className="block font-display font-bold text-[18px] leading-none" style={{ color: "var(--glass)" }}>{shop.name}</span>
+                <span className="block text-[10.5px] mt-1" style={{ color: "#6B7686" }}>{[shop.address, shop.phone].filter(Boolean).join(" · ") || "Merci de votre visite"}</span>
+              </span>
+            </div>
+            <p className="text-[11px] font-bold mt-2">Votre satisfaction, notre priorité !</p>
+            <div className="border-t border-dashed mt-3" style={{ borderColor: "#C9D1DC" }} />
+          </div>
+        )}
         <div className="text-center">
           <Receipt size={18} className="mx-auto mb-1.5" style={{ color: receipt.isProductAvoir ? "#534AB7" : "var(--glass)" }} />
           <p className="font-display font-bold text-[12px] tracking-[0.18em] uppercase" style={{ color: receipt.isProductAvoir ? "#534AB7" : "var(--glass)" }}>{receipt.isProductAvoir ? (receipt.avoirMonnaie ? "Avoir produit + monnaie" : "Avoir produit") : "Reçu de vente"}</p>
@@ -2544,6 +2587,12 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
 
         <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
 
+        {receipt.remise > 0 && (
+          <div className="flex flex-col gap-1 mb-2 text-[11.5px] font-mono">
+            <div className="flex justify-between opacity-60"><span>Sous-total</span><span>{fmt(receipt.subtotal || receipt.total + receipt.remise)}</span></div>
+            <div className="flex justify-between font-bold" style={{ color: "#D9491F" }}><span>Remise</span><span>- {fmt(receipt.remise)}</span></div>
+          </div>
+        )}
         <div className="flex justify-between items-baseline">
           <span className="text-[11px] font-semibold uppercase tracking-wide opacity-50">{receipt.isProductAvoir ? "Valeur en avoir" : "Total"}</span>
           <span className="font-display font-bold text-2xl" style={{ color: receipt.isProductAvoir ? "#534AB7" : "var(--glass)" }}>{fmt(receipt.total)}</span>
@@ -2558,13 +2607,13 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
         {receipt.mobilePaid > 0 && receipt.paymentMethod === "especes" && (
           <div className="rounded-xl p-3 mt-3" style={{ background: "#EEF3FB" }}>
             <p className="text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: "#2B4C8C" }}>Paiement mixte</p>
-            <div className="flex justify-between text-[12px]" style={{ color: "#1D5FA8" }}><span className="flex items-center gap-1.5"><Smartphone size={13} /> Mobile Money</span><span className="font-mono font-bold">{fmt(receipt.mobilePaid)}</span></div>
+            <div className="flex justify-between text-[12px]" style={{ color: "#1D5FA8" }}><span className="flex items-center gap-1.5"><Smartphone size={13} /> {receipt.mobileOperator || "Mobile Money"}</span><span className="font-mono font-bold">{fmt(receipt.mobilePaid)}</span></div>
             <div className="flex justify-between text-[12px] mt-1" style={{ color: "#1E7A46" }}><span className="flex items-center gap-1.5"><Banknote size={13} /> Espèces</span><span className="font-mono font-bold">{fmt(receipt.total - receipt.mobilePaid)}</span></div>
           </div>
         )}
         {!receipt.isProductAvoir && !(receipt.avoirPaid >= receipt.total) && !(receipt.mobilePaid > 0) && (
           <div className="flex justify-between text-[11px] font-mono mt-2 opacity-60">
-            <span>{PAYMENT_LABELS[receipt.paymentMethod]}</span>
+            <span>{paymentLabelOf(receipt)}</span>
             {receipt.paymentMethod === "credit" && <span>{receipt.clientName}</span>}
           </div>
         )}
@@ -2632,6 +2681,16 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
         </div>
       </div>
 
+      {nuit ? (
+        <div className="pt-3 no-print shrink-0" style={{ paddingBottom: "max(20px, calc(env(safe-area-inset-bottom) + 12px))" }}>
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={handlePrintReceipt} disabled={printing} className="gb-focus min-h-[46px] rounded-[14px] text-[12.5px] font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-60" style={{ background: "var(--glass)" }}><Printer size={15} /> {printing ? "…" : "Imprimer"}</button>
+            <button onClick={shareReceipt} className="gb-focus min-h-[46px] rounded-[14px] text-[12.5px] font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "var(--glass)" }}><Share2 size={15} /> Partager</button>
+            <button onClick={() => { const knownPhone = clients.find((c) => c.id === receipt.clientId)?.phone; const phone = knownPhone || window.prompt("Numéro WhatsApp du client (avec indicatif pays) :"); if (!phone) return; window.open(`https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent(buildReceiptText(receipt, shop, fmt))}`, "_blank"); }} className="gb-focus min-h-[46px] rounded-[14px] text-[12.5px] font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "#25D366" }}>💬 WhatsApp</button>
+          </div>
+          <button onClick={onClose} className="gb-focus w-full min-h-[50px] rounded-[14px] mt-2 text-[14px] font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--cap)" }}><ShoppingCart size={17} /> Nouvelle vente</button>
+        </div>
+      ) : (
       <div className="px-5 pt-3 no-print" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
         <div className="flex gap-2">
           <button onClick={onClose} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Fermer</button>
@@ -2667,6 +2726,7 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
           </button>
         </div>
       </div>
+      )}
       </div>
     </div>
   );
@@ -3066,6 +3126,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const products = productsRaw.map((p) => (p.stockFrom ? { ...p, stock: availableStock(p, productsRaw) } : p));
   const [optionsFor, setOptionsFor] = useState(null);
   const isBoutique = shopProfile(shop) === "boutique";
+  const nuit = isNuit(shop);
   const [boutiqueFor, setBoutiqueFor] = useState(null);
   const [barcode, setBarcode] = useState("");
   const [query, setQuery] = useState("");
@@ -3233,8 +3294,22 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     const basePrice = variant ? Number(variant.price) || 0 : Number(base.price) || 0;
     return { ...l, id: l.key, productId: base.id, options: chosen, variantName: variant?.name, product: { ...base, name: chosen.length ? `${baseName} + ${chosen.map((o) => o.name).join(" + ")}` : baseName, price: basePrice + extra, bulkQty: 0, bulkPrice: 0 } };
   }).filter(Boolean);
-  const total = cartItems.reduce((s, i) => s + computeItemTotal(i.product, i.qty), 0);
+  const subtotal = cartItems.reduce((s, i) => s + computeItemTotal(i.product, i.qty), 0);
+  // Remise accordée au client (thème Bleu nuit) : déduite du total à payer.
+  const [remise, setRemise] = useState("");
+  const [mobileOp, setMobileOp] = useState("");
+  const remiseVal = Math.min(subtotal, Math.max(0, Math.round(Number(remise) || 0)));
+  const total = subtotal - remiseVal;
   const count = cartItems.reduce((s, i) => s + i.qty, 0);
+  // Informations en plus sur la vente : opérateur Mobile Money, remise.
+  const onCheckoutX = (...args) => {
+    const a = [...args];
+    while (a.length < 9) a.push(undefined);
+    const extra = {};
+    if (mobileOp && (a[2] === "mobile" || Number(a[8]) > 0)) extra.mobileOperator = mobileOp;
+    if (remiseVal > 0) { extra.subtotal = subtotal; extra.remise = remiseVal; }
+    return onCheckout(...a, Object.keys(extra).length ? extra : undefined);
+  };
 
   const changeQty = (id, delta) => {
     setCart((c) => {
@@ -3326,7 +3401,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       const changeToAvoir = avoirMonnaie && change > 0 ? change : 0;
       const changeClient = avoirClientName.trim() || payAvoir.clientName || clientName.trim() || "Client";
       const productAvoirFor = avoirProduit ? (avoirClientName.trim() || payAvoir.clientName || clientName.trim() || "Client") : null;
-      const sale = onCheckout(cartItems, total, method, clientId, clientName || payAvoir.clientName, shortfall > 0 ? (received || null) : received, shortfall > 0 ? (received || 0) : undefined, { avoirId: payAvoir.id, amount: payAvoirUsed, changeToAvoir, changeClient, productAvoirFor });
+      const sale = onCheckoutX(cartItems, total, method, clientId, clientName || payAvoir.clientName, shortfall > 0 ? (received || null) : received, shortfall > 0 ? (received || 0) : undefined, { avoirId: payAvoir.id, amount: payAvoirUsed, changeToAvoir, changeClient, productAvoirFor });
       playSound("sale", shop.soundsEnabled);
       speak(shortfall > 0 ? `Vente enregistrée. ${spokenAmount(fmt(payAvoirUsed))} payés avec l'avoir, ${spokenAmount(fmt(shortfall))} en crédit.` : due > 0 ? `Vente enregistrée. ${spokenAmount(fmt(payAvoirUsed))} payés avec l'avoir, ${spokenAmount(fmt(due))} en complément.` : `Vente payée avec l'avoir de ${payAvoir.clientName}.`, voiceOn(shop, "sale"));
       setReceipt(sale);
@@ -3341,7 +3416,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       if (amountReceived === "") { pushToast(`Saisissez les espèces reçues : ${fmt(cashDue)} au moins`, "error"); return; }
       const cashIn = Number(amountReceived) || 0;
       if (cashIn < cashDue) { pushToast(`Espèces insuffisantes : il manque ${fmt(cashDue - cashIn)}`, "error"); return; }
-      const sale = onCheckout(cartItems, total, "especes", clientId, clientName || "Client", cashIn, undefined, undefined, mob);
+      const sale = onCheckoutX(cartItems, total, "especes", clientId, clientName || "Client", cashIn, undefined, undefined, mob);
       playSound("sale", shop.soundsEnabled);
       speak(`Vente enregistrée, ${spokenAmount(fmt(total))} : ${spokenAmount(fmt(cashDue))} en espèces et ${spokenAmount(fmt(mob))} par Mobile Money.`, voiceOn(shop, "sale"));
       setReceipt(sale);
@@ -3357,7 +3432,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       const name = (avoirClientName.trim() || clientName.trim());
       if (!clientId && !name) { pushToast("Indiquez le nom du client (crédit et avoir produit)", "error"); setClientFocusSignal((n) => n + 1); return; }
       const received = payment === "especes" && amountReceived !== "" ? Math.max(0, Number(amountReceived) || 0) : 0;
-      const sale = onCheckout(cartItems, total, "credit", clientId, clientName.trim() || name, received > 0 ? received : null, received);
+      const sale = onCheckoutX(cartItems, total, "credit", clientId, clientName.trim() || name, received > 0 ? received : null, received);
       onCreateProductAvoir(cartItems, name || clientName, { skipStock: true, saleId: sale?.id });
       playSound("sale", shop.soundsEnabled);
       speak(`Vente enregistrée. ${received > 0 ? `${spokenAmount(fmt(received))} payés, ` : ""}${spokenAmount(fmt(total - received))} en crédit. Articles en avoir pour ${name || clientName}.`, voiceOn(shop, "sale"));
@@ -3379,7 +3454,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     if (cashShortfall && !avoirMonnaie && !avoirProduit) {
       if (!clientId && !clientName.trim()) { pushToast("Indiquez le nom du client pour enregistrer le solde restant en crédit", "error"); setClientFocusSignal((n) => n + 1); return; }
       const received = Number(amountReceived);
-      const sale = onCheckout(cartItems, total, "credit", clientId, clientName || "Client", received, received);
+      const sale = onCheckoutX(cartItems, total, "credit", clientId, clientName || "Client", received, received);
       playSound("sale", shop.soundsEnabled);
       speak(`Vente enregistrée en crédit partiel. ${spokenAmount(fmt(total - received))} restant à payer.`, voiceOn(shop, "sale"));
       setReceipt(sale);
@@ -3397,7 +3472,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     // à lui remettre plus tard — enregistrés en avoir, sans redécompter le
     // stock déjà décompté par la vente.
     if (avoirProduit && payment === "mobile") {
-      const sale = onCheckout(cartItems, total, "mobile", clientId, clientName || avoirClient, receivedAmount);
+      const sale = onCheckoutX(cartItems, total, "mobile", clientId, clientName || avoirClient, receivedAmount);
       onCreateProductAvoir(cartItems, avoirClient, { skipStock: true, saleId: sale?.id });
       playSound("sale", shop.soundsEnabled);
       speak(`Vente enregistrée, ${spokenAmount(fmt(total))}. Produits en avoir pour ${avoirClient}.`, voiceOn(shop, "sale"));
@@ -3414,7 +3489,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     // aussi actif, la monnaie non rendue devient une somme due, rattachée.
     if (avoirProduit) {
       const hasMoney = avoirMonnaie && changeDue > 0;
-      const sale = onCheckout(cartItems, total, "especes", clientId, clientName || avoirClient, receivedAmount);
+      const sale = onCheckoutX(cartItems, total, "especes", clientId, clientName || avoirClient, receivedAmount);
       const { productAvoir, moneyAvoir } = onCreateProductAndMoneyAvoir(cartItems, hasMoney ? changeDue : 0, avoirClient, { skipStock: true, saleId: sale?.id });
       playSound("sale", shop.soundsEnabled);
       speak(`Vente enregistrée, ${spokenAmount(fmt(total))}. Articles en réserve pour ${avoirClient}.`, voiceOn(shop, "sale"));
@@ -3424,7 +3499,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       return;
     }
 
-    const sale = onCheckout(cartItems, total, payment, clientId, clientName || "Client", receivedAmount);
+    const sale = onCheckoutX(cartItems, total, payment, clientId, clientName || "Client", receivedAmount);
     // Avoir monnaie : la vente est normale (le client a bien payé), seule la
     // monnaie qui n'a pas pu être rendue devient une somme due, à part.
     if (avoirMonnaie && changeDue > 0) {
@@ -3447,6 +3522,8 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     setAvoirMonnaie(false);
     setAvoirProduit(false);
     setAvoirClientName("");
+    setRemise("");
+    setMobileOp("");
     setCart([]);
   };
 
@@ -3480,7 +3557,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     const exact = products.some((p) => (p.barcode || "").trim() === code);
     if (exact || /^\d{6,}$/.test(code)) { setQuery(""); lookupAndAdd(code); }
   };
-  const shown = filtered;
+  const shown = [...filtered].sort((x, y) => (y.favorite ? 1 : 0) - (x.favorite ? 1 : 0));
   return (
     <div style={{ paddingBottom: "calc(190px + env(safe-area-inset-bottom))" }}>
       {isBoutique ? (<>
@@ -3533,7 +3610,8 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           )}
         </div>
       </>) : (<>
-      <section className="mx-3 mt-3 rounded-[24px] px-4 pt-4 pb-4 flex flex-col gap-3 text-white" style={{ background: "#1F2A33" }}>
+      <section className={nuit ? "px-4 pb-4 flex flex-col gap-3 text-white rounded-b-[24px]" : "mx-3 mt-3 rounded-[24px] px-4 pt-4 pb-4 flex flex-col gap-3 text-white"} style={{ background: nuit ? "var(--glass)" : "#1F2A33", ...(nuit ? { marginTop: -20, paddingTop: 34 } : {}) }}>
+        {!nuit && <>
         <div className="flex items-center justify-between gap-2">
           <span className="text-[13px] capitalize" style={{ color: "#C9D1D8" }}>{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</span>
         </div>
@@ -3549,6 +3627,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
             <span className="font-display font-bold text-[18px]">{todaySales.length}</span>
           </div>
         </div>
+        </>}
         <div className="flex gap-2">
           <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] pl-3.5 pr-1.5 rounded-2xl" style={{ background: "#fff" }}>
             <Search size={17} color="#5B6470" className="shrink-0" />
@@ -3565,37 +3644,20 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
 
       {scannerOpen && <CameraScanner onDetect={handleCameraDetect} onClose={() => setScannerOpen(false)} />}
 
-      {favorites.length > 0 && !query && (
-        <section className="px-4 mt-4 flex flex-col gap-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex flex-col min-w-0">
-              <span className="font-display font-bold text-[17px]">Touches rapides</span>
-              <span className="text-[12.5px] opacity-60">{favOpen ? `Vos ${favorites.length} favoris` : `${favorites.length} favoris masqués`}</span>
-            </span>
-            <button onClick={toggleFav} aria-expanded={favOpen} aria-label={favOpen ? "Replier les touches rapides" : "Déplier les touches rapides"} className="gb-focus shrink-0 min-h-[40px] pl-3.5 pr-3 rounded-xl text-[13px] font-bold flex items-center gap-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-              {favOpen ? "Replier" : "Déplier"}
-              <ChevronDown size={16} style={{ transform: favOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
-            </button>
-          </div>
-          {favOpen && (
-            <div className="grid grid-cols-3 gap-2 gb-slide-up">
-              {favorites.map((p) => {
-                const n = qtyInCart(p.id);
-                const out = p.stock <= 0;
-                return (
-                  <button key={p.id} onClick={() => addToCart(p)} disabled={out} aria-label={`Ajouter ${p.name}`} className="gb-focus relative min-w-0 min-h-[104px] p-2.5 pt-3 rounded-[18px] text-left text-white flex flex-col items-start justify-between gap-1.5 active:scale-[0.97] transition-transform disabled:opacity-45" style={{ background: catKey(p.category), boxShadow: n ? "0 0 0 3px var(--paper), 0 0 0 5px #1E8E50" : "0 6px 14px rgba(22,32,42,0.15)" }}>
-                    {n > 0 && <span className="absolute top-2 right-2 min-w-[24px] h-6 px-1.5 rounded-full text-[12px] font-bold flex items-center justify-center" style={{ background: "#fff", color: "#16202A" }}>×{n}</span>}
-                    <span className="opacity-90"><CategoryIcon cat={p.category} categories={[{ ...getCategory(categories, p.category), color: "#FFFFFF" }]} size={19} /></span>
-                    <span className="text-[14px] font-bold leading-tight break-words w-full">{p.name}</span>
-                    <span className="font-display font-bold text-[15.5px] whitespace-nowrap">{fmt(p.price)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
-
+      {/* Touches rapides supprimées : les produits favoris s'affichent en premier dans la liste. */}
+      {nuit ? (
+        <div role="tablist" aria-label="Catégories" className="flex gap-2 overflow-x-auto gb-scroll px-4 mt-4 pb-1">
+          {["all", ...categories.map((c) => c.id)].map((c) => {
+            const on = cat === c;
+            return (
+              <button key={c} onClick={() => setCat(c)} role="tab" aria-selected={on} className="gb-focus shrink-0 h-10 px-4 rounded-full text-[13px] font-bold flex items-center gap-1.5 whitespace-nowrap" style={on ? { background: "var(--cap)", color: "#fff", boxShadow: "0 6px 14px -6px var(--cap)" } : { background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)" }}>
+                {c === "all" ? <Layers size={15} /> : <CategoryIcon cat={c} categories={on ? [{ ...getCategory(categories, c), color: "#FFFFFF" }] : categories} size={15} />}
+                {c === "all" ? "Tout" : getCategory(categories, c).label}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
       <div role="tablist" aria-label="Catégories" className="mx-4 mt-4 p-1.5 rounded-[18px] grid gap-1" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(58px, 1fr))", background: "var(--card)", border: "1px solid var(--line)" }}>
         {["all", ...categories.map((c) => c.id)].map((c) => {
           const on = cat === c;
@@ -3607,6 +3669,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           );
         })}
       </div>
+      )}
 
       <div className="px-4 mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
         {shown.map((p) => {
@@ -3628,7 +3691,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                 <span className="text-[15px] font-bold leading-tight break-words" style={{ color: "var(--ink)" }}>{p.name}</span>
                 <span className="flex items-center justify-between gap-1.5 w-full">
                   <span className="font-display font-bold text-[16.5px] whitespace-nowrap" style={{ color: "var(--ink)" }}>{fmt(p.price)}</span>
-                  <span className="w-8 h-8 shrink-0 rounded-[10px] flex items-center justify-center" style={{ background: out ? "#C9CDD2" : "#1F2A33" }}><Plus size={16} color="#fff" /></span>
+                  <span className={`w-8 h-8 shrink-0 flex items-center justify-center ${nuit ? "rounded-full" : "rounded-[10px]"}`} style={{ background: out ? "#C9CDD2" : nuit ? "#1FA25B" : "#1F2A33" }}><Plus size={16} color="#fff" /></span>
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-[12px] font-bold" style={{ color: stockColor }}>
                   <span className="w-[7px] h-[7px] rounded-full" style={{ background: dotColor }} />
@@ -3654,6 +3717,19 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       {!showCart && !isBoutique && (
         <div className="fixed left-3 right-3 z-30 gb-slide-up no-print mx-auto max-w-[600px]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
           {count > 0 ? (
+            nuit ? (
+            <button onClick={() => setShowCart(true)} className="gb-focus w-full min-h-[64px] rounded-[20px] pl-4 pr-2 py-2 flex items-center gap-3 text-white" style={{ background: "var(--glass)", boxShadow: "0 12px 26px rgba(14,34,64,0.4)" }}>
+              <span className="relative shrink-0 flex">
+                <ShoppingCart size={24} color="#fff" />
+                <span className="absolute -top-2 -right-2.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: "var(--cap)", color: "#fff" }}>{count}</span>
+              </span>
+              <span className="flex-1 min-w-0 flex flex-col items-start pl-1.5">
+                <span className="text-[12px] font-semibold" style={{ color: "#9FB0C8" }}>Panier · {count} article{count > 1 ? "s" : ""}</span>
+                <span className="font-display font-bold text-[20px] leading-tight">{fmt(total)}</span>
+              </span>
+              <span className="shrink-0 h-12 px-4 rounded-[14px] text-[14.5px] font-bold flex items-center gap-1.5 whitespace-nowrap text-white" style={{ background: "var(--cap)" }}><Banknote size={17} /> ENCAISSER</span>
+            </button>
+            ) :
             <button onClick={() => setShowCart(true)} className="gb-focus w-full min-h-[64px] rounded-[20px] pl-4 pr-2 py-2 flex items-center gap-3 text-white" style={{ background: "#1E8E50", boxShadow: "0 12px 26px rgba(30,142,80,0.35)" }}>
               <span className="relative shrink-0 flex">
                 <ShoppingCart size={24} color="#fff" />
@@ -3668,7 +3744,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           ) : isBoutique ? null : (
             <div className="min-h-[52px] px-4 py-2.5 rounded-[18px] flex items-center gap-2.5 text-[13.5px]" style={{ background: "var(--card)", border: "1px dashed var(--line)", color: "var(--ink)" }}>
               <ShoppingCart size={18} className="opacity-50 shrink-0" />
-              <span className="opacity-70">Touchez une touche rapide ou un produit pour commencer</span>
+              <span className="opacity-70">Touchez un produit pour commencer</span>
             </div>
           )}
         </div>
@@ -3677,7 +3753,14 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       {showCart && (
         <div className="fixed inset-0 z-40 flex items-end no-print">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowCart(false)} />
-          <div className="relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+          <div className={nuit ? "relative w-full h-full max-w-[600px] mx-auto px-4 gb-slide-up flex flex-col" : "relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col"} style={{ background: nuit ? "var(--paper)" : "var(--card)", paddingBottom: nuit ? "max(20px, calc(env(safe-area-inset-bottom) + 12px))" : "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+            {nuit ? (
+              <div className="-mx-4 px-4 pb-3 mb-3 flex items-center gap-3 text-white shrink-0" style={{ background: "var(--glass)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
+                <button onClick={() => setShowCart(false)} className="gb-focus w-10 h-10 -ml-1 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Retour"><ArrowLeft size={19} /></button>
+                <h2 className="font-display font-bold text-[18px] flex-1">Paiement</h2>
+                {cartItems.length > 0 && <button onClick={() => { setCart([]); setShowCart(false); pushToast("Panier vidé", "ok"); }} className="gb-focus min-h-[36px] px-3 rounded-xl text-[12.5px] font-bold" style={{ background: "rgba(255,255,255,0.12)" }}>Vider</button>}
+              </div>
+            ) : (
             <div className="flex items-center justify-between gap-2 mb-3">
               <h2 className="font-display font-bold text-[20px]">Panier · {count} article{count > 1 ? "s" : ""}</h2>
               <div className="flex items-center gap-2 shrink-0">
@@ -3685,7 +3768,17 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                 <button onClick={() => setShowCart(false)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer le panier"><X size={18} /></button>
               </div>
             </div>
+            )}
             <div className="flex-1 overflow-y-auto gb-scroll -mx-1 px-1">
+              {nuit && cartItems.length > 0 && (
+                <div className="rounded-[20px] px-4 py-4 text-center text-white mb-3 relative overflow-hidden" style={{ background: "linear-gradient(135deg, var(--glass-light), var(--glass))", boxShadow: "0 12px 24px -14px rgba(14,34,64,0.7)" }}>
+                  <span className="absolute -right-8 -top-10 w-28 h-28 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+                  <p className="text-[12px] relative" style={{ color: "#C5D0E0" }}>Montant à payer</p>
+                  <p className="font-display font-bold text-[32px] leading-tight relative">{fmt(total)}</p>
+                  <p className="text-[11.5px] relative" style={{ color: "#9FB0C8" }}>{count} article{count > 1 ? "s" : ""}{payAvoir ? ` · avoir - ${fmt(payAvoirUsed)}` : ""}</p>
+                </div>
+              )}
+              {nuit && cartItems.length > 0 && <p className="text-[12.5px] font-bold mb-1">Articles</p>}
               {cartItems.map((i) => (
                 <div key={i.id} className="flex items-center gap-3 py-2.5 border-b" style={{ borderColor: "var(--line)" }}>
                   {isBoutique && i.product.image ? <img src={i.product.image} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" /> : <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><CategoryIcon cat={i.product.category} categories={categories} size={15} /></div>}
@@ -3708,6 +3801,14 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
               ))}
               {cartItems.length === 0 && <p className="text-center text-sm opacity-50 py-8">Panier vide.</p>}
 
+              {nuit && cartItems.length > 0 && (
+                <div className="mt-3 rounded-2xl px-3 py-2.5 flex items-center gap-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                  <Tag size={16} color="#D9491F" className="shrink-0" />
+                  <span className="text-[13px] font-semibold flex-1">Remise</span>
+                  {[100, 500].map((v) => <button key={v} onClick={() => setRemise(String((Number(remise) || 0) + v))} className="gb-focus h-8 px-2.5 rounded-lg text-[11.5px] font-bold" style={{ background: "var(--paper-dim)" }}>+{v}</button>)}
+                  <input type="number" inputMode="decimal" value={remise} onChange={(e) => setRemise(e.target.value)} placeholder="0" className="gb-focus w-24 rounded-lg px-2.5 h-9 text-right text-[14px] font-mono border" style={{ borderColor: remiseVal > 0 ? "#F2A585" : "var(--line)" }} aria-label="Montant de la remise" />
+                </div>
+              )}
               {cartItems.length > 0 && (
                 <div className="pt-3">
                 {payAvoir ? (
@@ -3798,14 +3899,14 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                     const on = payment === m.id;
                     const Icon = m.id === "especes" ? Banknote : m.id === "mobile" ? Smartphone : UserPlus;
                     return (
-                      <button key={m.id} onClick={() => { setPayment(m.id); if (m.id !== "especes" || payAvoir) setAmountReceived(""); }} aria-pressed={on} className="gb-focus min-w-0 min-h-[64px] px-1 py-2 rounded-2xl text-[12.5px] font-bold flex flex-col items-center justify-center gap-1.5 text-center transition-colors" style={on ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>
+                      <button key={m.id} onClick={() => { setPayment(m.id); if (m.id !== "especes" || payAvoir) setAmountReceived(""); }} aria-pressed={on} className="gb-focus min-w-0 min-h-[64px] px-1 py-2 rounded-2xl text-[12.5px] font-bold flex flex-col items-center justify-center gap-1.5 text-center transition-colors" style={nuit ? (on ? { background: NUIT_PAY[m.id], color: "#fff", border: `1px solid ${NUIT_PAY[m.id]}`, boxShadow: `0 8px 16px -8px ${NUIT_PAY[m.id]}` } : { background: "var(--card)", color: NUIT_PAY[m.id], border: "1px solid var(--line)" }) : on ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>
                         <Icon size={20} />{m.label}
                       </button>
                     );
                   })}
                 </div>
                 {!payAvoir && (
-                  <button onClick={() => { setPayment(payment === "mixte" ? "especes" : "mixte"); setAmountReceived(""); setMixMobile(""); }} aria-pressed={payment === "mixte"} className="gb-focus w-full min-h-[52px] rounded-2xl px-3.5 mb-3 flex items-center gap-3 text-left transition-colors" style={payment === "mixte" ? { background: "#1F2A33", color: "#fff", border: "1px solid #1F2A33" } : { background: "var(--card)", color: "var(--ink)", border: "1px dashed var(--line)" }}>
+                  <button onClick={() => { setPayment(payment === "mixte" ? "especes" : "mixte"); setAmountReceived(""); setMixMobile(""); }} aria-pressed={payment === "mixte"} className="gb-focus w-full min-h-[52px] rounded-2xl px-3.5 mb-3 flex items-center gap-3 text-left transition-colors" style={payment === "mixte" ? { background: nuit ? "#7B4DDB" : "#1F2A33", color: "#fff", border: `1px solid ${nuit ? "#7B4DDB" : "#1F2A33"}` } : { background: "var(--card)", color: "var(--ink)", border: "1px dashed var(--line)" }}>
                     <span className="flex items-center -space-x-1.5 shrink-0">
                       <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#E6F4EC", border: "2px solid " + (payment === "mixte" ? "#1F2A33" : "var(--card)") }}><Banknote size={15} color="#1E7A46" /></span>
                       <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#E8F0FB", border: "2px solid " + (payment === "mixte" ? "#1F2A33" : "var(--card)") }}><Smartphone size={15} color="#1D5FA8" /></span>
@@ -3818,6 +3919,22 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                       <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: payment === "mixte" ? 18 : 2 }} />
                     </span>
                   </button>
+                )}
+                {nuit && (payment === "mobile" || payment === "mixte") && (
+                  <div className="mb-3 gb-slide-up">
+                    <p className="text-xs font-semibold opacity-60 mb-2">Opérateur</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {MOBILE_OPERATORS.map((o) => {
+                        const on = mobileOp === o.id;
+                        return (
+                          <button key={o.id} onClick={() => setMobileOp(on ? "" : o.id)} aria-pressed={on} className="gb-focus min-w-0 min-h-[46px] px-1.5 rounded-xl text-[11px] font-bold flex items-center justify-start gap-1.5" style={on ? { background: o.bg, color: o.fg, border: `1.5px solid ${o.bg}` } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>
+                            <span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[9px] font-black" style={{ background: o.bg, color: o.fg, border: on ? "1.5px solid rgba(255,255,255,0.7)" : "none" }}>{o.short}</span>
+                            <span className="leading-tight text-left">{o.id}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
                 {payment === "mixte" && (() => {
                   const mob = Math.max(0, Number(mixMobile) || 0);
@@ -4000,11 +4117,17 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
 
             <div className="pt-2 mt-1 border-t" style={{ borderColor: "var(--line)" }}>
               {(() => { const saved = cartItems.reduce((t, i) => t + Math.max(0, ((i.product.normalPrice || 0) - i.product.price) * i.qty), 0); return saved > 0 ? <div className="flex items-center justify-between mt-3 -mb-1.5 text-[13px] font-semibold" style={{ color: "#D9491F" }}><span className="flex items-center gap-1.5"><Tag size={14} /> Promotions appliquées</span><span className="font-mono">− {fmt(saved)}</span></div> : null; })()}
+              {remiseVal > 0 && (
+                <div className="mt-3 -mb-1.5 flex flex-col gap-1 text-[13px]">
+                  <div className="flex justify-between"><span className="opacity-60">Sous-total</span><span className="font-mono">{fmt(subtotal)}</span></div>
+                  <div className="flex justify-between font-semibold" style={{ color: "#D9491F" }}><span>Remise</span><span className="font-mono">− {fmt(remiseVal)}</span></div>
+                </div>
+              )}
               <div className="flex items-center justify-between mb-3 mt-3">
                 <span className="text-sm opacity-60">Total{payAvoir ? <span className="ml-1.5 text-[12px] font-semibold" style={{ color: "#854F0B" }}>· avoir - {fmt(payAvoirUsed)}</span> : null}</span>
                 <span className="font-display font-bold text-xl">{fmt(total)}</span>
               </div>
-              <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : "0 10px 22px rgba(30,142,80,0.3)" }}>
+              <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : nuit ? "var(--cap)" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : nuit ? "0 10px 22px rgba(242,122,26,0.35)" : "0 10px 22px rgba(30,142,80,0.3)" }}>
                 <Check size={19} />
                 {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit && !avoirMonnaie && (payment === "credit" || cashShortfall) ? (payment === "credit" || !(Number(amountReceived) > 0) ? `Crédit ${fmt(total)} · avoir produit` : `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))} · avoir produit`) : avoirProduit ? `Encaisser ${fmt(total)} · articles en réserve${avoirMonnaie ? " + monnaie en avoir" : ""}` : (payment === "mixte" ? `Encaisser ${fmt(total)} · espèces + mobile` : cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
               </button>
@@ -7408,7 +7531,7 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
         className="gb-focus w-full flex items-center justify-between px-3 py-2.5 rounded-xl mb-2.5"
         style={{ background: "#EEEDFE" }}
       >
-        <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#534AB7" }}><Star size={13} fill={f.favorite ? "#534AB7" : "none"} /> Produit favori (accès rapide à la vente)</span>
+        <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#534AB7" }}><Star size={13} fill={f.favorite ? "#534AB7" : "none"} /> Produit favori (affiché en premier à la vente)</span>
         <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: f.favorite ? "#534AB7" : "var(--line)" }}>
           <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: f.favorite ? 18 : 2 }} />
         </span>
@@ -8666,9 +8789,14 @@ function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }
   );
 }
 
-function ProductsSection({ products, saveProducts, categories, movements, saveMovements, author, pushToast, pushNotification, requireAdmin }) {
+function ProductsSection({ products, saveProducts, categories, movements, saveMovements, author, pushToast, pushNotification, requireAdmin, initialEdit }) {
   const fmt = useFmt();
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(initialEdit || null);
+  useEffect(() => {
+    if (!initialEdit) return;
+    const t = setTimeout(() => document.getElementById(`pform-${initialEdit}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    return () => clearTimeout(t);
+  }, [initialEdit]);
   const [adding, setAdding] = useState(false);
   const upsert = (p) => {
     const existing = products.find((x) => x.id === p.id);
@@ -8711,7 +8839,7 @@ function ProductsSection({ products, saveProducts, categories, movements, saveMo
       {adding && <ProductForm categories={categories} products={products} pushToast={pushToast} onSave={upsert} onCancel={() => setAdding(false)} />}
       <div className="flex flex-col gap-2.5">
         {products.map((p) => editing === p.id ? (
-          <ProductForm key={p.id} initial={p} categories={categories} products={products} pushToast={pushToast} onSave={upsert} onCancel={() => setEditing(null)} />
+          <div key={p.id} id={`pform-${p.id}`} style={{ scrollMarginTop: 130 }}><ProductForm initial={p} categories={categories} products={products} pushToast={pushToast} onSave={upsert} onCancel={() => setEditing(null)} /></div>
         ) : (
           <div key={p.id} className="rounded-2xl p-3 flex items-center gap-3" style={{ border: `1px solid ${p.stock <= p.minStock ? "#F09595" : "var(--line)"}`, background: "var(--card)" }}>
             <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${getCategory(categories, p.category).color}1f` }}><CategoryIcon cat={p.category} categories={categories} size={19} /></div>
@@ -12967,9 +13095,12 @@ function AdminScreen({
   orders, saveOrders, supplierProducts, saveSupplierProducts, avoirs,
   menuOpen, setMenuOpen, pushNotification, onSectionChange,
   auditLog, requireAdmin, onRestoreServerBackup,
-  snackLots, saveSnackLots,
+  snackLots, saveSnackLots, jump,
 }) {
-  const [section, setSection] = useState("stats");
+  const [section, setSection] = useState(jump?.id || "stats");
+  useEffect(() => {
+    if (jump?.id) { setSection(jump.id); onSectionChange?.(jump.id); }
+  }, [jump?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const [legalDoc, setLegalDoc] = useState(null);
   const activeSection = ADMIN_SECTIONS.find((s) => s.id === section);
   return (
@@ -13015,7 +13146,7 @@ function AdminScreen({
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
       {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} onNavigate={(id) => { setSection(id); onSectionChange?.(id); }} />}
       {section === "inventaire" && <InventorySection shop={shop} avoirs={avoirs || []} expenses={expenses} vendors={vendors} cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} onUpdateVersement={onUpdateVersement} onDeleteVersement={onDeleteVersement} products={products} sales={sales} saveSales={saveSales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
-      {section === "produits" && <ProductsSection requireAdmin={requireAdmin} products={products} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
+      {section === "produits" && <ProductsSection key={jump?.edit ? `edit-${jump.n}` : "produits"} initialEdit={jump?.edit} requireAdmin={requireAdmin} products={products} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "snack" && <SnackSection shop={shop} products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} expenses={expenses} saveExpenses={saveExpenses} sales={sales} snackLots={snackLots} saveSnackLots={saveSnackLots} pushToast={pushToast} author={shop?.adminDisplayName?.trim() || "Administrateur"} />}
       {section === "vitrine" && <VitrineSection shop={shop} saveShopMeta={saveShopMeta} products={products} pushToast={pushToast} />}
       {section === "categories" && <CategoriesSection categories={categories} saveCategories={saveCategories} products={products} pushToast={pushToast} />}
@@ -13514,6 +13645,905 @@ function VoiceSettingsCard({ prefs, onChange, expanded, onToggleExpanded }) {
   );
 }
 
+/* ---------- Thème « Bleu nuit » : Accueil et menu Plus ---------- */
+
+const NUIT = { navy: "#0E2240", navy2: "#16325C", orange: "#F27A1A", orange2: "#FF9A3D", blue: "#2D6BE0", green: "#1FA25B", red: "#E0433A", purple: "#7B4DDB", mut: "#6B7686" };
+
+function NuitKpi({ label, value, sub, Icon, from, to, onClick }) {
+  return (
+    <button onClick={onClick} className="gb-focus relative overflow-hidden rounded-[18px] px-3 py-3 text-left text-white min-w-0 active:scale-[0.98] transition-transform" style={{ background: `linear-gradient(135deg, ${from}, ${to})`, boxShadow: `0 10px 20px -12px ${to}` }}>
+      <span className="absolute -right-5 -top-5 w-16 h-16 rounded-full" style={{ background: "rgba(255,255,255,0.13)" }} />
+      <span className="relative flex items-center gap-1.5 text-[11.5px] font-semibold opacity-95"><Icon size={14} /> {label}</span>
+      <span className="relative block font-display font-bold text-[21px] leading-tight mt-1.5 truncate">{value}</span>
+      {sub && <span className="relative block text-[11px] font-semibold mt-1 opacity-95">{sub}</span>}
+    </button>
+  );
+}
+
+function HomeDashboard({ shop, sales, products, activeCashSession, userName, isAdmin, onGo }) {
+  const fmt = useFmt();
+  const all = sales || [];
+  const todayStr = new Date().toDateString();
+  const todaySales = all.filter((x) => new Date(x.date).toDateString() === todayStr);
+  const sameDay = (d) => new Date(d).toDateString() === todayStr;
+  const ventes = todaySales.reduce((t, x) => t + (Number(x.total) || 0), 0);
+  const credit = todaySales.filter((x) => x.paymentMethod === "credit" && !x.writtenOff).reduce((t, x) => t + Math.max(0, (Number(x.total) || 0) - creditPaidSoFar(x)), 0);
+  const collected = all.filter((x) => x.paymentMethod === "credit").reduce((t, x) => t + creditPaymentsOf(x).filter((p) => sameDay(p.date)).reduce((u, p) => u + (Number(p.amount) || 0), 0), 0);
+  const recette = todaySales.filter((x) => x.paymentMethod !== "credit").reduce((t, x) => t + (Number(x.total) || 0), 0) + collected;
+  const cash = todaySales.reduce((t, x) => t + cashPartOf(x), 0);
+  const mobile = todaySales.reduce((t, x) => t + mobilePartOf(x), 0);
+  const stockable = (products || []).filter((p) => !p.stockFrom);
+  const units = stockable.reduce((t, p) => t + Math.max(0, Number(p.stock) || 0), 0);
+  const low = stockable.filter((p) => p.stock <= p.minStock);
+  const out = stockable.filter((p) => p.stock <= 0);
+  const openCredits = all.filter((x) => x.paymentMethod === "credit" && !x.paid && !x.writtenOff);
+  const creditTotal = openCredits.reduce((t, x) => t + Math.max(0, (Number(x.total) || 0) - creditPaidSoFar(x)), 0);
+  const creditClients = new Set(openCredits.map((x) => (x.clientName || "").trim().toLowerCase() || x.id)).size;
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 6 + i); return d; });
+  const perDay = days.map((d) => all.filter((x) => new Date(x.date).toDateString() === d.toDateString()).reduce((t, x) => t + (Number(x.total) || 0), 0));
+  const max = Math.max(1, ...perDay);
+  const short = (v) => (v >= 10000 ? `${Math.round(v / 1000)}k` : v >= 1000 ? `${(v / 1000).toFixed(1).replace(".0", "")}k` : String(v));
+  const hour = new Date().getHours();
+  const hello = hour < 18 ? "Bonjour" : "Bonsoir";
+  const top = (() => {
+    const m = new Map();
+    todaySales.forEach((x) => (x.items || []).forEach((i) => { const k = i.product?.name || "?"; m.set(k, (m.get(k) || 0) + (Number(i.qty) || 0)); }));
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  })();
+  return (
+    <div className="px-4 pt-5" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <p className="font-display font-bold text-[19px]">{hello}, {(userName || "").split(" ").slice(-1)[0] || "Admin"} 👋</p>
+      <p className="text-[12.5px]" style={{ color: NUIT.mut }}>
+        <span className="capitalize">{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</span>
+        {activeCashSession ? ` · caisse ouverte depuis ${new Date(activeCashSession.timestamp || activeCashSession.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : " · caisse non ouverte"}
+      </p>
+      <div className="grid grid-cols-2 gap-2.5 mt-3">
+        <button onClick={() => onGo("history")} className="gb-focus relative overflow-hidden rounded-[18px] px-3 py-3 text-left text-white min-w-0" style={{ background: `linear-gradient(135deg, #2D6BE0, #1B4FB8)`, boxShadow: "0 10px 20px -12px #1B4FB8" }}>
+          <span className="absolute -right-5 -top-5 w-16 h-16 rounded-full" style={{ background: "rgba(255,255,255,0.13)" }} />
+          <span className="relative flex items-center gap-1.5 text-[11.5px] font-semibold"><ShoppingCart size={14} /> Ventes du jour</span>
+          <span className="relative block font-display font-bold text-[21px] leading-tight mt-1.5 truncate">{fmt(ventes)}</span>
+          <span className="relative block text-[11.5px] font-semibold mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.25)" }}>Crédit : <span style={{ color: "#FFD1CC" }}>{fmt(credit)}</span></span>
+          <span className="relative block text-[11.5px] font-semibold">Recette : <span style={{ color: "#FFE08A" }}>{fmt(recette)}</span></span>
+        </button>
+        <NuitKpi label="Nombre de ventes" value={todaySales.length} sub={`ticket${todaySales.length > 1 ? "s" : ""} aujourd'hui`} Icon={Receipt} from="#1FA25B" to="#138049" onClick={() => onGo("history")} />
+        <NuitKpi label="Produits en stock" value={stockable.length} sub={`${units} ${units > 1 ? "unités" : "unité"}`} Icon={Package} from="#F59A2E" to="#E57A10" onClick={() => onGo("stock")} />
+        <NuitKpi label="Stock faible" value={low.length} sub={out.length ? `dont ${out.length} en rupture` : "à surveiller"} Icon={AlertTriangle} from="#EE5A4F" to="#D2372E" onClick={() => onGo("stock")} />
+        <NuitKpi label="Crédits clients" value={fmt(creditTotal)} sub={`${creditClients} client${creditClients > 1 ? "s" : ""}`} Icon={Users} from="#8B5CF0" to="#6A3FD0" onClick={() => onGo("credits")} />
+        <NuitKpi label="Espèces du jour" value={fmt(cash)} sub={`Mobile Money : ${fmt(mobile)}`} Icon={Wallet} from="#16325C" to="#0E2240" onClick={() => onGo(isAdmin ? "reports" : "history")} />
+      </div>
+
+      <div className="rounded-[18px] px-3.5 py-3 mt-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <p className="text-[13px] font-bold flex items-center gap-1.5"><BarChart3 size={15} color={NUIT.blue} /> Évolution des ventes <span className="text-[11px] font-medium" style={{ color: NUIT.mut }}>(7 derniers jours)</span></p>
+        <div className="flex items-end gap-2 mt-2.5" style={{ height: 104 }}>
+          {perDay.map((v, i) => (
+            <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+              <span className="text-[9.5px] font-bold" style={{ color: NUIT.mut }}>{v ? short(v) : ""}</span>
+              <div className="w-full rounded-t-[7px] rounded-b-[3px]" style={{ height: Math.max(5, (v / max) * 66), background: i === 6 ? NUIT.orange : "linear-gradient(#3C7BEA, #2D6BE0)" }} />
+              <span className="text-[10px] capitalize" style={{ color: NUIT.mut }}>{days[i].toLocaleDateString("fr-FR", { weekday: "short" }).replace(".", "")}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {low.length > 0 && (
+        <button onClick={() => onGo("stock")} className="gb-focus w-full text-left rounded-[16px] px-3.5 py-2.5 mt-3" style={{ background: "#FFF4EC", border: "1px solid #FAD9BF" }}>
+          <span className="flex items-center gap-1.5 text-[12.5px] font-bold" style={{ color: "#C2410C" }}><AlertTriangle size={15} /> Alertes importantes <span className="ml-auto text-[11.5px]" style={{ color: NUIT.blue }}>Voir ›</span></span>
+          <span className="block text-[11.5px] mt-0.5" style={{ color: "#9A3412" }}>{low.length} produit{low.length > 1 ? "s" : ""} en stock faible{out.length ? ` · ${out.length} en rupture (${out.slice(0, 3).map((p) => p.name.trim()).join(", ")}${out.length > 3 ? "…" : ""})` : ""}</span>
+        </button>
+      )}
+
+      {top.length > 0 && (
+        <>
+          <p className="text-[13px] font-bold mt-4 mb-2 px-0.5">Les plus vendus aujourd'hui</p>
+          <div className="flex gap-2 overflow-x-auto gb-scroll -mx-4 px-4 pb-1">
+            {top.map(([name, q]) => {
+              const p = (products || []).find((x) => x.name === name);
+              return (
+                <div key={name} className="shrink-0 w-[92px] rounded-[16px] p-2 text-center" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                  <div className="w-full h-[54px] rounded-[11px] overflow-hidden flex items-center justify-center" style={{ background: "#EEF2F8" }}>{p?.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <Package size={20} color={NUIT.navy} />}</div>
+                  <p className="text-[11px] font-bold mt-1.5 truncate">{name}</p>
+                  <p className="text-[10.5px] font-semibold" style={{ color: NUIT.orange }}>× {q}</p>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PlusScreen({ shop, role, userName, sales, clients, suppliers, onGo, onAdminSection, onOpenAdminMenu, onLogout }) {
+  const openCredits = (sales || []).filter((x) => x.paymentMethod === "credit" && !x.paid && !x.writtenOff);
+  const fmt = useFmt();
+  const creditTotal = openCredits.reduce((t, x) => t + Math.max(0, (Number(x.total) || 0) - creditPaidSoFar(x)), 0);
+  const admin = role === "admin";
+  const items = [
+    { Icon: History, label: "Historique des ventes", sub: "Reçus, retours, récap par jour", color: "#2D6BE0", go: () => onGo("history") },
+    { Icon: Scale, label: "Crédit / Avoir", sub: openCredits.length ? `${openCredits.length} crédit${openCredits.length > 1 ? "s" : ""} · ${fmt(creditTotal)}` : "Aucun crédit en cours", color: "#E0433A", go: () => onGo("credits") },
+    ...(admin ? [
+      { Icon: Wallet, label: "Caisse du jour", sub: "Versements, attendu en caisse", color: "#1FA25B", go: () => onAdminSection("inventaire") },
+      { Icon: UserPlus, label: "Clients", sub: `${(clients || []).length} client${(clients || []).length > 1 ? "s" : ""} · voir et gérer`, color: "#7B4DDB", go: () => onGo("n-clients") },
+      { Icon: Truck, label: "Fournisseurs", sub: `${(suppliers || []).length} fournisseur${(suppliers || []).length > 1 ? "s" : ""}`, color: "#E89B1B", go: () => onGo("n-suppliers") },
+      { Icon: ShoppingCart, label: "Achats / Commandes", sub: "Passer vos commandes", color: "#0EA5A4", go: () => onAdminSection("fournisseurs") },
+      { Icon: Boxes, label: "Produits", sub: "Prix, stock, codes-barres", color: "#2563EB", go: () => onAdminSection("produits") },
+      { Icon: ClipboardList, label: "Inventaires", sub: "Faire un inventaire", color: "#16325C", go: () => onGo("n-inventory") },
+      { Icon: Coins, label: "Dépenses", sub: "Suivre vos dépenses", color: "#DB2777", go: () => onAdminSection("depenses") },
+      { Icon: Tag, label: "Promotions", sub: "Créer des offres", color: "#F27A1A", go: () => onGo("n-promos") },
+      { Icon: Users, label: "Employés", sub: "Vendeurs, comptes et objectifs", color: "#7B4DDB", go: () => onAdminSection("vendeurs") },
+      { Icon: Settings, label: "Paramètres", sub: "Entreprise, sécurité, sauvegarde, apparence", color: "#6B7686", go: () => onGo("n-settings") },
+    ] : [
+      { Icon: UserPlus, label: "Clients", sub: `${(clients || []).length} client${(clients || []).length > 1 ? "s" : ""}`, color: "#7B4DDB", go: () => onGo("n-clients") },
+      { Icon: Coins, label: "Dépenses", sub: "Enregistrer une dépense", color: "#DB2777", go: () => onGo("expenses") },
+    ]),
+  ];
+  return (
+    <div className="px-4 pt-3" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <div className="rounded-[18px] px-3.5 py-3 flex items-center gap-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <span className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 text-white" style={{ background: NUIT.navy }}><User size={21} /></span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[14px] font-bold truncate">{userName || (admin ? "Administrateur" : "Vendeur")}</span>
+          <span className="block text-[11.5px]" style={{ color: NUIT.mut }}>{admin ? "Administrateur" : "Vendeur"} · {shop?.name}</span>
+        </span>
+      </div>
+      <div className="rounded-[18px] mt-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {items.map((it, i) => (
+          <button key={it.label} onClick={it.go} className="gb-focus w-full flex items-center gap-3 px-3.5 py-2.5 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+            <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: `${it.color}1A`, color: it.color }}><it.Icon size={18} /></span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[13.5px] font-bold">{it.label}</span>
+              <span className="block text-[11px] truncate" style={{ color: NUIT.mut }}>{it.sub}</span>
+            </span>
+            <ChevronRight size={17} color="#B3BCC8" />
+          </button>
+        ))}
+      </div>
+      <button onClick={onLogout} className="gb-focus w-full min-h-[48px] rounded-[16px] mt-3 flex items-center justify-center gap-2 text-[13.5px] font-bold" style={{ background: "#FDECEA", color: NUIT.red }}><LogOut size={16} /> Se déconnecter</button>
+    </div>
+  );
+}
+
+/* ---------- Thème « Bleu nuit » : Stock, Détail produit, Rapports, Clients,
+   Fournisseurs, Inventaire, Promotions, Paramètres ---------- */
+
+// Barre de titre d'une page (retour + titre + action), collée sous l'en-tête.
+function NuitPageTitle({ title, sub, onBack, right }) {
+  return (
+    <div className="sticky z-[11] -mx-4 px-4 pt-3 pb-3 mb-3 flex items-center gap-3 no-print" style={{ top: STICK_BASE, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.25)" }}>
+      {onBack && <button onClick={onBack} className="gb-focus w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Retour"><ArrowLeft size={19} /></button>}
+      <div className="flex-1 min-w-0">
+        <h2 className="font-display font-bold text-[20px] leading-tight truncate">{title}</h2>
+        {sub && <p className="text-[12px] truncate" style={{ color: NUIT.mut }}>{sub}</p>}
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function NuitSheet({ title, kicker, onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(8,18,36,0.55)" }} onClick={onClose}>
+      <div className="w-full max-w-[600px] rounded-t-[26px] px-5 pt-3 gb-slide-up max-h-[88vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 18px))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+        <div className="flex items-start gap-3 mb-3">
+          <div className="flex-1 min-w-0">
+            {kicker && <p className="text-[11px] font-bold uppercase tracking-[0.08em]" style={{ color: NUIT.orange }}>{kicker}</p>}
+            <p className="font-display font-bold text-[19px] leading-tight">{title}</p>
+          </div>
+          <button onClick={onClose} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={17} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const nuitInput = "gb-focus w-full rounded-[14px] px-3.5 min-h-[48px] text-[15px] border";
+function NuitField({ label, children }) {
+  return (
+    <label className="block mb-3">
+      <span className="block text-[12px] font-semibold mb-1.5" style={{ color: NUIT.mut }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+function NuitToggle({ on, onClick, label, sub, color = NUIT.orange }) {
+  return (
+    <button onClick={onClick} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" aria-pressed={on}>
+      <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">{label}</span>{sub && <span className="block text-[11.5px]" style={{ color: NUIT.mut }}>{sub}</span>}</span>
+      <span className="w-11 h-6 rounded-full relative shrink-0 transition-colors" style={{ background: on ? color : "var(--line)" }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: on ? 22 : 2 }} /></span>
+    </button>
+  );
+}
+function NuitThumb({ p, categories, size = 40 }) {
+  const meta = getCategory(categories, p.category);
+  return (
+    <span className="rounded-[12px] overflow-hidden flex items-center justify-center shrink-0" style={{ width: size, height: size, background: `${meta.color || "#8896A8"}1F` }}>
+      {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={Math.round(size * 0.45)} />}
+    </span>
+  );
+}
+function stockState(p) {
+  const st = Number(p.stock) || 0, min = Number(p.minStock) || 0;
+  if (st <= 0) return { label: "Rupture", bg: "#FDE2E0", fg: "#C3261E" };
+  if (st <= Math.max(1, Math.ceil(min / 2))) return { label: "Critique", bg: "#FDE2E0", fg: "#C3261E" };
+  if (st <= min) return { label: "Faible", bg: "#FFF0D9", fg: "#B96A00" };
+  return { label: "Normal", bg: "#DDF4E6", fg: "#16804A" };
+}
+const soldQtyOf = (sales, pid, fromTime) => (sales || []).filter((s) => new Date(s.date).getTime() >= fromTime).reduce((t, s) => t + (s.items || []).filter((i) => (i.stockId || i.productId || i.product?.id || i.id) === pid).reduce((u, i) => u + (Number(i.qty) || 0), 0), 0);
+
+function AddStockSheet({ product, onSave, onClose }) {
+  const fmt = useFmt();
+  const [qty, setQty] = useState("");
+  const [cost, setCost] = useState(product.costPrice ? String(product.costPrice) : "");
+  const [note, setNote] = useState("");
+  const n = Math.max(0, Math.round(Number(qty) || 0));
+  return (
+    <NuitSheet kicker="Arrivage" title={`Ajouter du stock · ${product.name}`} onClose={onClose}>
+      <p className="text-[12.5px] rounded-[12px] px-3 py-2 mb-3 font-semibold" style={{ background: "#EAF1FD", color: "#1B4FB8" }}>Stock actuel : {product.stock} · après l'arrivage : {(Number(product.stock) || 0) + n}</p>
+      <NuitField label="Quantité reçue">
+        <div className="flex gap-2">
+          <input type="number" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Ex : 24" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} autoFocus />
+          {[6, 12, 24].map((v) => <button key={v} onClick={() => setQty(String((Number(qty) || 0) + v))} className="gb-focus shrink-0 px-3 rounded-[12px] text-[13px] font-bold" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>+{v}</button>)}
+        </div>
+      </NuitField>
+      <NuitField label="Prix d'achat unitaire (optionnel)">
+        <input type="number" inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Ex : 450" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+      </NuitField>
+      <NuitField label="Note (fournisseur, bon de livraison…)">
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : SOLIBRA · BL 1254" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+      </NuitField>
+      {n > 0 && Number(cost) > 0 && <p className="text-[12px] mb-3" style={{ color: NUIT.mut }}>Valeur de l'arrivage : <b style={{ color: "var(--ink)" }}>{fmt(n * Number(cost))}</b></p>}
+      <button disabled={n <= 0} onClick={() => onSave({ productId: product.id, qty: n, cost: Number(cost) || 0, note: note.trim() })} className="gb-focus w-full min-h-[54px] rounded-[16px] text-white font-bold text-[15px] flex items-center justify-center gap-2 disabled:opacity-45" style={{ background: NUIT.green }}><PackagePlus size={18} /> Ajouter {n > 0 ? n : ""} au stock</button>
+    </NuitSheet>
+  );
+}
+
+function NuitProductDetail({ p, categories, sales, movements, inventories, suppliers, supplierProducts, isAdmin, onBack, onEdit, onAddStock, onLoss, onLedger }) {
+  const fmt = useFmt();
+  const meta = getCategory(categories, p.category);
+  const st = stockState(p);
+  const d7 = Date.now() - 7 * 864e5, d30 = Date.now() - 30 * 864e5;
+  const sold7 = soldQtyOf(sales, p.id, d7), sold30 = soldQtyOf(sales, p.id, d30);
+  const sp = (supplierProducts || []).find((x) => x.productId === p.id);
+  const supplier = sp ? (suppliers || []).find((x) => x.id === sp.supplierId) : null;
+  const lastIn = (movements || []).filter((m) => m.productId === p.id && m.type === "livraison").sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  const cost = Number(p.costPrice) || 0, price = Number(p.price) || 0;
+  const days = sold30 > 0 ? Math.floor((Number(p.stock) || 0) / (sold30 / 30)) : null;
+  const rows = [
+    ["Prix d'achat", cost ? fmt(cost) : "Non renseigné"],
+    ["Prix de vente", fmt(price), NUIT.green],
+    ["Marge par unité", cost ? `${fmt(price - cost)} · ${Math.round(((price - cost) / Math.max(1, price)) * 100)} %` : "—", NUIT.blue],
+    ["Stock disponible", <span key="s" className="text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: st.bg, color: st.fg }}>{p.stock} {p.unit || "unité"}{p.stock > 1 ? "s" : ""}</span>],
+    ["Seuil d'alerte", p.minStock],
+    ["Valeur du stock", fmt((Number(p.stock) || 0) * (cost || price))],
+    ["Vendu (7 jours)", `${sold7} ${p.unit || "unité"}${sold7 > 1 ? "s" : ""}`],
+    ["Vendu (30 jours)", `${sold30}${days != null ? ` · ≈ ${days} j de stock` : ""}`],
+    ["Catégorie", meta.label],
+    ["Fournisseur", supplier?.name || "—"],
+    ["Dernier arrivage", lastIn ? `${new Date(lastIn.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} · +${lastIn.delta}` : "—"],
+  ];
+  return (
+    <div className="px-4" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <NuitPageTitle title="Détail produit" onBack={onBack} />
+      <div className="rounded-[20px] p-3.5 flex items-center gap-3.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <NuitThumb p={p} categories={categories} size={82} />
+        <div className="min-w-0 flex-1">
+          <p className="font-display font-bold text-[19px] leading-tight">{p.name}</p>
+          {p.barcode && <p className="text-[11.5px] font-mono mt-1 flex items-center gap-1.5" style={{ color: NUIT.mut }}><Barcode size={13} /> {p.barcode}</p>}
+          <div className="flex gap-1.5 mt-2 flex-wrap">
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: `${meta.color || "#8896A8"}22`, color: meta.color || NUIT.navy }}>{meta.label}</span>
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: st.bg, color: st.fg }}>{st.label}</span>
+            {promoActive(p) && <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: "#FFE7DA", color: "#C2410C" }}>Promo −{promoPct(p)} %</span>}
+          </div>
+        </div>
+      </div>
+      <div className="rounded-[20px] mt-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {rows.map(([a, b, c], i) => (
+          <div key={a} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+            <span className="text-[13px] flex-1" style={{ color: NUIT.mut }}>{a}</span>
+            <span className="text-[13.5px] font-bold text-right" style={c ? { color: c } : undefined}>{b}</span>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2.5 mt-3">
+        {isAdmin && <button onClick={onEdit} className="gb-focus min-h-[52px] rounded-[16px] text-white font-bold text-[14px] flex items-center justify-center gap-2" style={{ background: NUIT.blue }}><Pencil size={16} /> Modifier</button>}
+        <button onClick={onAddStock} className={`gb-focus min-h-[52px] rounded-[16px] text-white font-bold text-[14px] flex items-center justify-center gap-2${isAdmin ? "" : " col-span-2"}`} style={{ background: NUIT.green }}><PackagePlus size={16} /> Ajouter stock</button>
+      </div>
+      <button onClick={onLoss} className="gb-focus w-full min-h-[50px] rounded-[16px] mt-2.5 font-bold text-[14px] flex items-center justify-center gap-2" style={{ background: "#FDECEA", color: NUIT.red }}><PackageX size={16} /> Retour / perte</button>
+      <button onClick={onLedger} className="gb-focus w-full min-h-[50px] rounded-[16px] mt-2.5 font-bold text-[14px] flex items-center justify-center gap-2" style={{ background: "var(--card)", border: "1px solid var(--line)", color: NUIT.navy }}><History size={16} /> Mouvements du produit</button>
+    </div>
+  );
+}
+
+function NuitStockScreen({ products, categories, sales, movements, inventories, suppliers, supplierProducts, isAdmin, onRecordLoss, onAddStock, onEditProduct, renderLegacy }) {
+  const fmt = useFmt();
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [sel, setSel] = useState(null);
+  const [legacy, setLegacy] = useState(false);
+  const [scan, setScan] = useState(false);
+  const [addFor, setAddFor] = useState(null);
+  const [lossFor, setLossFor] = useState(null);
+  const [ledgerFor, setLedgerFor] = useState(null);
+  const list = products || [];
+  const low = list.filter((p) => p.stock <= p.minStock);
+  const value = list.reduce((t, p) => t + Math.max(0, Number(p.stock) || 0) * (Number(p.costPrice) || Number(p.price) || 0), 0);
+  const selP = sel && list.find((p) => p.id === sel);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch { /* ignore */ } }, [sel, legacy]);
+  const modals = (
+    <>
+      {addFor && <AddStockSheet product={addFor} onSave={(d) => { onAddStock(d); setAddFor(null); }} onClose={() => setAddFor(null)} />}
+      {lossFor && <LossModal products={list} initialProductId={lossFor.id} onSave={(d) => { onRecordLoss?.(d); setLossFor(null); }} onClose={() => setLossFor(null)} />}
+      {ledgerFor && <StockLedgerModal product={ledgerFor} categories={categories} sales={sales} movements={movements} inventories={inventories} onClose={() => setLedgerFor(null)} />}
+      {scan && <CameraScanner onDetect={(code) => { const hit = list.find((p) => (p.barcode || "").trim() === String(code).trim()); setScan(false); if (hit) setSel(hit.id); else setQ(String(code)); }} onClose={() => setScan(false)} />}
+    </>
+  );
+  if (legacy) return <div className="px-4"><NuitPageTitle title="Outils de stock" sub="Prévisions, lots datés, pertes" onBack={() => setLegacy(false)} /><div className="-mx-4">{renderLegacy()}</div></div>;
+  if (selP) return (<>
+    <NuitProductDetail p={selP} categories={categories} sales={sales} movements={movements} inventories={inventories} suppliers={suppliers} supplierProducts={supplierProducts} isAdmin={isAdmin}
+      onBack={() => setSel(null)} onEdit={() => onEditProduct(selP.id)} onAddStock={() => setAddFor(selP)} onLoss={() => setLossFor(selP)} onLedger={() => setLedgerFor(selP)} />
+    {modals}
+  </>);
+  const k = q.trim().toLowerCase();
+  const shown = list
+    .filter((p) => (filter === "all" ? true : filter === "low" ? p.stock <= p.minStock : p.category === filter))
+    .filter((p) => !k || p.name.toLowerCase().includes(k) || (p.barcode || "").toLowerCase().includes(k))
+    .sort((a, b) => ((b.stock <= b.minStock) - (a.stock <= a.minStock)) || a.name.localeCompare(b.name));
+  return (
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <div className="sticky z-[11] -mx-4 px-4 pt-2 pb-2.5 no-print" style={{ top: STICK_BASE, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.25)" }}>
+        <div className="flex items-center gap-2">
+          <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[48px] px-3.5 rounded-[16px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <Search size={17} style={{ color: NUIT.mut }} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un produit…" className="flex-1 min-w-0 bg-transparent outline-none text-[14.5px]" />
+            {q && <button onClick={() => setQ("")} className="gb-focus p-1" aria-label="Effacer"><X size={14} /></button>}
+          </label>
+          <button onClick={() => setScan(true)} className="gb-focus w-12 h-12 rounded-[16px] flex items-center justify-center shrink-0" style={{ background: "var(--card)", border: "1px solid var(--line)", color: NUIT.navy }} aria-label="Scanner"><ScanLine size={19} /></button>
+        </div>
+        <div className="flex gap-2 overflow-x-auto gb-scroll -mx-4 px-4 mt-2.5">
+          {[["all", "Tout"], ["low", `Stock faible (${low.length})`], ...categories.map((c) => [c.id, c.label])].map(([id, label]) => (
+            <button key={id} onClick={() => setFilter(id)} className="gb-focus shrink-0 h-9 px-3.5 rounded-full text-[12.5px] font-bold whitespace-nowrap" style={filter === id ? { background: NUIT.orange, color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 mt-3">
+        {[["Produits", list.length, NUIT.navy], ["Stock faible", low.length, NUIT.red], ["Valeur", fmt(value), NUIT.green]].map(([l, v, c]) => (
+          <div key={l} className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <p className="text-[10.5px] font-semibold" style={{ color: NUIT.mut }}>{l}</p>
+            <p className="font-display font-bold text-[14px] truncate" style={{ color: c }}>{v}</p>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-[20px] mt-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <div className="grid px-3.5 py-2 text-[10.5px] font-bold" style={{ gridTemplateColumns: "1fr 54px 78px", color: NUIT.mut, background: "var(--paper)", borderBottom: "1px solid var(--line)" }}><span>Produit</span><span className="text-center">Stock</span><span className="text-center">État</span></div>
+        {shown.map((p, i) => {
+          const s = stockState(p);
+          return (
+            <button key={p.id} onClick={() => setSel(p.id)} className="gb-focus w-full grid items-center px-3.5 py-2.5 text-left" style={{ gridTemplateColumns: "1fr 54px 78px", borderTop: i ? "1px solid var(--line)" : "none" }}>
+              <span className="flex items-center gap-2.5 min-w-0">
+                <NuitThumb p={p} categories={categories} size={38} />
+                <span className="min-w-0"><span className="block text-[13px] font-bold truncate">{p.name}</span><span className="block text-[10.5px]" style={{ color: NUIT.mut }}>{fmt(p.price)} · seuil {p.minStock}</span></span>
+              </span>
+              <span className="text-center font-display font-bold text-[16px]" style={{ color: s.fg }}>{p.stock}</span>
+              <span className="flex items-center justify-end gap-0.5"><span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: s.bg, color: s.fg }}>{s.label}</span><ChevronRight size={14} color="#B3BCC8" /></span>
+            </button>
+          );
+        })}
+        {shown.length === 0 && <p className="text-center text-[13px] py-8" style={{ color: NUIT.mut }}>Aucun produit trouvé.</p>}
+      </div>
+      <button onClick={() => setLegacy(true)} className="gb-focus w-full min-h-[48px] rounded-[16px] mt-3 font-bold text-[13.5px] flex items-center justify-center gap-2" style={{ background: "var(--card)", border: "1px dashed var(--line)", color: NUIT.navy }}><Layers size={16} /> Outils de stock (prévisions, lots datés, pertes)</button>
+      {modals}
+    </div>
+  );
+}
+
+/* ---------- Rapports ---------- */
+
+function NuitReports({ shop, sales, products, categories, expenses, vendorFilter, isAdmin, onOverview, pushToast }) {
+  const fmt = useFmt();
+  const [period, setPeriod] = useState("7j");
+  const [pdf, setPdf] = useState(false);
+  const all = (sales || []).filter((s) => !vendorFilter || s.vendor === vendorFilter);
+  const now = new Date();
+  const start = new Date(now); start.setHours(0, 0, 0, 0);
+  if (period === "7j") start.setDate(start.getDate() - 6);
+  if (period === "mois") start.setDate(1);
+  const len = Math.max(1, Math.round((now - start) / 864e5) || 1);
+  const prevStart = new Date(start); prevStart.setDate(prevStart.getDate() - (period === "mois" ? new Date(start.getFullYear(), start.getMonth(), 0).getDate() : period === "7j" ? 7 : 1));
+  const inP = (d) => { const t = new Date(d); return t >= start && t <= now; };
+  const inPrev = (d) => { const t = new Date(d); return t >= prevStart && t < start; };
+  const list = all.filter((s) => inP(s.date));
+  const ca = list.reduce((t, s) => t + (Number(s.total) || 0), 0);
+  const caPrev = all.filter((s) => inPrev(s.date)).reduce((t, s) => t + (Number(s.total) || 0), 0);
+  const pct = caPrev > 0 ? Math.round(((ca - caPrev) / caPrev) * 100) : null;
+  const collected = all.filter((s) => s.paymentMethod === "credit").reduce((t, s) => t + creditPaymentsOf(s).filter((p) => inP(p.date)).reduce((u, p) => u + (Number(p.amount) || 0), 0), 0);
+  const recette = list.filter((s) => s.paymentMethod !== "credit").reduce((t, s) => t + (Number(s.total) || 0), 0) + collected;
+  const creditOpen = list.filter((s) => s.paymentMethod === "credit" && !s.writtenOff).reduce((t, s) => t + Math.max(0, (Number(s.total) || 0) - creditPaidSoFar(s)), 0);
+  const cash = list.reduce((t, s) => t + cashPartOf(s), 0), mobile = list.reduce((t, s) => t + mobilePartOf(s), 0);
+  const costOf = (i) => {
+    if (i.base) return Number(i.base.cost) || 0;
+    const cur = (products || []).find((p) => p.id === (i.productId || i.product?.id));
+    return Number(i.product?.costPrice) || Number(cur?.costPrice) || 0;
+  };
+  let known = 0, margin = 0;
+  list.forEach((s) => (s.items || []).forEach((i) => { const c = costOf(i); if (c > 0) { const rev = computeItemTotal(i.product, i.qty); known += rev; margin += rev - c * (Number(i.qty) || 0); } }));
+  const remises = list.reduce((t, s) => t + (Number(s.remise) || 0), 0);
+  const dep = (expenses || []).filter((e) => inP(e.date)).reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const benefice = margin - remises - dep;
+  const byProduct = new Map(), byCat = new Map(), byOp = new Map();
+  list.forEach((s) => {
+    (s.items || []).forEach((i) => {
+      const name = i.product?.name || "?";
+      const cur = byProduct.get(name) || { qty: 0, rev: 0, p: i.product };
+      cur.qty += Number(i.qty) || 0; cur.rev += computeItemTotal(i.product, i.qty); byProduct.set(name, cur);
+      const c = i.product?.category || "autre"; byCat.set(c, (byCat.get(c) || 0) + computeItemTotal(i.product, i.qty));
+    });
+    const mob = mobilePartOf(s);
+    if (mob > 0) { const op = s.mobileOperator || "Mobile Money"; byOp.set(op, (byOp.get(op) || 0) + mob); }
+  });
+  const top = [...byProduct.entries()].sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
+  const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
+  const catTotal = cats.reduce((t, c) => t + c[1], 0) || 1;
+  const palette = ["#2D6BE0", "#F27A1A", "#1FA25B", "#E0433A", "#7B4DDB", "#0EA5A4", "#E89B1B", "#DB2777"];
+  const colorOf = (id, idx) => getCategory(categories, id).color || palette[idx % palette.length];
+  let acc = 0;
+  const donut = cats.map(([id, v], idx) => { const a = (acc / catTotal) * 100; acc += v; return `${colorOf(id, idx)} ${a}% ${(acc / catTotal) * 100}%`; }).join(", ") || "#E6EAF1 0% 100%";
+  const labelP = period === "today" ? "aujourd'hui" : period === "7j" ? "7 derniers jours" : "ce mois";
+  return (
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <NuitPageTitle title={vendorFilter ? "Mes rapports" : "Rapports"} sub={`${list.length} vente${list.length > 1 ? "s" : ""} · ${labelP}`} right={isAdmin && <button onClick={onOverview} className="gb-focus h-10 px-3 rounded-full text-[12px] font-bold flex items-center gap-1.5 shrink-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><TrendingUp size={15} /> Détails</button>} />
+      <div className="grid grid-cols-3 gap-1 p-1 rounded-[16px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {[["today", "Aujourd'hui"], ["7j", "7 jours"], ["mois", "Mois"]].map(([id, l]) => (
+          <button key={id} onClick={() => setPeriod(id)} className="gb-focus min-h-[38px] rounded-[12px] text-[13px] font-bold" style={period === id ? { background: NUIT.orange, color: "#fff" } : { color: NUIT.mut }}>{l}</button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2.5 mt-3">
+        <NuitKpi label="Chiffre d'affaires" value={fmt(ca)} sub={pct == null ? `Recette ${fmt(recette)}` : `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct)} % vs période précédente`} Icon={Banknote} from="#1FA25B" to="#138049" />
+        <NuitKpi label="Nombre de ventes" value={list.length} sub={`panier moyen ${fmt(list.length ? ca / list.length : 0)}`} Icon={Receipt} from="#2D6BE0" to="#1B4FB8" />
+      </div>
+      {!vendorFilter && (
+        <div className="relative overflow-hidden rounded-[18px] px-3.5 py-3 mt-2.5 text-white" style={{ background: "linear-gradient(135deg, #8B5CF0, #6A3FD0)" }}>
+          <span className="absolute -right-6 -top-6 w-20 h-20 rounded-full" style={{ background: "rgba(255,255,255,0.12)" }} />
+          <p className="relative text-[11.5px] font-semibold flex items-center gap-1.5"><TrendingUp size={14} /> Bénéfice estimé</p>
+          <p className="relative font-display font-bold text-[24px] leading-tight mt-1">{fmt(benefice)}</p>
+          <p className="relative text-[11px] mt-1 opacity-90">Marge {fmt(margin)}{remises ? ` − remises ${fmt(remises)}` : ""}{dep ? ` − dépenses ${fmt(dep)}` : ""}{known < ca ? ` · calculé sur ${Math.round((known / Math.max(1, ca)) * 100)} % des ventes (prix d'achat connus)` : ""}</p>
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2 mt-2.5">
+        {[["Recette", recette, "#9A5B00", "#FFF1D6"], ["Crédits en cours", creditOpen, "#B3261E", "#FCEBEA"], ["Moyenne / jour", ca / len, NUIT.navy, "var(--card)"]].map(([l, v, fg, bg]) => (
+          <div key={l} className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: bg, border: "1px solid var(--line)" }}>
+            <p className="text-[10.5px] font-semibold" style={{ color: fg, opacity: 0.85 }}>{l}</p>
+            <p className="font-display font-bold text-[13.5px] truncate" style={{ color: fg }}>{fmt(v)}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[13.5px] font-bold mt-4 mb-2">Produits les plus vendus</p>
+      <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {top.map(([name, v], i) => (
+          <div key={name} className="flex items-center gap-2.5 px-3.5 py-2" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+            <span className="w-4 text-[12px] font-bold" style={{ color: NUIT.mut }}>{i + 1}.</span>
+            {v.p && <NuitThumb p={v.p} categories={categories} size={30} />}
+            <span className="text-[13px] font-bold flex-1 min-w-0 truncate">{name}</span>
+            <span className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: "#EEF1F6" }}><span className="block h-full rounded-full" style={{ width: `${(v.qty / top[0][1].qty) * 100}%`, background: NUIT.orange }} /></span>
+            <span className="text-[13px] font-bold w-8 text-right">{v.qty}</span>
+          </div>
+        ))}
+        {top.length === 0 && <p className="text-center text-[13px] py-6" style={{ color: NUIT.mut }}>Aucune vente sur la période.</p>}
+      </div>
+
+      <p className="text-[13.5px] font-bold mt-4 mb-2">Ventes par catégorie</p>
+      <div className="rounded-[18px] px-3.5 py-3 flex items-center gap-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <div className="w-[104px] h-[104px] rounded-full shrink-0 flex items-center justify-center" style={{ background: `conic-gradient(${donut})` }}>
+          <div className="w-[66px] h-[66px] rounded-full flex flex-col items-center justify-center" style={{ background: "var(--card)" }}>
+            <span className="font-display font-bold text-[13px]">{ca >= 10000 ? `${Math.round(ca / 1000)}k` : ca}</span>
+            <span className="text-[9px]" style={{ color: NUIT.mut }}>{(fmt(0).replace(/[\d\s.,]/g, "") || "FCFA").trim()}</span>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col gap-1">
+          {cats.slice(0, 6).map(([id, v], idx) => (
+            <div key={id} className="flex items-center gap-2 text-[12px]"><span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: colorOf(id, idx) }} /><span className="flex-1 truncate">{id === "autre" ? "Autre" : getCategory(categories, id).label}</span><b>{Math.round((v / catTotal) * 100)} %</b></div>
+          ))}
+          {cats.length === 0 && <span className="text-[12px]" style={{ color: NUIT.mut }}>—</span>}
+        </div>
+      </div>
+
+      <p className="text-[13.5px] font-bold mt-4 mb-2">Modes de paiement</p>
+      <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {[["Espèces", cash, NUIT.green], ...(byOp.size ? [...byOp.entries()].map(([op, v]) => [op, v, (MOBILE_OPERATORS.find((o) => o.id === op) || { bg: NUIT.blue }).bg]) : [["Mobile Money", mobile, NUIT.blue]]), ["Crédits accordés", list.filter((s) => s.paymentMethod === "credit").reduce((t, s) => t + (Number(s.total) || 0), 0), NUIT.red], ["Crédits encaissés", collected, "#E89B1B"]].map(([l, v, c], i) => (
+          <div key={l} className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: c }} />
+            <span className="text-[13px] flex-1">{l}</span>
+            <b className="text-[13px]">{fmt(v)}</b>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mt-4">
+        <button onClick={() => setPdf(true)} className="gb-focus min-h-[48px] rounded-[14px] text-white text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: NUIT.blue }}><FileText size={15} /> PDF</button>
+        <button onClick={() => exportSalesCSV(list, pushToast)} className="gb-focus min-h-[48px] rounded-[14px] text-white text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: NUIT.green }}><Download size={15} /> Excel</button>
+        <button onClick={() => setPdf(true)} className="gb-focus min-h-[48px] rounded-[14px] text-white text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: NUIT.navy }}><Printer size={15} /> Imprimer</button>
+      </div>
+      {pdf && <SalesPdfPreview shop={shop} sales={list} vendorFilter={vendorFilter} onClose={() => setPdf(false)} pushToast={pushToast} />}
+    </div>
+  );
+}
+
+/* ---------- Clients ---------- */
+
+function NuitClients({ clients, saveClients, sales, avoirs, onBack, onOpenCredits, pushToast }) {
+  const fmt = useFmt();
+  const [q, setQ] = useState("");
+  const [edit, setEdit] = useState(null); // {id?, name, phone, notes}
+  const [view, setView] = useState(null);
+  const norm = (x) => (x || "").trim().toLowerCase();
+  const stats = (c) => {
+    const mine = (sales || []).filter((s) => s.clientId === c.id || (norm(s.clientName) && norm(s.clientName) === norm(c.name)));
+    const credit = mine.filter((s) => s.paymentMethod === "credit" && !s.paid && !s.writtenOff).reduce((t, s) => t + Math.max(0, (Number(s.total) || 0) - creditPaidSoFar(s)), 0);
+    const avs = (avoirs || []).filter((a) => norm(a.clientName) === norm(c.name));
+    const avoirMoney = avs.filter((a) => a.type === "monnaie").reduce((t, a) => t + Math.max(0, avoirRemaining(a) || 0), 0);
+    return { mine, credit, avoirMoney, total: mine.reduce((t, s) => t + (Number(s.total) || 0), 0), last: mine.map((s) => s.date).sort().pop() };
+  };
+  const rows = (clients || []).map((c) => ({ c, ...stats(c) })).filter((r) => !q.trim() || norm(r.c.name).includes(norm(q)) || (r.c.phone || "").includes(q.trim()))
+    .sort((a, b) => b.credit - a.credit || a.c.name.localeCompare(b.c.name));
+  const creditTotal = rows.reduce((t, r) => t + r.credit, 0);
+  const save = () => {
+    const name = (edit.name || "").trim();
+    if (!name) { pushToast("Nom du client requis", "error"); return; }
+    if ((clients || []).some((c) => c.id !== edit.id && norm(c.name) === norm(name))) { pushToast("Ce client existe déjà", "error"); return; }
+    if (edit.id) saveClients(clients.map((c) => (c.id === edit.id ? { ...c, name, phone: (edit.phone || "").trim(), notes: edit.notes || "" } : c)));
+    else saveClients([...(clients || []), { id: uid(), name, phone: (edit.phone || "").trim(), notes: edit.notes || "", loyaltyRedeemed: 0 }]);
+    pushToast(edit.id ? "Client modifié" : "Client ajouté", "ok"); setEdit(null);
+  };
+  const cur = view && rows.find((r) => r.c.id === view) || (view && { c: clients.find((c) => c.id === view), ...stats(clients.find((c) => c.id === view) || {}) });
+  const initials = (n) => (n || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+  return (
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <NuitPageTitle title="Clients" onBack={onBack} right={<button onClick={() => setEdit({ name: "", phone: "", notes: "" })} className="gb-focus w-10 h-10 rounded-full flex items-center justify-center text-white shrink-0" style={{ background: NUIT.orange }} aria-label="Ajouter un client"><Plus size={20} /></button>} />
+      <label className="flex items-center gap-2.5 min-h-[48px] px-3.5 rounded-[16px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <Search size={17} style={{ color: NUIT.mut }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un client…" className="flex-1 min-w-0 bg-transparent outline-none text-[14.5px]" />
+      </label>
+      <div className="grid grid-cols-2 gap-2.5 mt-3">
+        <div className="rounded-[16px] px-3.5 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><p className="text-[11.5px]" style={{ color: NUIT.mut }}>Clients</p><p className="font-display font-bold text-[20px]">{(clients || []).length}</p></div>
+        <button onClick={onOpenCredits} className="gb-focus rounded-[16px] px-3.5 py-2.5 text-left" style={{ background: "#FDECEA", border: "1px solid #F7C9C4" }}><p className="text-[11.5px]" style={{ color: "#B3261E" }}>Crédits en cours</p><p className="font-display font-bold text-[20px]" style={{ color: "#B3261E" }}>{fmt(creditTotal)}</p></button>
+      </div>
+      <div className="rounded-[20px] mt-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {rows.map((r, i) => (
+          <button key={r.c.id} onClick={() => setView(r.c.id)} className="gb-focus w-full flex items-center gap-3 px-3.5 py-2.5 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+            <span className="w-10 h-10 rounded-full flex items-center justify-center text-[13px] font-bold shrink-0" style={r.credit ? { background: "#FDECEA", color: "#C3261E" } : { background: "#EEF2F8", color: NUIT.navy }}>{initials(r.c.name)}</span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[14px] font-bold truncate">{r.c.name}</span>
+              <span className="block text-[11.5px] truncate" style={{ color: r.credit ? "#C3261E" : r.avoirMoney ? "#9A5B00" : NUIT.mut, fontWeight: r.credit || r.avoirMoney ? 700 : 400 }}>{r.credit ? `Crédit : ${fmt(r.credit)}` : r.avoirMoney ? `Avoir : ${fmt(r.avoirMoney)}` : r.c.phone || "Aucun crédit"}</span>
+            </span>
+            <ChevronRight size={16} color="#B3BCC8" />
+          </button>
+        ))}
+        {rows.length === 0 && <p className="text-center text-[13px] py-8" style={{ color: NUIT.mut }}>{q ? "Aucun client ne correspond." : "Aucun client pour l'instant. Touchez + pour en ajouter."}</p>}
+      </div>
+      {edit && (
+        <NuitSheet kicker={edit.id ? "Modifier" : "Nouveau client"} title={edit.id ? edit.name || "Client" : "Ajouter un client"} onClose={() => setEdit(null)}>
+          <NuitField label="Nom"><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Ex : Kouakou Jean" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} autoFocus /></NuitField>
+          <NuitField label="Téléphone"><input type="tel" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} placeholder="Ex : 07 00 00 00 00" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} /></NuitField>
+          <NuitField label="Note"><input value={edit.notes || ""} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} placeholder="Ex : client fidèle, livraison…" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} /></NuitField>
+          <button onClick={save} className="gb-focus w-full min-h-[52px] rounded-[16px] text-white font-bold text-[15px] flex items-center justify-center gap-2" style={{ background: NUIT.orange }}><Check size={18} /> Enregistrer</button>
+        </NuitSheet>
+      )}
+      {cur && cur.c && !edit && (
+        <NuitSheet kicker="Client" title={cur.c.name} onClose={() => setView(null)}>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {[["Achats", cur.mine.length, NUIT.navy], ["Total", fmt(cur.total), NUIT.green], ["Crédit", fmt(cur.credit), NUIT.red]].map(([l, v, c]) => (
+              <div key={l} className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><p className="text-[10.5px]" style={{ color: NUIT.mut }}>{l}</p><p className="font-display font-bold text-[14px] truncate" style={{ color: c }}>{v}</p></div>
+            ))}
+          </div>
+          {cur.avoirMoney > 0 && <p className="text-[12.5px] font-bold rounded-[12px] px-3 py-2 mb-3" style={{ background: "#FFF1D6", color: "#9A5B00" }}>Avoir monnaie disponible : {fmt(cur.avoirMoney)}</p>}
+          {cur.c.phone && (
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <a href={`tel:${cur.c.phone.replace(/\s/g, "")}`} className="gb-focus min-h-[46px] rounded-[14px] text-white text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: NUIT.blue }}><Phone size={15} /> Appeler</a>
+              <a href={`https://wa.me/${cur.c.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="gb-focus min-h-[46px] rounded-[14px] text-white text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#25D366" }}>💬 WhatsApp</a>
+            </div>
+          )}
+          <p className="text-[12px] font-bold mb-1.5" style={{ color: NUIT.mut }}>Derniers achats</p>
+          <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            {[...cur.mine].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 6).map((s, i) => (
+              <div key={s.id} className="flex items-center gap-2 px-3 py-2 text-[12.5px]" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                <span className="flex-1 min-w-0 truncate">{new Date(s.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} · {(s.items || []).map((x) => `${x.qty}× ${x.product?.name}`).join(", ")}</span>
+                <b style={{ color: s.paymentMethod === "credit" && !s.paid ? NUIT.red : "var(--ink)" }}>{fmt(s.total)}</b>
+              </div>
+            ))}
+            {cur.mine.length === 0 && <p className="text-center text-[12.5px] py-4" style={{ color: NUIT.mut }}>Aucun achat enregistré.</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => { setEdit({ id: cur.c.id, name: cur.c.name, phone: cur.c.phone || "", notes: cur.c.notes || "" }); setView(null); }} className="gb-focus min-h-[48px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><Pencil size={15} /> Modifier</button>
+            <button onClick={onOpenCredits} className="gb-focus min-h-[48px] rounded-[14px] text-white text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: NUIT.red }}><Scale size={15} /> Crédit / Avoir</button>
+          </div>
+        </NuitSheet>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Fournisseurs ---------- */
+
+function NuitSuppliers({ suppliers, saveSuppliers, supplierProducts, orders, onBack, onOrder, pushToast }) {
+  const [q, setQ] = useState("");
+  const [edit, setEdit] = useState(null);
+  const pending = (orders || []).filter((o) => o.status !== "received" && o.status !== "recu" && o.status !== "done");
+  const rows = (suppliers || []).filter((s) => !q.trim() || (s.name || "").toLowerCase().includes(q.trim().toLowerCase()) || (s.note || "").toLowerCase().includes(q.trim().toLowerCase()));
+  const save = () => {
+    const name = (edit.name || "").trim();
+    if (!name) { pushToast("Nom du fournisseur requis", "error"); return; }
+    const rec = { name, phone: (edit.phone || "").trim(), note: (edit.note || "").trim() };
+    if (edit.id) saveSuppliers(suppliers.map((s) => (s.id === edit.id ? { ...s, ...rec } : s)));
+    else saveSuppliers([...(suppliers || []), { id: uid(), ...rec }]);
+    pushToast(edit.id ? "Fournisseur modifié" : "Fournisseur ajouté", "ok"); setEdit(null);
+  };
+  return (
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <NuitPageTitle title="Fournisseurs" onBack={onBack} right={<button onClick={() => setEdit({ name: "", phone: "", note: "" })} className="gb-focus w-10 h-10 rounded-full flex items-center justify-center text-white shrink-0" style={{ background: NUIT.orange }} aria-label="Ajouter un fournisseur"><Plus size={20} /></button>} />
+      <label className="flex items-center gap-2.5 min-h-[48px] px-3.5 rounded-[16px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <Search size={17} style={{ color: NUIT.mut }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un fournisseur…" className="flex-1 min-w-0 bg-transparent outline-none text-[14.5px]" />
+      </label>
+      <div className="rounded-[20px] mt-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {rows.map((s, i) => {
+          const n = (supplierProducts || []).filter((sp) => sp.supplierId === s.id).length;
+          return (
+            <div key={s.id} className="flex items-start gap-3 px-3.5 py-3" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+              <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "#FFF1E6", color: NUIT.orange }}><Truck size={18} /></span>
+              <button onClick={() => setEdit({ ...s })} className="gb-focus flex-1 min-w-0 text-left">
+                <span className="block text-[14px] font-bold truncate">{s.name}</span>
+                <span className="block text-[11.5px] mt-0.5" style={{ color: NUIT.mut }}>{s.phone || "Pas de numéro"}</span>
+                <span className="block text-[11px] mt-0.5 truncate" style={{ color: NUIT.mut }}>Produits : {s.note || (n ? `${n} produit${n > 1 ? "s" : ""}` : "—")}</span>
+              </button>
+              {s.phone && <a href={`tel:${s.phone.replace(/\s/g, "")}`} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "#DDF4E6", color: "#16804A" }} aria-label={`Appeler ${s.name}`}><Phone size={15} /></a>}
+              {s.phone && <a href={`https://wa.me/${s.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="gb-focus w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-[14px]" style={{ background: "#E3F9EA" }} aria-label={`WhatsApp ${s.name}`}>💬</a>}
+            </div>
+          );
+        })}
+        {rows.length === 0 && <p className="text-center text-[13px] py-8" style={{ color: NUIT.mut }}>Aucun fournisseur.</p>}
+      </div>
+      <button onClick={onOrder} className="gb-focus w-full min-h-[54px] rounded-[16px] mt-3 text-white font-bold text-[14.5px] flex items-center justify-center gap-2" style={{ background: NUIT.orange }}><PackagePlus size={18} /> Passer une commande{pending.length ? ` · ${pending.length} en attente` : ""}</button>
+      {edit && (
+        <NuitSheet kicker={edit.id ? "Modifier" : "Nouveau fournisseur"} title={edit.id ? edit.name : "Ajouter un fournisseur"} onClose={() => setEdit(null)}>
+          <NuitField label="Nom"><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Ex : SOLIBRA" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} autoFocus /></NuitField>
+          <NuitField label="Téléphone"><input type="tel" value={edit.phone || ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} placeholder="Ex : +225 07 00 00 00 00" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} /></NuitField>
+          <NuitField label="Produits fournis"><input value={edit.note || ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} placeholder="Ex : Bières, sucreries" className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} /></NuitField>
+          <button onClick={save} className="gb-focus w-full min-h-[52px] rounded-[16px] text-white font-bold text-[15px] flex items-center justify-center gap-2" style={{ background: NUIT.orange }}><Check size={18} /> Enregistrer</button>
+        </NuitSheet>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Inventaire ---------- */
+
+function NuitInventory({ inventories, products, categories, movements, onBack, onStart }) {
+  const fmt = useFmt();
+  const [tab, setTab] = useState("cours");
+  const [open, setOpen] = useState(null);
+  const list = (products || []).filter((p) => !p.stockFrom);
+  const units = list.reduce((t, p) => t + Math.max(0, Number(p.stock) || 0), 0);
+  const valCost = list.reduce((t, p) => t + Math.max(0, Number(p.stock) || 0) * (Number(p.costPrice) || 0), 0);
+  const valSale = list.reduce((t, p) => t + Math.max(0, Number(p.stock) || 0) * (Number(p.price) || 0), 0);
+  const invs = [...(inventories || [])].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const last = invs[0];
+  const since = last ? (movements || []).filter((m) => new Date(m.date) > new Date(last.date) && m.type !== "vente") : [];
+  const hist = (movements || []).filter((m) => ["comptage", "ajustement", "perte", "livraison", "retour"].includes(m.type)).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 60);
+  const TYPE = { comptage: ["Comptage", "#7B4DDB"], ajustement: ["Ajustement", "#E89B1B"], perte: ["Perte", "#E0433A"], livraison: ["Arrivage", "#1FA25B"], retour: ["Retour client", "#0EA5A4"] };
+  const inv = open && invs.find((x) => x.id === open);
+  return (
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <NuitPageTitle title="Inventaire" onBack={onBack} />
+      <div className="grid grid-cols-3 gap-1 p-1 rounded-[16px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {[["cours", "En cours"], ["fini", "Terminés"], ["hist", "Historique"]].map(([id, l]) => (
+          <button key={id} onClick={() => setTab(id)} className="gb-focus min-h-[38px] rounded-[12px] text-[13px] font-bold" style={tab === id ? { background: NUIT.orange, color: "#fff" } : { color: NUIT.mut }}>{l}</button>
+        ))}
+      </div>
+      {tab === "cours" && (
+        <div className="rounded-[20px] p-3.5 mt-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <div className="flex items-center gap-2.5"><ClipboardList size={22} color={NUIT.orange} /><div><p className="text-[14px] font-bold">Stock à compter aujourd'hui</p><p className="text-[11.5px]" style={{ color: NUIT.mut }}>{last ? `Dernier inventaire le ${new Date(last.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long" })} à ${new Date(last.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "Aucun inventaire enregistré"}</p></div></div>
+          <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+            {[["Produits", list.length, NUIT.navy, "#EEF2F8"], ["Unités", units, "#16804A", "#DDF4E6"], ["Mouvements", since.length, "#6D28D9", "#EDE7FB"]].map(([l, v, c, bg]) => (
+              <div key={l} className="rounded-[12px] py-2" style={{ background: bg, color: c }}><p className="font-display font-bold text-[17px]">{v}</p><p className="text-[10.5px] font-bold">{l}</p></div>
+            ))}
+          </div>
+          <div className="flex justify-between text-[12.5px] mt-3"><span style={{ color: NUIT.mut }}>Valeur d'achat du stock</span><b>{fmt(valCost)}</b></div>
+          <div className="flex justify-between text-[12.5px] mt-1"><span style={{ color: NUIT.mut }}>Valeur de vente du stock</span><b style={{ color: NUIT.green }}>{fmt(valSale)}</b></div>
+          <button onClick={onStart} className="gb-focus w-full min-h-[50px] rounded-[14px] mt-3 text-white font-bold text-[14px] flex items-center justify-center gap-2" style={{ background: NUIT.navy }}><ClipboardList size={17} /> Commencer / continuer le comptage</button>
+        </div>
+      )}
+      {tab === "fini" && (
+        <div className="rounded-[20px] mt-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          {invs.map((x, i) => {
+            const items = x.items || [];
+            const rev = items.reduce((t, it) => t + (Number(it.revenue) || 0), 0), pr = items.reduce((t, it) => t + (Number(it.profit) || 0), 0);
+            return (
+              <button key={x.id} onClick={() => setOpen(x.id)} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "#EEF2F8", color: NUIT.navy }}><ClipboardList size={18} /></span>
+                <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">Inventaire du {new Date(x.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })}</span><span className="block text-[11.5px]" style={{ color: NUIT.mut }}>{items.length} produits · ventes {fmt(rev)} · bénéfice {fmt(pr)}</span></span>
+                <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#DDF4E6", color: "#16804A" }}>Terminé</span>
+              </button>
+            );
+          })}
+          {invs.length === 0 && <p className="text-center text-[13px] py-8" style={{ color: NUIT.mut }}>Aucun inventaire terminé.</p>}
+        </div>
+      )}
+      {tab === "hist" && (
+        <div className="rounded-[20px] mt-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          {hist.map((m, i) => {
+            const [l, c] = TYPE[m.type] || [m.type, NUIT.mut];
+            return (
+              <div key={m.id || i} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                <span className="w-2 h-8 rounded-full shrink-0" style={{ background: c }} />
+                <span className="flex-1 min-w-0"><span className="block text-[13px] font-bold truncate">{m.productName}</span><span className="block text-[11px] truncate" style={{ color: NUIT.mut }}>{l} · {new Date(m.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{m.author ? ` · ${m.author}` : ""}</span></span>
+                <b className="text-[13px]" style={{ color: Number(m.delta) >= 0 ? NUIT.green : NUIT.red }}>{Number(m.delta) >= 0 ? "+" : ""}{m.delta}</b>
+              </div>
+            );
+          })}
+          {hist.length === 0 && <p className="text-center text-[13px] py-8" style={{ color: NUIT.mut }}>Aucun mouvement.</p>}
+        </div>
+      )}
+      {inv && (
+        <NuitSheet kicker="Inventaire terminé" title={new Date(inv.date).toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })} onClose={() => setOpen(null)}>
+          <div className="rounded-[16px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <div className="grid px-3 py-2 text-[10.5px] font-bold" style={{ gridTemplateColumns: "1fr 44px 44px 44px 70px", color: NUIT.mut, borderBottom: "1px solid var(--line)" }}><span>Produit</span><span className="text-center">Départ</span><span className="text-center">Vendu</span><span className="text-center">Reste</span><span className="text-right">Ventes</span></div>
+            {(inv.items || []).map((it, i) => (
+              <div key={it.productId || i} className="grid px-3 py-1.5 text-[12px] items-center" style={{ gridTemplateColumns: "1fr 44px 44px 44px 70px", borderTop: i ? "1px solid var(--line)" : "none" }}>
+                <span className="truncate font-semibold">{it.name}</span><span className="text-center">{it.openingStock}</span><span className="text-center">{it.sold}</span><span className="text-center">{it.currentStock}</span><span className="text-right font-mono">{fmt(it.revenue || 0)}</span>
+              </div>
+            ))}
+          </div>
+        </NuitSheet>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Promotions ---------- */
+
+function NuitPromotions({ products, saveProducts, categories, onBack, pushToast }) {
+  const fmt = useFmt();
+  const [q, setQ] = useState("");
+  const [edit, setEdit] = useState(null);
+  const list = (products || []).filter((p) => !p.stockFrom);
+  const active = list.filter((p) => promoActive(p));
+  const shown = list.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase())).sort((a, b) => promoActive(b) - promoActive(a) || a.name.localeCompare(b.name));
+  const save = (remove) => {
+    const p = list.find((x) => x.id === edit.id);
+    const price = Math.round(Number(edit.promoPrice) || 0);
+    if (!remove && (!(price > 0) || price >= Number(p.price))) { pushToast("Le prix promo doit être inférieur au prix normal", "error"); return; }
+    saveProducts(products.map((x) => (x.id === p.id ? { ...x, promoPrice: remove ? 0 : price, promoUntil: remove ? "" : edit.promoUntil || "" } : x)));
+    pushToast(remove ? "Promotion retirée" : `Promotion enregistrée : ${p.name} à ${fmt(price)}`, "ok"); setEdit(null);
+  };
+  return (
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <NuitPageTitle title="Promotions" sub={`${active.length} promotion${active.length > 1 ? "s" : ""} en cours`} onBack={onBack} />
+      <p className="text-[12.5px] rounded-[14px] px-3.5 py-2.5 mb-3" style={{ background: "#FFF1E6", color: "#9A3412" }}>Le prix promo s'applique automatiquement à la caisse jusqu'à la date de fin choisie.</p>
+      <label className="flex items-center gap-2.5 min-h-[48px] px-3.5 rounded-[16px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <Search size={17} style={{ color: NUIT.mut }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un produit…" className="flex-1 min-w-0 bg-transparent outline-none text-[14.5px]" />
+      </label>
+      <div className="rounded-[20px] mt-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {shown.map((p, i) => {
+          const on = promoActive(p);
+          return (
+            <button key={p.id} onClick={() => setEdit({ id: p.id, promoPrice: on ? String(p.promoPrice) : "", promoUntil: p.promoUntil || "" })} className="gb-focus w-full flex items-center gap-3 px-3.5 py-2.5 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+              <NuitThumb p={p} categories={categories} size={38} />
+              <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold truncate">{p.name}</span>
+                <span className="block text-[11.5px]" style={{ color: NUIT.mut }}>{on ? <><s>{fmt(p.price)}</s> → <b style={{ color: "#C2410C" }}>{fmt(p.promoPrice)}</b>{p.promoUntil ? ` · jusqu'au ${new Date(`${p.promoUntil}T12:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}` : ""}</> : fmt(p.price)}</span></span>
+              {on ? <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#FFE7DA", color: "#C2410C" }}>−{promoPct(p)} %</span> : <Tag size={16} color="#B3BCC8" />}
+            </button>
+          );
+        })}
+      </div>
+      {edit && (() => {
+        const p = list.find((x) => x.id === edit.id);
+        return (
+          <NuitSheet kicker="Promotion" title={p.name} onClose={() => setEdit(null)}>
+            <p className="text-[12.5px] mb-3" style={{ color: NUIT.mut }}>Prix normal : <b style={{ color: "var(--ink)" }}>{fmt(p.price)}</b></p>
+            <NuitField label="Prix promo"><input type="number" inputMode="decimal" value={edit.promoPrice} onChange={(e) => setEdit({ ...edit, promoPrice: e.target.value })} placeholder={`Moins de ${p.price}`} className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} autoFocus /></NuitField>
+            <div className="flex gap-2 -mt-1 mb-3">{[5, 10, 20].map((pc) => <button key={pc} onClick={() => setEdit({ ...edit, promoPrice: String(Math.round((Number(p.price) * (100 - pc)) / 100 / 25) * 25) })} className="gb-focus flex-1 h-9 rounded-[10px] text-[12.5px] font-bold" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>−{pc} %</button>)}</div>
+            <NuitField label="Jusqu'au (optionnel)"><input type="date" value={edit.promoUntil} onChange={(e) => setEdit({ ...edit, promoUntil: e.target.value })} className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }} /></NuitField>
+            <button onClick={() => save(false)} className="gb-focus w-full min-h-[52px] rounded-[16px] text-white font-bold text-[15px] flex items-center justify-center gap-2" style={{ background: NUIT.orange }}><Check size={18} /> Enregistrer la promotion</button>
+            {promoActive(p) && <button onClick={() => save(true)} className="gb-focus w-full min-h-[48px] rounded-[16px] mt-2 font-bold text-[14px]" style={{ background: "#FDECEA", color: NUIT.red }}>Retirer la promotion</button>}
+          </NuitSheet>
+        );
+      })()}
+    </div>
+  );
+}
+
+/* ---------- Paramètres ---------- */
+
+function NuitSettings({ shop, saveShopMeta, onBack, onAdminSection, onOpenAdminMenu, onLogout }) {
+  const [sheet, setSheet] = useState(null);
+  const patch = (p) => saveShopMeta({ ...shop, ...p });
+  const rows = [
+    { Icon: Store, label: "Entreprise", sub: "Nom, coordonnées, facturation", color: "#2D6BE0", go: () => onAdminSection("etablissement") },
+    { Icon: Users, label: "Utilisateurs", sub: "Administrateur et vendeurs, codes PIN", color: "#7B4DDB", go: () => onAdminSection("vendeurs") },
+    { Icon: ShoppingCart, label: "Vente", sub: "Caisse du jour, heure de remise à zéro", color: "#1FA25B", go: () => setSheet("vente") },
+    { Icon: Package, label: "Stock", sub: "Catégories de produits", color: "#E89B1B", go: () => onAdminSection("categories") },
+    { Icon: Bell, label: "Notifications", sub: "Sons, annonces vocales, alertes de vente", color: "#E0433A", go: () => setSheet("notif") },
+    { Icon: ShieldCheck, label: "Sécurité", sub: "Codes PIN, verrouillage automatique", color: "#0EA5A4", go: () => onAdminSection("securite") },
+    { Icon: Download, label: "Sauvegarde", sub: "Sauvegardes et restauration des données", color: "#16325C", go: () => onAdminSection("donnees") },
+    { Icon: Palette, label: "Apparence", sub: `Thème : ${getTheme(shop?.theme).label}${shop?.darkMode ? " · mode sombre" : ""}`, color: "#F27A1A", go: () => setSheet("look") },
+    { Icon: ClipboardCheck, label: "Journal d'activité", sub: "Qui a fait quoi, et quand", color: "#6B7686", go: () => onAdminSection("journal") },
+    { Icon: Star, label: "Abonnement et licence", sub: "Validité et activation", color: "#E89B1B", go: () => onAdminSection("licence") },
+    { Icon: MessageCircle, label: "Assistance", sub: "Écrire au support", color: "#2D6BE0", go: () => onAdminSection("assistance") },
+    { Icon: LayoutGrid, label: "Tout le menu d'administration", sub: "Toutes les autres options", color: "#0E2240", go: onOpenAdminMenu },
+  ];
+  return (
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <NuitPageTitle title="Paramètres" onBack={onBack} />
+      <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {rows.map((r, i) => (
+          <button key={r.label} onClick={r.go} className="gb-focus w-full flex items-center gap-3 px-3.5 py-2.5 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+            <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: `${r.color}1A`, color: r.color }}><r.Icon size={18} /></span>
+            <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">{r.label}</span><span className="block text-[11px] truncate" style={{ color: NUIT.mut }}>{r.sub}</span></span>
+            <ChevronRight size={17} color="#B3BCC8" />
+          </button>
+        ))}
+      </div>
+      <button onClick={onLogout} className="gb-focus w-full min-h-[48px] rounded-[16px] mt-3 flex items-center justify-center gap-2 text-[13.5px] font-bold" style={{ background: "#FDECEA", color: NUIT.red }}><LogOut size={16} /> Se déconnecter</button>
+      <p className="text-center text-[11px] mt-2" style={{ color: NUIT.mut }}>GestiOne · {shop?.name}</p>
+      {sheet === "notif" && (
+        <NuitSheet kicker="Paramètres" title="Notifications" onClose={() => setSheet(null)}>
+          <div className="rounded-[16px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <NuitToggle on={shop?.soundsEnabled !== false} onClick={() => patch({ soundsEnabled: shop?.soundsEnabled === false })} label="Sons de l'application" sub="Bip à l'ajout au panier et à l'encaissement" />
+            <div style={{ borderTop: "1px solid var(--line)" }} />
+            <NuitToggle on={!!shop?.voiceNotificationsEnabled} onClick={() => patch({ voiceNotificationsEnabled: !shop?.voiceNotificationsEnabled })} label="Annonces vocales" sub="Le téléphone annonce les ventes à voix haute" />
+            <div style={{ borderTop: "1px solid var(--line)" }} />
+            <NuitToggle on={shop?.salesNotificationsEnabled !== false} onClick={() => patch({ salesNotificationsEnabled: shop?.salesNotificationsEnabled === false })} label="Alertes de vente" sub="Notification à chaque vente enregistrée" />
+          </div>
+          <p className="text-[11.5px] mt-2" style={{ color: NUIT.mut }}>Le détail des annonces vocales se règle aussi depuis la cloche en haut de l'écran.</p>
+        </NuitSheet>
+      )}
+      {sheet === "vente" && (
+        <NuitSheet kicker="Paramètres" title="Vente" onClose={() => setSheet(null)}>
+          <NuitField label="Heure de remise à zéro de la caisse du jour">
+            <select value={shop?.cashRegisterResetHour ?? 0} onChange={(e) => patch({ cashRegisterResetHour: Number(e.target.value) })} className={nuitInput} style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+              {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+            </select>
+          </NuitField>
+          <p className="text-[12px] mb-3" style={{ color: NUIT.mut }}>Modes de paiement disponibles : Espèces, Mobile Money (Orange Money, MTN MoMo, Moov Money, Wave, carte bancaire), Crédit, Avoir et paiement mixte. Une remise peut être accordée sur l'écran Paiement.</p>
+          <button onClick={() => { setSheet(null); onAdminSection("etablissement"); }} className="gb-focus w-full min-h-[48px] rounded-[14px] text-[13.5px] font-bold" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>Coordonnées imprimées sur le ticket ›</button>
+        </NuitSheet>
+      )}
+      {sheet === "look" && (
+        <NuitSheet kicker="Paramètres" title="Apparence" onClose={() => setSheet(null)}>
+          <div className="grid grid-cols-2 gap-2">
+            {THEME_PRESETS.map((t) => {
+              const on = (shop?.theme || "emeraude") === t.id;
+              return (
+                <button key={t.id} onClick={() => patch({ theme: t.id })} className="gb-focus rounded-[14px] p-2.5 flex items-center gap-2.5 text-left" style={{ background: "var(--card)", border: on ? `2px solid ${t.cap}` : "1px solid var(--line)" }}>
+                  <span className="w-9 h-9 rounded-[10px] shrink-0 flex items-end justify-end p-1" style={{ background: t.glass }}><span className="w-3.5 h-3.5 rounded-full" style={{ background: t.cap }} /></span>
+                  <span className="flex-1 min-w-0 text-[12.5px] font-bold truncate">{t.label}</span>
+                  {on && <Check size={15} color={t.cap} />}
+                </button>
+              );
+            })}
+          </div>
+          <div className="rounded-[16px] overflow-hidden mt-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <NuitToggle on={!!shop?.darkMode} onClick={() => patch({ darkMode: !shop?.darkMode })} label="Mode sombre" sub="Fond foncé, plus reposant le soir" />
+          </div>
+        </NuitSheet>
+      )}
+    </div>
+  );
+}
+
+const TABS_NUIT = [
+  { id: "home", label: "Accueil", Icon: Home },
+  { id: "sell", label: "Vendre", Icon: ShoppingCart },
+  { id: "stock", label: "Stock", Icon: Boxes },
+  { id: "reports", label: "Rapports", Icon: BarChart3 },
+  { id: "more", label: "Plus", Icon: MoreHorizontal },
+];
+// Écrans rangés sous « Plus » dans la barre du thème Bleu nuit.
+const NUIT_MORE_VIEWS = new Set(["more", "history", "credits", "admin", "expenses", "n-clients", "n-suppliers", "n-inventory", "n-settings", "n-promos"]);
+
 const TABS = {
   vendeur: [{ id: "sell", label: "Vendre", Icon: ScanLine }, { id: "stock", label: "Stock", Icon: Boxes }, { id: "credits", label: "Position", Icon: Scale }, { id: "history", label: "Historique", Icon: History }, { id: "expenses", label: "Dépenses", Icon: Wallet }],
   admin: [{ id: "sell", label: "Vendre", Icon: ScanLine }, { id: "stock", label: "Stock", Icon: Boxes }, { id: "credits", label: "Position", Icon: Scale }, { id: "history", label: "Historique", Icon: History }, { id: "admin", label: "Admin", Icon: ShieldCheck }],
@@ -13566,6 +14596,8 @@ function AppInner() {
   useEffect(() => {
     if (role) window.storage.set("sessionView", JSON.stringify(view)).catch(() => {});
   }, [view, role]);
+  // Changement d'écran : on repart du haut de la page.
+  useEffect(() => { try { window.scrollTo(0, 0); } catch { /* ignore */ } }, [view]);
   const [shops, setShops] = useState(undefined); // undefined = chargement, [] = aucune entreprise (configuration requise)
   const [activeShopId, setActiveShopId] = useState(null);
   const [products, setProducts] = useState(null);
@@ -13630,6 +14662,10 @@ function AppInner() {
   // direct). Remise à zéro dès qu'on quitte l'écran Admin, pour ne pas garder
   // le contexte d'une sous-section qu'on ne regarde plus.
   const [activeAdminSection, setActiveAdminSection] = useState("stats");
+  // Thème Bleu nuit : ouvrir directement une section de l'administration
+  // depuis « Plus » ou « Rapports ».
+  const [adminJump, setAdminJump] = useState(null);
+  const goAdminSection = (id) => { setAdminMenuOpen(false); setAdminJump({ id, n: Date.now() }); setView("admin"); };
   useEffect(() => { if (view !== "admin") setActiveAdminSection("stats"); }, [view]);
   const [pendingSync, setPendingSync] = useState(0);
   const [license, setLicense] = useState(undefined); // undefined = chargement, null = jamais activée
@@ -14538,6 +15574,11 @@ function AppInner() {
 
   // ---------- Journal d'activité ----------
   const actorName = () => (role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : (currentVendorName || ""));
+  // Écrans propres au thème Bleu nuit : si on revient à un autre thème, on
+  // retombe sur Vendre.
+  useEffect(() => {
+    if (shop && !isNuit(shop) && (view === "home" || view === "reports" || view === "more" || view.startsWith("n-"))) setView("sell");
+  }, [shop?.theme, view]); // eslint-disable-line react-hooks/exhaustive-deps
   const logAudit = (type, text, extra = {}) => {
     try {
       if (!activeShopId) return;
@@ -14912,7 +15953,7 @@ function AppInner() {
   // encaissé est enregistré comme premier règlement du crédit (voir
   // SellScreen.confirmCheckout), le solde restant apparaissant dans
   // CreditsScreen comme pour tout crédit partiellement réglé.
-  const handleCheckout = (cartItemsIn, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment, avoirPay, mobilePaid) => {
+  const handleCheckout = (cartItemsIn, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment, avoirPay, mobilePaid, extra) => {
     // Chaque ligne retire son stock du produit qui porte réellement le stock
     // (pour un Pain fourré : le Pain). On garde aussi la « part de base »
     // (prix et coût du pain) pour calculer les bénéfices pain / garniture.
@@ -14936,6 +15977,8 @@ function AppInner() {
       changeDue: amountReceived != null ? Math.max(0, amountReceived - total) : null,
       payments,
     };
+    // Opérateur Mobile Money (Orange, MTN, Moov, Wave, carte…) et remise.
+    if (extra && typeof extra === "object") Object.assign(sale, extra);
     // Paiement mixte : une part en Mobile Money, le reste en espèces.
     if (paymentMethod === "especes" && Number(mobilePaid) > 0) {
       sale.mobilePaid = Math.min(total, Number(mobilePaid));
@@ -15332,6 +16375,16 @@ function AppInner() {
   // paiement) et ajuste le stock en conséquence. Réservé à l'administrateur.
   // Perte déclarée (périmé, gâté, endommagé…) : sortie de stock chiffrée au
   // prix d'achat, visible dans Stock › Pertes et dans la fiche de stock.
+  // Arrivage saisi depuis la fiche produit (thème Bleu nuit).
+  const handleAddStock = ({ productId, qty, cost, note }) => {
+    const p = products.find((x) => x.id === productId);
+    if (!p || !(qty > 0)) return;
+    const before = Number(p.stock) || 0, after = before + qty;
+    saveProducts(products.map((x) => (x.id === productId ? { ...x, stock: after, ...(cost > 0 ? { costPrice: cost } : {}) } : x)));
+    saveMovements([{ id: uid(), date: new Date().toISOString(), productId, productName: p.name, type: "livraison", delta: qty, before, after, author: actorName(), note: note || "Arrivage" }, ...movements]);
+    logAudit("stock", `Arrivage : +${qty} × ${p.name}${cost > 0 ? ` à ${formatMoney(cost, shop?.currency)}` : ""}${note ? ` · ${note}` : ""}`, { productId });
+    pushToast(`${p.name} : +${qty} en stock`, "ok");
+  };
   const handleRecordLoss = ({ product, qty, reason, note }) => {
     const p = products.find((x) => x.id === product.id);
     if (!p || qty <= 0) return;
@@ -15508,7 +16561,8 @@ function AppInner() {
 
   const activeTheme = getTheme(shop?.theme || "emeraude");
   const isDark = !!shop?.darkMode;
-  const themeVars = { "--glass": activeTheme.glass, "--glass-light": activeTheme.glassLight, "--cap": activeTheme.cap };
+  const nuit = isNuit(shop);
+  const themeVars = { "--glass": activeTheme.glass, "--glass-light": activeTheme.glassLight, "--cap": activeTheme.cap, ...(nuit && !isDark ? { "--paper": "#F2F4F8", "--paper-dim": "#E6EAF1", "--line": "#E1E6EE" } : {}) };
   const tr = (key) => (TRANSLATIONS[shop?.language || "fr"] && TRANSLATIONS[shop?.language || "fr"][key]) || TRANSLATIONS.fr[key] || key;
 
   return (
@@ -15535,13 +16589,15 @@ function AppInner() {
           <CurrencyContext.Provider value={shop.currency}><VocabContext.Provider value={{ ...(VOCAB[shopProfile(shop)] || VOCAB.boissons), painFourre: isPainShop(shop) }}>
           <LanguageContext.Provider value={shop.language || "fr"}>
             {!role ? (
-              <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); logAudit("connexion", `Connexion de ${name}`, { by: name, role: r }); setRole(r); setCurrentVendorName(name); setView("sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} />
+              <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); logAudit("connexion", `Connexion de ${name}`, { by: name, role: r }); setRole(r); setCurrentVendorName(name); setView(isNuit(shop) ? "home" : "sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} />
             ) : (
               <>
-                <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-4 pb-2 flex items-center justify-between z-20 no-print" style={{ background: "var(--paper)", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.18)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
-                  <div>
-                    <p className="font-display font-bold text-base leading-none">{shop.name}</p>
-                    <p className="text-[11px] opacity-50 mt-0.5 flex items-center gap-1.5">
+                <div className={`fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-4 pb-2 flex items-center justify-between z-20 no-print${nuit ? " gb-nuit-bar" : ""}`} style={{ background: nuit ? "var(--glass)" : "var(--paper)", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.18)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
+                  <div className="flex items-center gap-2.5 min-w-0" style={nuit ? { color: "#fff" } : undefined}>
+                    {nuit && <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "var(--cap)" }}><ShoppingCart size={18} color="#fff" /></span>}
+                  <div className="min-w-0">
+                    <p className="font-display font-bold text-base leading-none truncate">{shop.name}</p>
+                    <p className={`text-[11px] mt-0.5 flex items-center gap-1.5 ${nuit ? "opacity-70" : "opacity-50"}`}>
                       {currentVendorName}
                       {shop.backendLinked && pendingSync > 0 && (
                         <button onClick={() => trySync(true)} className="gb-focus inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#E8720C", color: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }} title="Appuyer pour forcer la synchronisation">
@@ -15550,8 +16606,9 @@ function AppInner() {
                       )}
                     </p>
                   </div>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setGlobalSearchOpen(true)} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Recherche globale">
+                    <button onClick={() => setGlobalSearchOpen(true)} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={nuit ? { background: "rgba(255,255,255,0.12)", color: "#fff" } : { background: "var(--paper-dim)" }} aria-label="Recherche globale">
                       <Search size={15} />
                     </button>
                     {role && (
@@ -15559,7 +16616,7 @@ function AppInner() {
                         <button
                           onClick={() => { setNotifPanelOpen((v) => !v); if (!notifPanelOpen) setUnreadCount(0); }}
                           className="gb-focus w-9 h-9 rounded-full flex items-center justify-center relative"
-                          style={{ background: "var(--paper-dim)" }}
+                          style={nuit ? { background: "rgba(255,255,255,0.12)", color: "#fff" } : { background: "var(--paper-dim)" }}
                         >
                           <Bell size={15} />
                           {unreadCount > 0 && (
@@ -15577,7 +16634,7 @@ function AppInner() {
                         )}
                       </div>
                     )}
-                    <button onClick={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><LogOut size={15} /></button>
+                    <button onClick={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={nuit ? { background: "rgba(255,255,255,0.12)", color: "#fff" } : { background: "var(--paper-dim)" }}><LogOut size={15} /></button>
                   </div>
                 </div>
                 <div aria-hidden="true" style={{ height: "calc(7px + max(22px, env(safe-area-inset-top)))" }} />
@@ -15596,10 +16653,31 @@ function AppInner() {
                   />
                 ) : (
                   <>
+                    {nuit && view === "home" && (
+                      <HomeDashboard shop={shop} sales={sales} products={products} activeCashSession={activeCashSession} userName={actorName()} isAdmin={role === "admin"} onGo={setView} />
+                    )}
+                    {nuit && view === "more" && (
+                      <PlusScreen shop={shop} role={role} userName={actorName()} sales={sales} clients={clients} suppliers={suppliers} onGo={setView} onAdminSection={goAdminSection} onOpenAdminMenu={() => { setAdminJump(null); setView("admin"); setAdminMenuOpen(true); }}
+                        onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} />
+                    )}
                     {view === "sell" && (
                       <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={handleCheckout} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
                     )}
-                    {view === "stock" && <StockScreen onRecordLoss={handleRecordLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
+                    {view === "stock" && nuit && (
+                      <NuitStockScreen products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"}
+                        onRecordLoss={handleRecordLoss} onAddStock={handleAddStock} onEditProduct={(pid) => { setAdminMenuOpen(false); setAdminJump({ id: "produits", edit: pid, n: Date.now() }); setView("admin"); }}
+                        renderLegacy={() => <StockScreen onRecordLoss={handleRecordLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />} />
+                    )}
+                    {nuit && view === "reports" && (
+                      <NuitReports shop={shop} sales={sales || []} products={products} categories={categories} expenses={expenses} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onOverview={() => goAdminSection("stats")} pushToast={pushToast} />
+                    )}
+                    {nuit && view === "n-clients" && <NuitClients clients={clients} saveClients={saveClients} sales={sales} avoirs={avoirs} onBack={() => setView("more")} onOpenCredits={() => setView("credits")} pushToast={pushToast} />}
+                    {nuit && view === "n-suppliers" && <NuitSuppliers suppliers={suppliers} saveSuppliers={saveSuppliers} supplierProducts={supplierProducts} orders={orders} onBack={() => setView("more")} onOrder={() => goAdminSection("fournisseurs")} pushToast={pushToast} />}
+                    {nuit && view === "n-inventory" && <NuitInventory inventories={inventories} products={products} categories={categories} movements={movements} onBack={() => setView("more")} onStart={() => goAdminSection("inventaire")} />}
+                    {nuit && view === "n-promos" && role === "admin" && <NuitPromotions products={products} saveProducts={saveProducts} categories={categories} onBack={() => setView("more")} pushToast={pushToast} />}
+                    {nuit && view === "n-settings" && role === "admin" && <NuitSettings shop={shop} saveShopMeta={saveShopMeta} onBack={() => setView("more")} onAdminSection={goAdminSection} onOpenAdminMenu={() => { setAdminJump(null); setView("admin"); setAdminMenuOpen(true); }}
+                      onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} />}
+                    {view === "stock" && !nuit && <StockScreen onRecordLoss={handleRecordLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
                     {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} onReturnSale={handleReturnSale} auditLog={auditLog} pushToast={pushToast}
                       onDeleteAvoirs={role === "admin" ? (ids, restock) => requireAdmin("Supprimer un avoir", () => handleDeleteAvoirs(ids, restock)) : undefined}
                       onWriteOffCredit={role === "admin" ? (id) => requireAdmin("Annuler une dette", () => handleWriteOffCredit(id)) : undefined}
@@ -15609,7 +16687,7 @@ function AppInner() {
                       <VendorExpensesScreen expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} vendorName={currentVendorName} />
                     )}
                     {view === "admin" && role === "admin" && (
-                      <AdminScreen
+                      <AdminScreen jump={adminJump}
                         cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={recordVersement}
                         onUpdateVersement={(id, patch) => requireAdmin("Modifier un versement", () => updateVersement(id, patch))} onDeleteVersement={(id) => requireAdmin("Supprimer un versement", () => deleteVersement(id))}
                         shop={shop} saveShopMeta={saveShopMeta} shops={shops} activeShopId={activeShopId}
@@ -15637,7 +16715,20 @@ function AppInner() {
                 {licenseStatus !== "expired" && (
                 <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 pt-2 z-30 no-print" style={{ background: "linear-gradient(to top, var(--paper) 60%, transparent)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
                   <div className="rounded-2xl flex items-stretch shadow-lg overflow-hidden" style={{ background: "var(--glass)" }}>
-                    {TABS[role].map((t0) => (shopProfile(shop) === "boutique" && t0.id === "sell" ? { ...t0, label: "Boutique", Icon: ShoppingBag } : t0)).map((t) => (
+                    {nuit && TABS_NUIT.map((t) => {
+                      const on = t.id === "more" ? NUIT_MORE_VIEWS.has(view) : view === t.id;
+                      return (
+                        <button key={t.id} onClick={() => { setAdminMenuOpen(false); setView(t.id); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2" aria-current={on ? "page" : undefined}>
+                          <span className="relative flex flex-col items-center gap-1 px-2.5 py-1 rounded-[12px]" style={{ background: on ? "rgba(242,122,26,0.16)" : "transparent" }}>
+                            <t.Icon size={19} color={on ? "var(--cap)" : "#9FB0C8"} />
+                            {t.id === "stock" && lowStockCount > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{lowStockCount}</span>}
+                            {t.id === "more" && creditCount > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{creditCount}</span>}
+                            <span className="text-[10.5px] font-semibold" style={{ color: on ? "#FF9A3D" : "#9FB0C8" }}>{t.id === "sell" && shopProfile(shop) === "boutique" ? "Boutique" : t.label}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {!nuit && TABS[role].map((t0) => (shopProfile(shop) === "boutique" && t0.id === "sell" ? { ...t0, label: "Boutique", Icon: ShoppingBag } : t0)).map((t) => (
                       <button key={t.id} onClick={() => { setView(t.id); if (t.id === "admin") setAdminMenuOpen(true); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2.5" style={{ background: view === t.id ? "var(--glass-light)" : "transparent" }}>
                         <div className="relative">
                           <t.Icon size={17} color={view === t.id ? "var(--cap)" : "#ffffff90"} />
