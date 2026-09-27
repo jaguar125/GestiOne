@@ -491,6 +491,11 @@ function buildReceiptText(receipt, shop, fmt) {
     lines.push(`Montant reçu : ${fmt(receipt.amountReceived)}`);
     lines.push(`Monnaie rendue : ${fmt(receipt.changeDue)}`);
   }
+  if (receipt.reserve && receipt.reserve.pickups.length) {
+    lines.push("");
+    lines.push(receipt.reserve.done ? `✅ ${receipt.reserve.client} a retiré son article` : `${receipt.reserve.client} a retiré une partie de ses articles`);
+    receipt.reserve.pickups.forEach((h) => lines.push(`  ${new Date(h.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} · ${(h.items || []).map((i) => `${i.qty} × ${i.name}`).join(", ")}`));
+  }
   lines.push("");
   lines.push("Merci pour votre confiance. À très bientôt !");
   return lines.join("\n");
@@ -2449,7 +2454,21 @@ function ClientPicker({ clients, value, onChange, onCreateClient, focusSignal })
 // pour réimprimer une vente déjà enregistrée depuis l'historique
 // (HistoryScreen). Gère lui-même l'impression Bluetooth/navigateur, le
 // partage et l'envoi WhatsApp.
-function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
+// État de la réserve (avoir produit) liée à une vente : articles retirés
+// par le client, quand et remis par qui.
+function reserveStatusOf(sale, avoirs) {
+  const linked = (avoirs || []).filter((a) => a.type === "produit" && sale && a.saleId === sale.id);
+  if (!linked.length) return null;
+  const client = linked[0].clientName || "Client";
+  const pickups = linked.flatMap((a) => (a.history || []).map((h) => ({ ...h, client: a.clientName })));
+  pickups.sort((a, b) => new Date(a.date) - new Date(b.date));
+  const remaining = linked.reduce((t, a) => t + avoirProductProgress(a).remainingQty, 0);
+  const taken = linked.reduce((t, a) => t + avoirProductProgress(a).takenQty, 0);
+  return { client, pickups, remaining, taken, done: remaining <= 0 && taken > 0, remainingItems: linked.flatMap((a) => avoirRemainingItems(a)) };
+}
+function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToast, avoirs }) {
+  const reserve = reserveStatusOf(receiptIn, avoirs);
+  const receipt = reserve ? { ...receiptIn, reserve } : receiptIn;
   const fmt = useFmt();
   const [printing, setPrinting] = useState(false);
   const notify = (msg, type) => { if (pushToast) pushToast(msg, type); };
@@ -2568,9 +2587,24 @@ function SaleReceiptModal({ receipt, shop, clients, onClose, pushToast }) {
             <p className="text-[11px] mt-0.5" style={{ color: "#633806" }}>Client : {receipt.avoirClientName || receipt.clientName || "Client"} — à récupérer lors d'un prochain passage.</p>
           </div>
         )}
-        {(receipt.isProductAvoir || receipt.hasProductAvoir) && (
+        {reserve && reserve.pickups.length > 0 && (
+          <div className="rounded-xl p-3 mt-3 gb-slide-up" style={{ background: "#E8F0FB", border: "1px solid #BFD4F2" }}>
+            <p className="text-[12.5px] font-bold flex items-center gap-1.5" style={{ color: "#16457A" }}>
+              <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{ background: "#1D5FA8" }}><Check size={12} color="#fff" strokeWidth={3} /></span>
+              {reserve.done ? `${reserve.client} a retiré son article` : `${reserve.client} a retiré une partie de ses articles`}
+            </p>
+            {reserve.pickups.map((h, k) => (
+              <div key={k} className="mt-1.5 pl-6 text-[11px]" style={{ color: "#1D5FA8" }}>
+                <span className="font-semibold">{new Date(h.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} à {new Date(h.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                {" · "}{(h.items || []).map((i) => `${i.qty} × ${i.name}`).join(", ")}{h.by ? ` · remis par ${h.by}` : ""}
+              </div>
+            ))}
+          </div>
+        )}
+        {(receipt.isProductAvoir || receipt.hasProductAvoir) && !(reserve && reserve.done) && (
           <div className="rounded-xl p-3 mt-3 gb-slide-up" style={{ background: "#EEEDFE" }}>
             <p className="text-[12px] font-bold" style={{ color: "#26215C" }}>{receipt.productAvoirFor && receipt.productAvoirFor !== receipt.avoirClientName ? `Offert à : ${receipt.productAvoirFor}` : `Client : ${receipt.productAvoirFor || receipt.avoirClientName || receipt.clientName || "Client"}`}</p>
+            {reserve && reserve.taken > 0 && reserve.remaining > 0 && <p className="text-[11px] mt-0.5 font-semibold" style={{ color: "#3C3489" }}>Encore en réserve : {reserve.remainingItems.map((i) => `${i.qty} × ${i.name}`).join(", ")}</p>}
             <p className="text-[11px] mt-0.5" style={{ color: "#3C3489" }}>{receipt.isProductAvoir ? "Ces produits sont en avoir : à retirer ou à consommer sur place lors d'un prochain passage." : "Payé — articles gardés en réserve au magasin, à retirer ou à consommer sur place lors d'un prochain passage."}</p>
           </div>
         )}
@@ -3419,6 +3453,12 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const todayStr = new Date().toDateString();
   const todaySales = (sales || []).filter((x) => new Date(x.date).toDateString() === todayStr);
   const todayTotal = todaySales.reduce((sum, x) => sum + (Number(x.total) || 0), 0);
+  // Recette du jour : argent réellement encaissé aujourd'hui (espèces +
+  // Mobile Money + règlements de crédits reçus aujourd'hui), comme l'Historique.
+  const todayRecette = todaySales.filter((x) => x.paymentMethod !== "credit").reduce((t, x) => t + (Number(x.total) || 0), 0)
+    + (sales || []).filter((x) => x.paymentMethod === "credit").reduce((t, x) => t + creditPaymentsOf(x).filter((p) => new Date(p.date).toDateString() === todayStr).reduce((u, p) => u + (Number(p.amount) || 0), 0), 0);
+  // Crédit du jour : ventes à crédit d'aujourd'hui encore non réglées.
+  const todayCredit = todaySales.filter((x) => x.paymentMethod === "credit" && !x.writtenOff).reduce((t, x) => t + Math.max(0, (Number(x.total) || 0) - creditPaidSoFar(x)), 0);
   const favorites = quickPicks.slice(0, 6);
   const searchKey = (e) => {
     if (e.key !== "Enter") return;
@@ -3431,7 +3471,9 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   return (
     <div style={{ paddingBottom: "calc(190px + env(safe-area-inset-bottom))" }}>
       {isBoutique ? (<>
-        <div className="mx-3 mt-3 flex items-center gap-2">
+        {/* Barre recherche + panier FIXE : reste visible pendant le défilement. */}
+        <div className="h-[66px]" aria-hidden="true" />
+        <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[12] px-3 pt-2 pb-2.5 flex items-center gap-2 no-print" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 44px)", background: "var(--paper)", boxShadow: "0 8px 12px -12px rgba(0,0,0,0.35)" }}>
           <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] pl-3.5 pr-1.5 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
             <Search size={17} className="shrink-0 opacity-60" />
             <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={searchKey} placeholder="Rechercher un article" aria-label="Rechercher un article" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" />
@@ -3446,10 +3488,12 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
         {scannerOpen && <CameraScanner onDetect={handleCameraDetect} onClose={() => setScannerOpen(false)} />}
         {!query && <BoutiqueBanners shop={shop} products={products} onPick={(p) => addToCart(p)} />}
         <div className="mx-3 mt-3 grid grid-cols-3 gap-2">
-          {[["Ventes du jour", fmt(todayTotal), "#1E7A46"], ["Tickets", todaySales.length, "var(--ink)"], ["Articles vendus", todaySales.reduce((t, x) => t + (x.items || []).reduce((u, i) => u + (Number(i.qty) || 0), 0), 0), "var(--ink)"]].map(([l, v, c]) => (
+          {[["Ventes du jour", fmt(todayTotal), "#1E7A46", `Recette : ${fmt(todayRecette)}`, `Crédit : ${fmt(todayCredit)}`], ["Tickets", todaySales.length, "var(--ink)"], ["Articles vendus", todaySales.reduce((t, x) => t + (x.items || []).reduce((u, i) => u + (Number(i.qty) || 0), 0), 0), "var(--ink)"]].map(([l, v, c, sub, sub2]) => (
             <div key={l} className="rounded-2xl px-3 py-2 min-w-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
               <p className="text-[10.5px] opacity-60 truncate">{l}</p>
               <p className="font-display font-bold text-[15px] truncate" style={{ color: c }}>{v}</p>
+              {sub2 && <p className="text-[10px] font-semibold truncate" style={{ color: "#B3261E" }}>{sub2}</p>}
+              {sub && <p className="text-[10px] font-semibold truncate" style={{ color: "#9A5B00" }}>{sub}</p>}
             </div>
           ))}
         </div>
@@ -3484,6 +3528,8 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           <div className="rounded-2xl px-3 py-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
             <span className="text-[11.5px]" style={{ color: "#C9D1D8" }}>Ventes du jour</span>
             <span className="font-display font-bold text-[18px] whitespace-nowrap" style={{ color: "#A6E07A" }}>{fmt(todayTotal)}</span>
+            <span className="text-[11.5px] font-semibold whitespace-nowrap mt-0.5 pt-1" style={{ color: "#FFFFFF", borderTop: "1px solid rgba(255,255,255,0.12)" }}>Crédit : <span style={{ color: "#FF8A80" }}>{fmt(todayCredit)}</span></span>
+            <span className="text-[11.5px] font-semibold whitespace-nowrap" style={{ color: "#FFFFFF" }}>Recette : <span style={{ color: "#F2C14E" }}>{fmt(todayRecette)}</span></span>
           </div>
           <div className="rounded-2xl px-3 py-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
             <span className="text-[11.5px]" style={{ color: "#C9D1D8" }}>Tickets</span>
@@ -3592,7 +3638,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
 
       </>)}
 
-      {!showCart && (
+      {!showCart && !isBoutique && (
         <div className="fixed left-3 right-3 z-30 gb-slide-up no-print mx-auto max-w-[600px]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
           {count > 0 ? (
             <button onClick={() => setShowCart(true)} className="gb-focus w-full min-h-[64px] rounded-[20px] pl-4 pr-2 py-2 flex items-center gap-3 text-white" style={{ background: "#1E8E50", boxShadow: "0 12px 26px rgba(30,142,80,0.35)" }}>
@@ -3963,7 +4009,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       {avoirPickerOpen && (
         <AvoirPickerSheet avoirs={openMoneyAvoirs} total={total} onPick={(a) => { setPayAvoirId(a.id); setAvoirPickerOpen(false); if (!clientName && !clientId) setClientName(""); }} onClose={() => setAvoirPickerOpen(false)} />
       )}
-      {receipt && <SaleReceiptModal receipt={receipt} shop={shop} clients={clients} onClose={() => setReceipt(null)} pushToast={pushToast} />}
+      {receipt && <SaleReceiptModal receipt={receipt} shop={shop} clients={clients} onClose={() => setReceipt(null)} pushToast={pushToast} avoirs={avoirs} />}
     </div>
   );
 }
@@ -4999,6 +5045,13 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
     if (!g || g.key !== key) { g = { key, date: new Date(s.date), items: [], total: 0 }; groups.push(g); }
     g.items.push(s); g.total += Number(s.total) || 0;
   });
+  // Récap de chaque journée (même calcul que la table daily_summaries du
+  // serveur) : ventes, recette encaissée ce jour-là et crédit resté ouvert.
+  groups.forEach((g) => {
+    g.recette = g.items.filter((x) => x.paymentMethod !== "credit").reduce((t, x) => t + (Number(x.total) || 0), 0)
+      + scoped.filter((x) => x.paymentMethod === "credit").reduce((t, x) => t + creditPaymentsOf(x).filter((p) => new Date(p.date).toDateString() === g.key).reduce((u, p) => u + (Number(p.amount) || 0), 0), 0);
+    g.credit = g.items.filter((x) => x.paymentMethod === "credit" && !x.writtenOff).reduce((t, x) => t + Math.max(0, (Number(x.total) || 0) - creditPaymentsOf(x).filter((p) => new Date(p.date).toDateString() === g.key).reduce((u, p) => u + (Number(p.amount) || 0), 0)), 0);
+  });
   const yKey = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString(); })();
   const dayLabel = (g) => g.key === today ? "Aujourd'hui" : g.key === yKey ? "Hier" : g.date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const H = { mut: "#66707A", line: "var(--line)" };
@@ -5040,6 +5093,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
           <span className="text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.14)" }}>{sorted.length} vente{sorted.length > 1 ? "s" : ""}</span>
         </div>
         <p className="font-display font-bold text-[30px] leading-tight mt-1 relative">{fmt(revenueInPeriod)}</p>
+        <p className="text-[12.5px] font-semibold relative mt-0.5" style={{ color: "rgba(255,255,255,0.85)" }}>Ventes {periodFilter === "today" ? "du jour" : periodLabel} : <span className="font-display font-bold text-[14px]" style={{ color: "#A6E07A" }}>{fmt(sorted.reduce((t, x) => t + (Number(x.total) || 0), 0))}</span></p>
         {revenueInPeriod > 0 && (
           <div className="flex h-2 rounded-full overflow-hidden gap-[2px] mt-3 relative" style={{ background: "rgba(255,255,255,0.12)" }}>
             {[[cashOnly, "#2FA565"], [mobileOnly, "#3B7DD8"], [creditCollectedInPeriod, "#E0A030"]].filter(([v]) => v > 0).map(([v, c]) => <div key={c} style={{ width: `${(v / revenueInPeriod) * 100}%`, background: c }} />)}
@@ -5084,6 +5138,16 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
             <p className="text-[12.5px] font-bold capitalize">{dayLabel(g)}</p>
             <p className="text-[11.5px]" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <b style={{ color: "var(--ink)" }}>{fmt(g.total)}</b></p>
           </div>
+          {!q && (
+            <div className="grid grid-cols-3 gap-1.5 mb-2">
+              {[["Ventes", g.total, "#E6F4EC", "#1E7A46"], ["Recette", g.recette, "#FFF1D6", "#9A5B00"], ["Crédit", g.credit, "#FCEBEA", "#B3261E"]].map(([l, v, bg, fg]) => (
+                <div key={l} className="rounded-xl px-2 py-1 min-w-0" style={{ background: bg, color: fg }}>
+                  <p className="text-[10px] font-semibold opacity-80">{l}</p>
+                  <p className="font-display font-bold text-[12.5px] truncate">{fmt(v)}</p>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
         {g.items.map((s, idx) => {
           const unpaid = s.paymentMethod === "credit" && !s.paid;
@@ -5125,7 +5189,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
                     const who = res[0].clientName;
                     return left > 0
                       ? <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#EEEDFE", color: "#534AB7" }}><PackageX size={10} /> {left} EN RÉSERVE · {who}</span>
-                      : <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#E6F4EC", color: "#1E7A46" }}><Check size={10} /> RÉSERVE REMISE</span>;
+                      : <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#E8F0FB", color: "#1D5FA8" }}><Check size={10} /> ARTICLE RETIRÉ · {who}</span>;
                   })()}
                   {shop?.backendLinked && api.isServerConfirmed("sales", s.id, shop.id) === false && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#FFF1D6", color: "#9A5B00" }} title="Vente enregistrée sur ce téléphone, envoi au serveur en cours">
@@ -5206,7 +5270,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
         reprintSale.paymentMethod === "credit" && reprintSale.paid ? (
           <CreditReceiptModal sale={reprintSale} shop={shop} onClose={() => setReprintSale(null)} pushToast={pushToast} />
         ) : (
-          <SaleReceiptModal receipt={reprintSale} shop={shop} clients={clients || []} onClose={() => setReprintSale(null)} pushToast={pushToast} />
+          <SaleReceiptModal receipt={reprintSale} shop={shop} clients={clients || []} onClose={() => setReprintSale(null)} pushToast={pushToast} avoirs={avoirs} />
         )
       )}
 
@@ -7063,7 +7127,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
       </div>
 
       {scannerOpen && <CameraScanner onDetect={handleDetect} onClose={() => setScannerOpen(false)} />}
-      {viewSale && <SaleReceiptModal receipt={viewSale} shop={shop} clients={clients || []} onClose={() => setViewSale(null)} pushToast={pushToast} />}
+      {viewSale && <SaleReceiptModal receipt={viewSale} shop={shop} clients={clients || []} onClose={() => setViewSale(null)} pushToast={pushToast} avoirs={avoirs} />}
       {viewAvoir && <AvoirReceiptModal avoir={viewAvoir} shop={shop} onClose={() => setViewAvoir(null)} pushToast={pushToast} />}
       {returning && <SaleReturnFlow sale={returning} shop={shop} onReturnSale={onReturnSale} onClose={() => setReturning(null)} pushToast={pushToast} />}
       {settling && <SettleCreditModal sale={settling} onClose={() => setSettling(null)} onConfirm={(amount) => { const updated = onSettleCredit(settling.id, amount); setSettling(null); if (updated) setCreditReceipt(updated); }} />}

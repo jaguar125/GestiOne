@@ -234,7 +234,18 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
     line(`Client : ${clientName || "Client"} - a recuperer lors`);
     line("d'un prochain passage.");
   }
-  if (hasProductAvoir) {
+  if (receipt.reserve && receipt.reserve.pickups && receipt.reserve.pickups.length) {
+    line("");
+    push(ESC, 0x45, 0x01);
+    line(receipt.reserve.done ? `${receipt.reserve.client} a retire son article` : `${receipt.reserve.client} a retire une partie`);
+    push(ESC, 0x45, 0x00);
+    receipt.reserve.pickups.forEach((h) => {
+      const d = new Date(h.date);
+      line(`  ${d.toLocaleDateString("fr-FR")} ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
+      (h.items || []).forEach((i) => line(`   ${i.qty} x ${i.name}`));
+    });
+  }
+  if (hasProductAvoir && !(receipt.reserve && receipt.reserve.done)) {
     line("");
     line(receipt.productAvoirFor && receipt.productAvoirFor !== receipt.avoirClientName ? `Offert a : ${receipt.productAvoirFor}` : `Client : ${receipt.productAvoirFor || clientName || "Client"}`);
     line("Produits en avoir (a retirer ou consommer");
