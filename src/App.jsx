@@ -354,6 +354,8 @@ const SHOP_META_SYNC_FIELDS = [
   "vendorGoals",
   // Boutique
   "banners",
+  // Actionnaires et partage des bénéfices
+  "shareholders", "fixedCharges", "shareClosings", "shareReservePct",
 ];
 function pickShopMeta(shop) {
   const out = {};
@@ -5116,6 +5118,8 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
   const [editingSale, setEditingSale] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [histQuery, setHistQuery] = useState("");
+  const [payFilter, setPayFilter] = useState("all");
+  const [payOpen, setPayOpen] = useState(false);
   // En-tête (titre + boutons + périodes) et recherche + journée en cours
   // restent collés en haut pendant le défilement : on mesure leur hauteur
   // pour empiler les zones fixes sans chevauchement.
@@ -5210,204 +5214,185 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
   const yKey = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString(); })();
   const dayLabel = (g) => g.key === today ? "Aujourd'hui" : g.key === yKey ? "Hier" : g.date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const H = { mut: "#66707A", line: "var(--line)" };
+  const payKind = (s) => (s.avoirPaid > 0 ? "avoir" : s.paymentMethod === "credit" ? "credit" : mobilePartOf(s) > 0 ? "mobile" : "especes");
+  const payCounts = sorted.reduce((o, s) => ({ ...o, [payKind(s)]: (o[payKind(s)] || 0) + 1 }), {});
+  const listShown = payFilter === "all" ? shown : shown.filter((s) => payKind(s) === payFilter);
+  const listGroups = payFilter === "all" ? groups : groups.map((g) => ({ ...g, items: g.items.filter((s) => payKind(s) === payFilter) })).filter((g) => g.items.length);
+  const salesTotal = sorted.reduce((t, x) => t + (Number(x.total) || 0), 0);
+  const firstName = (n) => { const w = (n || "").trim().split(/\s+/); return w.length > 1 && n === n.toUpperCase() ? w[w.length - 1].charAt(0) + w[w.length - 1].slice(1).toLowerCase() : w[0] || ""; };
+  const iconBtn = "gb-focus flex flex-col items-center gap-0.5 w-[50px] shrink-0";
   return (
     <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
-      <div ref={stickTopRef} className="sticky z-[11] -mx-4 px-4 pt-2 pb-2.5 mb-3 no-print" style={{ top: STICK_BASE, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.30)" }}>
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <div className="min-w-0">
-          <h2 className="font-display font-bold text-[22px] leading-tight">{vendorFilter ? "Mes ventes" : "Historique des ventes"}</h2>
-          <p className="text-[12.5px] mt-0.5" style={{ color: H.mut }}>{sorted.length} vente{sorted.length > 1 ? "s" : ""} · {periodLabel || "période choisie"}</p>
+      <div ref={stickTopRef} className="sticky z-[11] -mx-4 px-4 pt-2 pb-2.5 mb-2.5 no-print" style={{ top: STICK_BASE, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.30)" }}>
+        <div className="flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <h2 className="font-display font-bold text-[21px] leading-tight truncate">{vendorFilter ? "Mes ventes" : "Historique"}</h2>
+            <p className="text-[12px]" style={{ color: H.mut }}>{sorted.length} vente{sorted.length > 1 ? "s" : ""} · {periodLabel || "période choisie"}</p>
+          </div>
+          {onReturnSale && <button onClick={() => setFinderOpen(true)} className={iconBtn} aria-label="Retour produit"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Undo2 size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>Retour</span></button>}
+          <button onClick={() => exportSalesCSV(sorted, pushToast)} className={iconBtn} aria-label="Exporter en Excel"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Download size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>Excel</span></button>
+          <button onClick={() => setPdfPreview(true)} className={iconBtn} aria-label="PDF"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Printer size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>PDF</span></button>
         </div>
-      </div>
-      <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: onReturnSale ? "1fr 1fr 1fr" : "1fr 1fr" }}>
-        {onReturnSale && <button onClick={() => setFinderOpen(true)} className="gb-focus min-h-[46px] rounded-[14px] flex items-center justify-center gap-1.5 text-[13px] font-bold" style={{ background: "#E3F4EC", color: "#0F6E56", border: "1px solid #BFE3D2" }}><Undo2 size={16} /> Retour</button>}
-        <button onClick={() => exportSalesCSV(sorted, pushToast)} className="gb-focus min-h-[46px] rounded-[14px] flex items-center justify-center gap-1.5 text-[13px] font-bold" style={{ background: "#E8F0FB", color: "#1D5FA8", border: "1px solid #C7DAF3" }}><Download size={16} /> Excel / CSV</button>
-        <button onClick={() => setPdfPreview(true)} className="gb-focus min-h-[46px] rounded-[14px] flex items-center justify-center gap-1.5 text-[13px] font-bold text-white" style={{ background: "var(--glass)" }}><Printer size={16} /> PDF</button>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto gb-scroll -mx-4 px-4">
-        {[{ id: "all", label: "Tout" }, { id: "today", label: "Aujourd'hui" }, { id: "7j", label: "7 jours" }, { id: "30j", label: "30 jours" }, { id: "custom", label: "Plage", Icon: CalendarCheck }].map((p) => (
-          <button key={p.id} onClick={() => setPeriodFilter(p.id)} className="gb-focus shrink-0 min-h-[38px] flex items-center gap-1.5 px-4 rounded-full text-[13px] font-semibold" style={{ background: periodFilter === p.id ? "var(--glass)" : "var(--card)", color: periodFilter === p.id ? "#fff" : "var(--ink)", border: periodFilter === p.id ? "1px solid var(--glass)" : "1px solid var(--line)", boxShadow: periodFilter === p.id ? "0 4px 12px rgba(0,0,0,0.18)" : "none" }}>{p.Icon && <p.Icon size={13} />}{p.label}</button>
-        ))}
-      </div>
-      {periodFilter === "custom" && (
-        <div className="flex items-center gap-2 mt-2.5 p-2.5 rounded-xl gb-slide-up" style={{ background: "#E1F5EE" }}>
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#9FE1CB", background: "var(--card)" }} />
-          <span className="text-xs font-semibold" style={{ color: "#0F6E56" }}>à</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#9FE1CB", background: "var(--card)" }} />
+        <div className="grid grid-cols-5 gap-1 p-1 rounded-[14px] mt-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          {[["today", "Aujourd'hui"], ["7j", "7 jours"], ["30j", "30 jours"], ["all", "Tout"], ["custom", "Dates"]].map(([id, l]) => (
+            <button key={id} onClick={() => setPeriodFilter(id)} className="gb-focus min-h-[34px] rounded-[10px] text-[11.5px] font-bold" style={periodFilter === id ? { background: "var(--glass)", color: "#fff" } : { color: H.mut }}>{l}</button>
+          ))}
         </div>
-      )}
+        {periodFilter === "custom" && (
+          <div className="flex items-center gap-2 mt-2 gb-slide-up">
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+            <span className="text-xs opacity-50">au</span>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+          </div>
+        )}
+        <div className="flex gap-1.5 mt-2">
+          <label className="flex-1 min-w-0 flex items-center gap-2 px-3 h-10 rounded-[12px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <Search size={15} style={{ color: H.mut }} />
+            <input value={histQuery} onChange={(e) => setHistQuery(e.target.value)} placeholder="Reçu, client, vendeur, produit" className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px]" />
+            {histQuery && <button onClick={() => setHistQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={13} /></button>}
+          </label>
+          <button onClick={() => setPayOpen((o) => !o)} aria-expanded={payOpen} aria-label="Filtrer par paiement" className="gb-focus w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0 relative" style={payOpen || payFilter !== "all" ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}>
+            <Layers size={16} />
+            {payFilter !== "all" && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: "var(--cap)", border: "2px solid var(--paper)" }} />}
+          </button>
+        </div>
+        {(payOpen || payFilter !== "all") && (
+          <div className="flex gap-1.5 overflow-x-auto gb-scroll -mx-4 px-4 mt-2 gb-slide-up">
+            {[["all", "Tous", sorted.length, null], ["especes", "Espèces", payCounts.especes || 0, "#1E7A46"], ["mobile", "Mobile", payCounts.mobile || 0, "#1D5FA8"], ["credit", "Crédit", payCounts.credit || 0, "#B3261E"], ["avoir", "Avoir", payCounts.avoir || 0, "#9A5B00"]].map(([id, l, n, c]) => (
+              <button key={id} onClick={() => setPayFilter(id)} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[11.5px] font-bold whitespace-nowrap" style={payFilter === id ? { background: c ? `${c}1A` : "var(--glass)", color: c || "#fff", border: `1.5px solid ${c || "var(--glass)"}` } : { background: "var(--card)", border: "1px solid var(--line)" }}>{l} ({n})</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {pdfPreview && <SalesPdfPreview shop={shop} sales={sorted} vendorFilter={vendorFilter} onClose={() => setPdfPreview(false)} pushToast={pushToast} />}
-
       {vendorFilter && <VendorGoalCard shop={shop} sales={sales} vendorName={vendorFilter} />}
 
-      <div className="rounded-[24px] p-4 mb-3 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", boxShadow: "0 14px 30px -14px rgba(0,0,0,0.5)" }}>
-        <div className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
-        <div className="flex items-center justify-between relative">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.7)" }}>Recette {periodLabel}</p>
-          <span className="text-[11.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.14)" }}>{sorted.length} vente{sorted.length > 1 ? "s" : ""}</span>
-        </div>
-        <p className="font-display font-bold text-[30px] leading-tight mt-1 relative">{fmt(revenueInPeriod)}</p>
-        <p className="text-[12.5px] font-semibold relative mt-0.5" style={{ color: "rgba(255,255,255,0.85)" }}>Ventes {periodFilter === "today" ? "du jour" : periodLabel} : <span className="font-display font-bold text-[14px]" style={{ color: "#A6E07A" }}>{fmt(sorted.reduce((t, x) => t + (Number(x.total) || 0), 0))}</span></p>
-        {revenueInPeriod > 0 && (
-          <div className="flex h-2 rounded-full overflow-hidden gap-[2px] mt-3 relative" style={{ background: "rgba(255,255,255,0.12)" }}>
-            {[[cashOnly, "#2FA565"], [mobileOnly, "#3B7DD8"], [creditCollectedInPeriod, "#E0A030"]].filter(([v]) => v > 0).map(([v, c]) => <div key={c} style={{ width: `${(v / revenueInPeriod) * 100}%`, background: c }} />)}
+      <div className="rounded-[22px] px-4 pt-3.5 pb-3.5 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, var(--glass-light), var(--glass))", boxShadow: "0 14px 28px -16px rgba(0,0,0,0.55)" }}>
+        <span className="absolute -right-8 -top-10 w-32 h-32 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <div className="relative flex items-end gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] opacity-80">Recette {periodLabel}</p>
+            <p className="font-display font-bold text-[28px] leading-tight truncate">{fmt(revenueInPeriod)}</p>
           </div>
-        )}
-        <div className="grid grid-cols-3 gap-2 mt-2.5 relative">
-          {[["Espèces", cashOnly, "#2FA565"], ["Mobile", mobileOnly, "#3B7DD8"], ["Crédits reçus", creditCollectedInPeriod, "#E0A030"]].map(([l, v, c]) => (
-            <div key={l} className="min-w-0">
-              <p className="text-[10.5px] font-semibold flex items-center gap-1" style={{ color: "rgba(255,255,255,0.75)" }}><span className="w-2 h-2 rounded-full shrink-0" style={{ background: c }} /> {l}</p>
-              <p className="font-display font-bold text-[13.5px] truncate">{fmt(v)}</p>
-              <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.55)" }}>{revenueInPeriod > 0 ? Math.round((v / revenueInPeriod) * 100) : 0} %</p>
-            </div>
-          ))}
-        </div>
-        {creditGivenUnpaidInPeriod > 0 && (
-          <div className="mt-3 pt-2.5 flex justify-between text-[12px] relative" style={{ borderTop: "1px solid rgba(255,255,255,0.14)" }}>
-            <span style={{ color: "rgba(255,255,255,0.7)" }}>Nouveaux crédits accordés (non inclus)</span>
-            <span className="font-semibold" style={{ color: "#FFB4AB" }}>{fmt(creditGivenUnpaidInPeriod)}</span>
+          <div className="text-right text-[12px] leading-relaxed shrink-0">
+            <p><span className="opacity-75">Ventes </span><b style={{ color: "#A6E07A" }}>{fmt(salesTotal)}</b></p>
+            <p><span className="opacity-75">Crédit </span><b style={{ color: "#FFB4AB" }}>{fmt(creditGivenUnpaidInPeriod)}</b></p>
           </div>
-        )}
+        </div>
+        <div className="relative flex h-2 rounded-full overflow-hidden gap-[2px] mt-2.5" style={{ background: "rgba(255,255,255,0.12)" }}>
+          {revenueInPeriod > 0 && [[cashOnly, "#2FA565"], [mobileOnly, "#3B7DD8"], [creditCollectedInPeriod, "#E0A030"]].filter(([v]) => v > 0).map(([v, c]) => <div key={c} style={{ width: `${(v / revenueInPeriod) * 100}%`, background: c }} />)}
+        </div>
+        <div className="relative flex flex-wrap gap-x-3 gap-y-0.5 text-[10.5px] mt-1.5 opacity-90">
+          <span><span style={{ color: "#6FD39A" }}>●</span> Espèces {fmt(cashOnly)}</span>
+          <span><span style={{ color: "#7EAAF0" }}>●</span> Mobile {fmt(mobileOnly)}</span>
+          <span><span style={{ color: "#F0C060" }}>●</span> Crédits reçus {fmt(creditCollectedInPeriod)}</span>
+        </div>
       </div>
 
-      {sorted.length > 0 && (
-        <div ref={stickSearchRef} className="sticky z-[10] -mx-4 px-4 pb-2 no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top}px)`, background: "var(--paper)" }}>
-        <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-          <Search size={16} style={{ color: H.mut }} />
-          <input value={histQuery} onChange={(e) => setHistQuery(e.target.value)} placeholder="N° de reçu, client, vendeur, produit" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
-          {histQuery && <button onClick={() => setHistQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={14} /></button>}
-        </div>
-        </div>
-      )}
-
-      {shown.length === 0 && (
+      {listShown.length === 0 && (
         <div className="rounded-[20px] py-8 px-5 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
           <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Receipt size={22} style={{ color: H.mut }} /></div>
-          <p className="font-semibold text-[14px]">{q ? "Aucune vente ne correspond" : "Aucune vente sur cette période"}</p>
-          <p className="text-[12px] mt-0.5" style={{ color: H.mut }}>{q ? "Vérifiez le numéro ou le nom." : "Choisissez une autre période ci-dessus."}</p>
+          <p className="font-semibold text-[14px]">{q || payFilter !== "all" ? "Aucune vente ne correspond" : "Aucune vente sur cette période"}</p>
+          <p className="text-[12px] mt-0.5" style={{ color: H.mut }}>{q || payFilter !== "all" ? "Changez la recherche ou le filtre." : "Choisissez une autre période ci-dessus."}</p>
         </div>
       )}
-      <div className="flex flex-col gap-4">
-        {groups.map((g) => (
-        <div key={g.key}>
-          <div className="sticky z-[9] -mx-4 px-4 pt-1.5 pb-1 no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top + stickH.search}px)`, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.30)" }}>
-          <div className="flex items-baseline justify-between px-1 mb-2">
-            <p className="text-[12.5px] font-bold capitalize">{dayLabel(g)}</p>
-            <p className="text-[11.5px]" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <b style={{ color: "var(--ink)" }}>{fmt(g.total)}</b></p>
+      <div className="flex flex-col gap-3">
+        {listGroups.map((g) => (
+        <div key={g.key} className="rounded-[18px]" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
+          <div className="sticky z-[9] flex items-center justify-between gap-2 px-3.5 py-2 rounded-t-[18px] no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top}px)`, background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+            <span className="text-[11px] font-bold uppercase tracking-[0.05em] truncate" style={{ color: H.mut }}>{dayLabel(g)}</span>
+            <span className="text-[11px] font-bold shrink-0" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <span style={{ color: "var(--ink)" }}>{fmt(g.total)}</span>{!q && g.credit > 0 ? <span style={{ color: "#B3261E" }}> · crédit {fmt(g.credit)}</span> : null}</span>
           </div>
-          {!q && (
-            <div className="grid grid-cols-3 gap-1.5 mb-2">
-              {[["Ventes", g.total, "#E6F4EC", "#1E7A46"], ["Recette", g.recette, "#FFF1D6", "#9A5B00"], ["Crédit", g.credit, "#FCEBEA", "#B3261E"]].map(([l, v, bg, fg]) => (
-                <div key={l} className="rounded-xl px-2 py-1 min-w-0" style={{ background: bg, color: fg }}>
-                  <p className="text-[10px] font-semibold opacity-80">{l}</p>
-                  <p className="font-display font-bold text-[12.5px] truncate">{fmt(v)}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          </div>
-          <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
         {g.items.map((s, idx) => {
           const unpaid = s.paymentMethod === "credit" && !s.paid;
           const isMixte = s.paymentMethod === "especes" && Number(s.mobilePaid) > 0;
-          const PayIcon = s.avoirPaid >= s.total ? Coins : isMixte ? Layers : s.paymentMethod === "especes" ? Banknote : s.paymentMethod === "mobile" ? Smartphone : unpaid ? AlertTriangle : Wallet;
-          const payTint = unpaid ? { bg: "#FCEBEA", fg: "#B3261E", bar: "#D9483B" }
-            : s.paymentMethod === "credit" ? { bg: "#E3F4EC", fg: "#0F6E56", bar: "#1E8E6A" }
-            : s.avoirPaid > 0 ? { bg: "#FFF1D6", fg: "#9A5B00", bar: "#E0A030" }
-            : s.paymentMethod === "mobile" ? { bg: "#E8F0FB", fg: "#1D5FA8", bar: "#3B7DD8" }
-            : isMixte ? { bg: "#E9EEF8", fg: "#2B4C8C", bar: "#4D7BD1" }
-            : { bg: "#E6F4EC", fg: "#1E7A46", bar: "#2FA565" };
-          const payLabel = s.avoirPaid >= s.total ? "AVOIR" : s.avoirPaid > 0 ? `AVOIR + ${PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}` : `${isMixte ? "ESPÈCES + MOBILE" : PAYMENT_LABELS[s.paymentMethod]?.toUpperCase()}${unpaid ? " · IMPAYÉ" : s.paymentMethod === "credit" ? " · SOLDÉ" : ""}`;
+          const PayIcon = s.avoirPaid >= s.total ? Coins : isMixte ? Layers : s.paymentMethod === "especes" ? Banknote : s.paymentMethod === "mobile" ? Smartphone : unpaid ? AlertTriangle : Check;
+          const payTint = unpaid ? { bg: "#FCEBEA", fg: "#B3261E" }
+            : s.paymentMethod === "credit" ? { bg: "#E3F4EC", fg: "#0F6E56" }
+            : s.avoirPaid > 0 ? { bg: "#FFF1D6", fg: "#9A5B00" }
+            : s.paymentMethod === "mobile" ? { bg: "#E8F0FB", fg: "#1D5FA8" }
+            : isMixte ? { bg: "#E9EEF8", fg: "#2B4C8C" }
+            : { bg: "#E6F4EC", fg: "#1E7A46" };
+          const rest = unpaid ? Math.max(0, (Number(s.total) || 0) - creditPaidSoFar(s)) : 0;
+          const payLabel = s.avoirPaid >= s.total ? "Avoir" : s.avoirPaid > 0 ? `Avoir + ${s.paymentMethod === "credit" ? (unpaid ? "crédit" : "crédit soldé") : (PAYMENT_LABELS[s.paymentMethod] || "").toLowerCase()}` : unpaid ? `Crédit · reste ${fmt(rest)}` : s.paymentMethod === "credit" ? "Crédit soldé" : paymentLabelOf(s);
           const rets = saleReturnsOf(s);
           const fullyReturned = rets.length > 0 && s.items.length === 0;
-          const nbArt = s.items.reduce((t, i) => t + i.qty, 0);
+          const res = (avoirs || []).filter((a) => a.type === "produit" && a.saleId === s.id);
+          const resLeft = res.reduce((t, a) => t + avoirProductProgress(a).remainingQty, 0);
+          const pending = shop?.backendLinked && api.isServerConfirmed("sales", s.id, shop.id) === false;
+          const tags = [
+            res.length ? (resLeft > 0 ? [`${resLeft} en réserve · ${res[0].clientName}`, "#EEEDFE", "#534AB7"] : [`Article retiré · ${res[0].clientName}`, "#E8F0FB", "#1D5FA8"]) : null,
+            pending ? ["Envoi en cours", "#FFF1D6", "#9A5B00"] : null,
+            rets.length ? [fullyReturned ? "Retournée" : "Retour partiel", "#EFEAFB", "#5B3FB0"] : null,
+            (s.invoices || []).length ? ["Facturée", "#E8F0FB", "#1D5FA8"] : null,
+          ].filter(Boolean);
+          const itemsLabel = fullyReturned ? "Articles retournés" : s.items.length ? s.items.map((i) => `${i.qty}× ${i.product?.name}`).join(", ") : `Vente N° ${receiptNumber(s.id)}`;
+          const isOpen = open === s.id;
           return (
-          <div key={s.id} className="relative" style={{ borderTop: idx ? "1px solid var(--line)" : "none", background: open === s.id ? "rgba(0,0,0,0.015)" : unpaid ? "#FFF8F7" : "transparent" }}>
-            <span className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full" style={{ background: payTint.bar }} />
-            <div className="flex items-stretch">
-            <button onClick={() => setOpen(open === s.id ? null : s.id)} className="gb-focus flex-1 min-w-0 flex items-center gap-3 py-3 pl-4 pr-1.5 text-left">
-              <div className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: payTint.bg }}>
-                <PayIcon size={18} color={payTint.fg} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[14.5px] font-bold">{new Date(s.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} <span className="font-mono text-[11px] font-normal" style={{ color: H.mut }}>· N° {receiptNumber(s.id)}</span></span>
-                  <span className="text-right shrink-0">
-                    {rets.length > 0 && <span className="font-mono text-[11px] line-through opacity-45 mr-1.5">{fmt(s.originalTotal ?? (s.total + returnedAmountOf(s)))}</span>}
-                    <span className="font-display font-bold text-[15.5px]" style={{ color: unpaid ? "#B3261E" : "var(--ink)" }}>{fmt(s.total)}</span>
-                  </span>
-                </div>
-                <p className="text-[11.5px] truncate mt-0.5" style={{ color: H.mut }}>{s.vendor} · {nbArt} article{nbArt > 1 ? "s" : ""}{s.clientName ? ` · ${s.clientName}` : ""}</p>
-                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: payTint.bg, color: payTint.fg }}>{payLabel}</span>
-                  {(() => {
-                    const res = (avoirs || []).filter((a) => a.type === "produit" && a.saleId === s.id);
-                    if (!res.length) return null;
-                    const left = res.reduce((t, a) => t + avoirProductProgress(a).remainingQty, 0);
-                    const who = res[0].clientName;
-                    return left > 0
-                      ? <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#EEEDFE", color: "#534AB7" }}><PackageX size={10} /> {left} EN RÉSERVE · {who}</span>
-                      : <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#E8F0FB", color: "#1D5FA8" }}><Check size={10} /> ARTICLE RETIRÉ · {who}</span>;
-                  })()}
-                  {shop?.backendLinked && api.isServerConfirmed("sales", s.id, shop.id) === false && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide inline-flex items-center gap-1" style={{ background: "#FFF1D6", color: "#9A5B00" }} title="Vente enregistrée sur ce téléphone, envoi au serveur en cours">
-                      <RefreshCw size={10} /> ENVOI EN COURS
-                    </span>
-                  )}
-                  {rets.length > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: "#EFEAFB", color: "#5B3FB0" }}>{fullyReturned ? "RETOURNÉE" : "RETOUR PARTIEL"}</span>}
-                  {(s.invoices || []).length > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide" style={{ background: "#E8F0FB", color: "#1D5FA8" }}>FACTURÉE</span>}
-                </div>
-                {s.paymentMethod === "credit" && s.paid && s.paidBy && (
-                  <div className="text-[10.5px] font-semibold mt-1" style={{ color: "#0F6E56" }}>✓ Encaissé par {s.paidBy}{s.paidDate ? " · " + new Date(s.paidDate).toLocaleDateString("fr-FR") : ""}</div>
+          <div key={s.id} style={{ borderTop: idx ? "1px solid var(--line)" : "none", background: isOpen ? "var(--paper)" : unpaid ? "#FFFAF9" : "transparent" }} className={idx === g.items.length - 1 ? "rounded-b-[18px]" : ""}>
+            <button onClick={() => setOpen(isOpen ? null : s.id)} aria-expanded={isOpen} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
+              <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: payTint.bg }}><PayIcon size={16} color={payTint.fg} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13.5px] font-bold truncate">{itemsLabel}</span>
+                <span className="block text-[11.5px] truncate" style={{ color: H.mut }}>{new Date(s.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {firstName(s.vendor)}{s.clientName ? ` · ${s.clientName}` : ""}</span>
+                {tags.length > 0 && (
+                  <span className="flex flex-wrap gap-1 mt-1">{tags.map(([t, bg, fg]) => <span key={t} className="px-1.5 py-0.5 rounded-full text-[9.5px] font-bold" style={{ background: bg, color: fg }}>{t}</span>)}</span>
                 )}
-              </div>
+              </span>
+              <span className="text-right shrink-0 max-w-[45%]">
+                {rets.length > 0 && <span className="block font-mono text-[10.5px] line-through opacity-45">{fmt(s.originalTotal ?? (s.total + returnedAmountOf(s)))}</span>}
+                <span className="block font-display font-bold text-[14px]" style={{ color: unpaid ? "#B3261E" : "var(--ink)" }}>{fmt(s.total)}</span>
+                <span className="block text-[10px] font-bold truncate" style={{ color: payTint.fg }}>{payLabel}</span>
+              </span>
             </button>
-            <div className="flex flex-col items-center justify-center py-2 pr-2.5 gap-1 shrink-0">
-              <button onClick={(e) => { e.stopPropagation(); setReprintSale(s); }} className="gb-focus w-9 h-9 rounded-[11px] flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Réimprimer le reçu"><Printer size={15} /></button>
-              <button onClick={() => setOpen(open === s.id ? null : s.id)} className="gb-focus w-9 h-6 flex items-center justify-center" aria-label="Détails"><ChevronDown size={16} style={{ color: H.mut, transform: open === s.id ? "rotate(180deg)" : "none", transition: "transform .2s" }} /></button>
-            </div>
-            </div>
-            {open === s.id && (
-              <div className="px-3.5 pb-3.5 pt-1 border-t gb-slide-up" style={{ borderColor: "var(--line)" }}>
-                {s.items.map((i) => (
-                  <div key={i.id} className="flex justify-between text-xs font-mono py-0.5 opacity-70"><span>{i.qty}× {i.product.name}</span><span>{fmt(computeItemTotal(i.product, i.qty))}</span></div>
-                ))}
-                {fullyReturned && <p className="text-xs opacity-60 py-0.5">Tous les articles ont été retournés.</p>}
+            {isOpen && (
+              <div className="pb-3 pr-3.5 gb-slide-up" style={{ paddingLeft: 60 }}>
+                <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>N° de reçu</span><span className="font-mono font-bold">{receiptNumber(s.id)}</span></div>
+                <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Date</span><span>{new Date(s.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+                <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Vendeur</span><span>{s.vendor}</span></div>
+                <div className="mt-1.5 pt-1.5" style={{ borderTop: "1px dashed var(--line)" }}>
+                  {s.items.map((i) => (
+                    <div key={i.id} className="flex justify-between text-[12px] py-0.5"><span>{i.qty}× {i.product.name}</span><span className="font-mono">{fmt(computeItemTotal(i.product, i.qty))}</span></div>
+                  ))}
+                  {fullyReturned && <p className="text-xs opacity-60 py-0.5">Tous les articles ont été retournés.</p>}
+                  {s.remise > 0 && <div className="flex justify-between text-[12px] py-0.5" style={{ color: "#D9491F" }}><span>Remise</span><span className="font-mono">− {fmt(s.remise)}</span></div>}
+                </div>
+                <div className="mt-1.5 pt-1.5" style={{ borderTop: "1px dashed var(--line)" }}>
+                  <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Paiement</span><span className="font-semibold">{paymentLabelOf(s)}</span></div>
+                  {s.avoirPaid > 0 && <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Payé avec l'avoir</span><span>{fmt(s.avoirPaid)}</span></div>}
+                  {isMixte && <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>{s.mobileOperator || "Mobile Money"} / espèces</span><span>{fmt(s.mobilePaid)} / {fmt(s.total - s.mobilePaid)}</span></div>}
+                  {s.amountReceived != null && <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Montant reçu</span><span>{fmt(s.amountReceived)}</span></div>}
+                  {s.changeDue > 0 && <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Monnaie rendue</span><span>{fmt(s.changeDue)}</span></div>}
+                  {unpaid && <div className="flex justify-between text-[11.5px] py-0.5 font-bold" style={{ color: "#B3261E" }}><span>Reste à payer</span><span>{fmt(rest)}</span></div>}
+                  {s.paymentMethod === "credit" && s.paid && s.paidBy && <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Encaissé</span><span className="font-semibold" style={{ color: "#0F6E56" }}>✓ {s.paidDate ? new Date(s.paidDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) + " · " : ""}{s.paidBy}</span></div>}
+                </div>
                 {rets.length > 0 && (
-                  <div className="mt-2.5 flex flex-col gap-1.5">
+                  <div className="mt-2 flex flex-col gap-1.5">
                     {rets.map((r) => (
-                      <button key={r.id} onClick={() => setViewReturn({ ret: r, sale: s })} className="gb-focus w-full text-left rounded-xl px-3 py-2.5" style={{ background: "#E1F5EE", color: "#0F4F2B" }}>
-                        <div className="flex justify-between gap-2 text-[12px] font-bold"><span className="flex items-center gap-1.5"><Undo2 size={12} /> Retour du {new Date(r.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })} {new Date(r.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span><span className="font-mono whitespace-nowrap">−{fmt(r.amount)}</span></div>
-                        <p className="text-[11px] mt-0.5" style={{ opacity: 0.8 }}>{(r.items || []).map((i) => `${i.qty}× ${i.name}`).join(", ")} · {r.reason}</p>
-                        <p className="text-[11px]" style={{ opacity: 0.8 }}>{Number(r.refund) > 0 ? `Remboursé ${fmt(r.refund)} · ${REFUND_LABELS[r.refundMode] || ""}` : "Déduit du crédit"}{r.restocked ? " · remis en stock" : " · non remis en stock"}{r.by ? ` · ${r.by}` : ""}</p>
+                      <button key={r.id} onClick={() => setViewReturn({ ret: r, sale: s })} className="gb-focus w-full text-left rounded-xl px-3 py-2" style={{ background: "#E1F5EE", color: "#0F4F2B" }}>
+                        <div className="flex justify-between gap-2 text-[12px] font-bold"><span className="flex items-center gap-1.5"><Undo2 size={12} /> Retour du {new Date(r.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}</span><span className="font-mono whitespace-nowrap">−{fmt(r.amount)}</span></div>
+                        <p className="text-[11px] mt-0.5" style={{ opacity: 0.8 }}>{(r.items || []).map((i) => `${i.qty}× ${i.name}`).join(", ")} · {r.reason}{Number(r.refund) > 0 ? ` · remboursé ${fmt(r.refund)}` : ""}</p>
                       </button>
                     ))}
                   </div>
                 )}
-                {(s.invoices || []).length > 0 && (
-                  <p className="text-[11px] mt-2 opacity-60 flex items-center gap-1.5"><FileText size={12} /> {(s.invoices || []).map((inv) => inv.number).join(" · ")}</p>
-                )}
-                {s.items.length > 0 && (
-                  <div className="grid gap-2 mt-3" style={{ gridTemplateColumns: onReturnSale ? "1fr 1fr" : "1fr" }}>
-                    {onReturnSale && <button onClick={() => setReturningSale(s)} className="gb-focus flex items-center justify-center gap-1.5 text-xs font-bold py-2.5 rounded-xl" style={{ background: "#E1F5EE", color: "#0F6E56" }}><Undo2 size={14} /> Retour produit</button>}
-                    <button onClick={() => setInvoiceSale(s)} className="gb-focus flex items-center justify-center gap-1.5 text-xs font-bold py-2.5 rounded-xl" style={{ background: "#E6EEFA", color: "#173F70" }}><FileText size={14} /> Facture</button>
-                  </div>
-                )}
-                {isAdmin && (
-                  <div className="flex gap-2 mt-3 pt-3 border-t" style={{ borderColor: "var(--line)" }}>
-                    <button onClick={() => setEditingSale(s)} className="gb-focus flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-xl" style={{ background: "var(--paper-dim)" }}><Pencil size={13} /> Modifier</button>
-                    <button onClick={() => setConfirmDelete(s)} className="gb-focus flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-xl" style={{ background: "var(--paper-dim)", color: "var(--danger)" }}><Trash2 size={13} /> Supprimer</button>
-                  </div>
-                )}
+                {(s.invoices || []).length > 0 && <p className="text-[11px] mt-2 opacity-60 flex items-center gap-1.5"><FileText size={12} /> {(s.invoices || []).map((inv) => inv.number).join(" · ")}</p>}
+                <div className="grid gap-1.5 mt-2.5" style={{ gridTemplateColumns: `repeat(${2 + (onReturnSale && s.items.length ? 1 : 0) + (isAdmin ? 2 : 0)}, minmax(0, 1fr))` }}>
+                  {[
+                    [Printer, "Reçu", () => setReprintSale(s), false],
+                    ...(s.items.length ? [[FileText, "Facture", () => setInvoiceSale(s), false]] : [[FileText, "Facture", () => pushToast?.("Aucun article à facturer", "error"), false]]),
+                    ...(onReturnSale && s.items.length ? [[Undo2, "Retour", () => setReturningSale(s), false]] : []),
+                    ...(isAdmin ? [[Pencil, "Modifier", () => setEditingSale(s), false], [Trash2, "Suppr.", () => setConfirmDelete(s), true]] : []),
+                  ].map(([Ic, l, fn, danger]) => (
+                    <button key={l} onClick={fn} className="gb-focus min-h-[46px] rounded-[11px] flex flex-col items-center justify-center gap-0.5 text-[10.5px] font-bold" style={danger ? { background: "#FCEBEB", color: "#A32D2D", border: "1px solid #F3C6C2" } : { background: "var(--card)", color: "var(--glass)", border: "1px solid var(--line)" }}><Ic size={15} />{l}</button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
           );
         })}
-          </div>
         </div>
         ))}
       </div>
@@ -8864,134 +8849,219 @@ function ProductsSection({ products, saveProducts, categories, movements, saveMo
 
 /* ---------- Inventaire professionnel ---------- */
 
+// Petits éléments communs aux onglets Inventaire (nouveau design).
+function InvHero({ children }) {
+  return (
+    <div className="relative overflow-hidden rounded-[22px] px-4 pt-3.5 pb-4 text-white" style={{ background: "linear-gradient(135deg, var(--glass-light), var(--glass))", boxShadow: "0 14px 28px -16px rgba(0,0,0,0.55)" }}>
+      <span className="absolute -right-8 -top-10 w-32 h-32 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
+function InvTile({ label, value, color, bg, border, Icon }) {
+  return (
+    <div className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: bg || "var(--card)", border: `1px solid ${border || "var(--line)"}` }}>
+      <p className="text-[10.5px] flex items-center gap-1 truncate" style={{ color: color && bg ? color : "#66707A" }}>{Icon && <Icon size={12} color={color} />}{label}</p>
+      <p className="font-display font-bold text-[15px] truncate" style={{ color: color || "var(--ink)" }}>{value}</p>
+    </div>
+  );
+}
+function InvSegment({ value, onChange, options }) {
+  return (
+    <div className="grid gap-1 p-1 rounded-[14px]" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)`, background: "var(--card)", border: "1px solid var(--line)" }}>
+      {options.map(([id, l]) => (
+        <button key={id} onClick={() => onChange(id)} className="gb-focus min-h-[34px] rounded-[10px] text-[12px] font-bold" style={value === id ? { background: "var(--glass)", color: "#fff" } : { color: "#66707A" }}>{l}</button>
+      ))}
+    </div>
+  );
+}
+const nbsp = (s) => String(s).replace(/[  ]/g, " ");
+const moneyNum = (fmt, n) => nbsp(fmt(n)).replace(/\s?[^\d\s\-−.,]+$/, "").trim();
+
 function InventoryOverview({ products, categories, movements }) {
   const fmt = useFmt();
-  const totalValue = products.reduce((s, p) => s + p.stock * p.price, 0);
-  const totalUnits = products.reduce((s, p) => s + p.stock, 0);
-  const lowStock = products.filter((p) => !p.stockFrom && p.stock <= p.minStock);
-  const outOfStock = products.filter((p) => p.stock <= 0);
+  const [allLow, setAllLow] = useState(false);
+  const list = products.filter((p) => !p.stockFrom);
+  const totalValue = list.reduce((s, p) => s + Math.max(0, p.stock) * p.price, 0);
+  const costValue = list.reduce((s, p) => s + Math.max(0, p.stock) * (Number(p.costPrice) || 0), 0);
+  const totalUnits = list.reduce((s, p) => s + Math.max(0, p.stock), 0);
+  const lowStock = list.filter((p) => p.stock <= p.minStock).sort((a, b) => a.stock / Math.max(1, a.minStock) - b.stock / Math.max(1, b.minStock));
+  const outOfStock = list.filter((p) => p.stock <= 0);
   const today = new Date().toDateString();
   const movementsToday = movements.filter((m) => new Date(m.date).toDateString() === today).length;
   const byCategory = categories.map((c) => ({
     ...c,
-    units: products.filter((p) => p.category === c.id).reduce((s, p) => s + p.stock, 0),
-    value: products.filter((p) => p.category === c.id).reduce((s, p) => s + p.stock * p.price, 0),
-  })).filter((c) => c.units > 0);
-  const maxUnits = Math.max(...byCategory.map((c) => c.units), 1);
-
+    units: list.filter((p) => p.category === c.id).reduce((s, p) => s + Math.max(0, p.stock), 0),
+    value: list.filter((p) => p.category === c.id).reduce((s, p) => s + Math.max(0, p.stock) * p.price, 0),
+  })).filter((c) => c.units > 0).sort((a, b) => b.value - a.value);
+  const tot = byCategory.reduce((t, c) => t + c.value, 0) || 1;
+  let acc = 0;
+  const donut = byCategory.map((c) => { const a = (acc / tot) * 100; acc += c.value; return `${c.color || "#8896A8"} ${a}% ${(acc / tot) * 100}%`; }).join(", ") || "var(--paper-dim) 0% 100%";
+  const short = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1).replace(".0", "")}M` : v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v)));
   return (
-    <div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mb-5">
-        <StatCard icon={Layers} label="Valeur du stock" value={fmt(totalValue)} dark />
-        <StatCard icon={Boxes} label="Unités en stock" value={totalUnits} tintBg="#E6F1FB" tintFg="#185FA5" />
-        <StatCard icon={AlertTriangle} label="Produits en alerte" value={lowStock.length} danger={lowStock.length > 0} tintBg={lowStock.length > 0 ? "#FCEBEB" : undefined} tintFg={lowStock.length > 0 ? "#A32D2D" : undefined} />
-        <StatCard icon={ClipboardList} label="Mouvements aujourd'hui" value={movementsToday} tintBg="#EEEDFE" tintFg="#534AB7" />
+    <div className="pb-16">
+      <InvHero>
+        <div className="flex items-center gap-2"><span className="text-[12.5px] opacity-85">Valeur du stock</span><span className="ml-auto text-[10.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.14)" }}>au prix de vente</span></div>
+        <p className="font-display font-bold text-[32px] leading-tight mt-1">{moneyNum(fmt, totalValue)} <span className="text-[16px]" style={{ color: "var(--cap)" }}>FCFA</span></p>
+        <p className="text-[12px] opacity-75">{totalUnits} unités · {list.length} produits{costValue > 0 ? ` · valeur d'achat ${nbsp(fmt(costValue))}` : ""}</p>
+      </InvHero>
+      <div className="grid grid-cols-3 gap-2 mt-2.5">
+        <InvTile label="En alerte" value={lowStock.length} color="#A32D2D" bg={lowStock.length ? "#FCEBEB" : undefined} border={lowStock.length ? "#F3C6C2" : undefined} Icon={AlertTriangle} />
+        <InvTile label="Ruptures" value={outOfStock.length} color={outOfStock.length ? "#A32D2D" : undefined} Icon={PackageX} />
+        <InvTile label="Mouv. du jour" value={movementsToday} color="#534AB7" Icon={History} />
       </div>
-
       {outOfStock.length > 0 && (
-        <div className="rounded-2xl p-3.5 mb-4 flex items-center gap-2.5" style={{ background: "#FCEBE8" }}>
-          <AlertTriangle size={16} color="var(--danger)" className="shrink-0" />
-          <p className="text-xs font-semibold" style={{ color: "var(--danger)" }}>{outOfStock.length} produit{outOfStock.length > 1 ? "s" : ""} en rupture totale de stock</p>
+        <div className="rounded-[16px] px-3.5 py-2.5 mt-2.5 flex items-center gap-2.5" style={{ background: "#FFF6F5", border: "1px solid #F3C6C2" }}>
+          <AlertTriangle size={16} color="#B3261E" className="shrink-0" />
+          <p className="text-[12.5px] flex-1 min-w-0" style={{ color: "#8A2419" }}><b>Rupture :</b> {outOfStock.map((p) => p.name.trim()).join(", ")}</p>
         </div>
       )}
 
-      <h3 className="font-display font-bold text-base mb-2">Répartition par catégorie</h3>
-      <div className="rounded-2xl border p-3.5 flex flex-col gap-3" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-        {byCategory.length === 0 && <p className="text-sm opacity-50 text-center py-3">Aucun stock enregistré.</p>}
-        {byCategory.map((c) => (
-          <div key={c.id}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold flex items-center gap-1.5"><CategoryIcon cat={c.id} categories={categories} size={13} /> {c.label}</span>
-              <span className="text-xs font-mono opacity-60">{c.units} u. · {fmt(c.value)}</span>
+      <h3 className="font-display font-bold text-[14.5px] mt-4 mb-2">Répartition par catégorie</h3>
+      <div className="rounded-[18px] p-3.5 flex items-center gap-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {byCategory.length === 0 ? <p className="text-sm opacity-50 text-center py-3 w-full">Aucun stock enregistré.</p> : (
+          <>
+            <div className="w-[96px] h-[96px] rounded-full shrink-0 flex items-center justify-center" style={{ background: `conic-gradient(${donut})` }}>
+              <div className="w-[62px] h-[62px] rounded-full flex flex-col items-center justify-center" style={{ background: "var(--card)" }}><span className="font-display font-bold text-[13px]">{short(totalValue)}</span><span className="text-[9px] opacity-60">FCFA</span></div>
             </div>
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}>
-              <div className="h-full rounded-full" style={{ width: `${(c.units / maxUnits) * 100}%`, background: c.color }} />
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              {byCategory.map((c) => (
+                <div key={c.id} className="flex items-center gap-2 text-[12px]">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: c.color || "#8896A8" }} />
+                  <span className="flex-1 truncate">{c.label}</span>
+                  <span className="opacity-55">{c.units} u.</span>
+                  <b className="w-9 text-right">{Math.round((c.value / tot) * 100)}%</b>
+                </div>
+              ))}
             </div>
-          </div>
-        ))}
+          </>
+        )}
       </div>
+
+      {lowStock.length > 0 && (
+        <>
+          <div className="flex items-center mt-4 mb-2">
+            <h3 className="font-display font-bold text-[14.5px] flex-1">À commander en priorité</h3>
+            {lowStock.length > 5 && <button onClick={() => setAllLow((v) => !v)} className="gb-focus text-[12px] font-bold opacity-60">{allLow ? "Réduire" : `Tout voir (${lowStock.length})`}</button>}
+          </div>
+          <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            {(allLow ? lowStock : lowStock.slice(0, 5)).map((p, i) => (
+              <div key={p.id} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                <span className="flex-1 min-w-0 text-[13px] font-bold truncate">{p.name}</span>
+                <span className="w-20 h-1.5 rounded-full overflow-hidden shrink-0" style={{ background: "#F1E4E2" }}><span className="block h-full rounded-full" style={{ width: `${Math.min(100, (Math.max(0, p.stock) / Math.max(1, p.minStock)) * 100)}%`, background: p.stock <= 0 ? "#B3261E" : "#D9483B" }} /></span>
+                <span className="text-[12px] font-bold w-10 text-right" style={{ color: "#B3261E" }}>{Math.max(0, p.stock)}/{p.minStock}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 function MovementsLedger({ movements, categories }) {
   const [filter, setFilter] = useState("all");
-  const [period, setPeriod] = useState("all");
+  const [period, setPeriod] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-
-  const byType = filter === "all" ? movements : movements.filter((m) => m.type === filter);
-  const byDate = byType.filter((m) => {
+  const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState(null);
+  const [limit, setLimit] = useState(150);
+  const TYPES = { ...MOVEMENT_TYPES, livraison: { label: "Arrivage", color: "#1E7A46" }, perte: { label: "Perte", color: "#B3261E" } };
+  const inPeriod = (m) => {
     const d = new Date(m.date);
     if (period === "today") return d.toDateString() === new Date().toDateString();
-    if (period === "7j") { const from = new Date(); from.setDate(from.getDate() - 7); return d >= from; }
-    if (period === "30j") { const from = new Date(); from.setDate(from.getDate() - 30); return d >= from; }
+    if (period === "7j") { const from = new Date(); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() - 6); return d >= from; }
+    if (period === "30j") { const from = new Date(); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() - 29); return d >= from; }
     if (period === "custom") {
       if (customFrom && d < new Date(customFrom + "T00:00:00")) return false;
       if (customTo && d > new Date(customTo + "T23:59:59")) return false;
       return true;
     }
     return true;
+  };
+  const k = q.trim().toLowerCase();
+  const base = movements.filter(inPeriod).filter((m) => !k || (m.productName || "").toLowerCase().includes(k));
+  const filtered = (filter === "all" ? base : base.filter((m) => m.type === filter)).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+  const counts = base.reduce((o, m) => ({ ...o, [m.type]: (o[m.type] || 0) + 1 }), {});
+  const inSum = filtered.reduce((t, m) => t + Math.max(0, Number(m.delta) || 0), 0);
+  const outSum = filtered.reduce((t, m) => t + Math.max(0, -(Number(m.delta) || 0)), 0);
+  const groups = [];
+  filtered.slice(0, limit).forEach((m) => {
+    const key = new Date(m.date).toDateString();
+    let g = groups[groups.length - 1];
+    if (!g || g.key !== key) { g = { key, date: new Date(m.date), items: [], net: 0 }; groups.push(g); }
+    g.items.push(m); g.net += Number(m.delta) || 0;
   });
-  const filtered = byDate;
-
-  const PERIODS = [
-    { id: "all", label: "Tout" },
-    { id: "today", label: "Aujourd'hui" },
-    { id: "7j", label: "7 jours" },
-    { id: "30j", label: "30 jours" },
-    { id: "custom", label: "Plage" },
-  ];
-
+  const yKey = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString(); })();
+  const dayName = (g) => (g.key === new Date().toDateString() ? "Aujourd'hui" : g.key === yKey ? "Hier" : g.date.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }));
+  const firstName = (n) => (n || "").trim().split(/\s+/).slice(-1)[0] || "";
+  const sel = "gb-focus w-full rounded-[12px] h-10 px-2.5 text-[12.5px] font-bold border";
   return (
-    <div>
-      <h3 className="font-display font-bold text-base mb-2">Historique des mouvements</h3>
-
-      <p className="text-[11px] font-semibold opacity-50 mb-1.5">Période</p>
-      <div className="flex gap-2 overflow-x-auto gb-scroll mb-2">
-        {PERIODS.map((p) => (
-          <button key={p.id} onClick={() => setPeriod(p.id)} className="gb-focus shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold" style={{ background: period === p.id ? "var(--glass)" : "var(--paper-dim)", color: period === p.id ? "#fff" : "var(--ink)" }}>{p.label}</button>
-        ))}
+    <div className="pb-16">
+      <label className="flex items-center gap-2 h-10 px-3 rounded-[12px] mb-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <Search size={15} className="opacity-50 shrink-0" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un produit…" className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px]" />
+        {q && <button onClick={() => setQ("")} className="gb-focus p-0.5" aria-label="Effacer"><X size={13} /></button>}
+      </label>
+      <div className="grid grid-cols-2 gap-1.5">
+        <select value={period} onChange={(e) => setPeriod(e.target.value)} className={sel} style={{ borderColor: "var(--line)", background: "var(--card)" }} aria-label="Période">
+          <option value="today">Aujourd'hui</option><option value="7j">7 jours</option><option value="30j">30 jours</option><option value="all">Tout</option><option value="custom">Dates…</option>
+        </select>
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} className={sel} style={filter === "all" ? { borderColor: "var(--line)", background: "var(--card)" } : { borderColor: "var(--glass)", background: "var(--glass)", color: "#fff" }} aria-label="Type">
+          <option value="all">Tous types</option>
+          {Object.entries(TYPES).map(([id, m]) => <option key={id} value={id}>{m.label}{counts[id] ? ` (${counts[id]})` : ""}</option>)}
+        </select>
       </div>
       {period === "custom" && (
-        <div className="flex items-center gap-2 mb-3 gb-slide-up">
+        <div className="flex items-center gap-2 mt-2 gb-slide-up">
           <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
-          <span className="text-xs opacity-50">à</span>
+          <span className="text-xs opacity-50">au</span>
           <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
         </div>
       )}
-
-      <p className="text-[11px] font-semibold opacity-50 mb-1.5">Type</p>
-      <div className="flex gap-2 overflow-x-auto gb-scroll mb-4">
-        <button onClick={() => setFilter("all")} className="gb-focus shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold" style={{ background: filter === "all" ? "var(--glass)" : "var(--paper-dim)", color: filter === "all" ? "#fff" : "var(--ink)" }}>Tout</button>
-        {Object.entries(MOVEMENT_TYPES).map(([id, meta]) => (
-          <button key={id} onClick={() => setFilter(id)} className="gb-focus shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold" style={{ background: filter === id ? "var(--glass)" : "var(--paper-dim)", color: filter === id ? "#fff" : "var(--ink)" }}>{meta.label}</button>
-        ))}
+      <div className="grid grid-cols-3 rounded-[14px] overflow-hidden mt-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <div className="px-3 py-2"><p className="text-[10.5px] opacity-60">Mouvements</p><p className="font-display font-bold text-[15px]">{filtered.length}</p></div>
+        <div className="px-3 py-2" style={{ borderLeft: "1px solid var(--line)" }}><p className="text-[10.5px] opacity-60">Entrées</p><p className="font-display font-bold text-[15px]" style={{ color: "#1E7A46" }}>+{inSum}</p></div>
+        <div className="px-3 py-2" style={{ borderLeft: "1px solid var(--line)" }}><p className="text-[10.5px] opacity-60">Sorties</p><p className="font-display font-bold text-[15px]" style={{ color: "#B3261E" }}>−{outSum}</p></div>
       </div>
-      <p className="text-[11px] opacity-40 mb-3">{filtered.length} mouvement{filtered.length > 1 ? "s" : ""}</p>
-      {filtered.length === 0 && <p className="text-sm opacity-50 text-center py-8">Aucun mouvement pour cette période.</p>}
-      <div className="flex flex-col gap-2">
-        {filtered.slice(0, 100).map((m) => {
-          const meta = MOVEMENT_TYPES[m.type] || { label: m.type, color: "var(--ink)" };
-          const positive = m.delta > 0;
-          return (
-            <div key={m.id} className="rounded-xl p-3 border flex items-center gap-3" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-              {positive ? <ArrowUpCircle size={18} color="#1CA857" className="shrink-0" /> : m.delta < 0 ? <ArrowDownCircle size={18} color="var(--danger)" className="shrink-0" /> : <Pencil size={18} color="var(--ink)" className="shrink-0" />}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{m.productName}</div>
-                <div className="text-[11px] opacity-50 flex items-center gap-1.5 flex-wrap">
-                  <span className="px-1.5 py-0.5 rounded-full text-[9px] font-semibold text-white" style={{ background: meta.color }}>{meta.label}</span>
-                  <span>{m.author} · {new Date(m.date).toLocaleDateString("fr-FR")} {new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
-                </div>
+      {filtered.length === 0 && <p className="text-sm opacity-50 text-center py-8 mt-2.5 rounded-[16px]" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>Aucun mouvement pour cette période.</p>}
+      {groups.map((g) => (
+        <div key={g.key} className="rounded-[16px] overflow-hidden mt-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <div className="flex justify-between px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.06em] opacity-60" style={{ background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+            <span>{dayName(g)}</span><span>{g.items.length} mouv. · net {g.net > 0 ? "+" : ""}{g.net}</span>
+          </div>
+          {g.items.map((m, i) => {
+            const meta = TYPES[m.type] || { label: m.type, color: "#66707A" };
+            const d = Number(m.delta) || 0;
+            const open = openId === m.id;
+            return (
+              <div key={m.id || i} style={{ borderTop: i ? "1px solid var(--line)" : "none", background: open ? "var(--paper)" : "transparent" }}>
+                <button onClick={() => setOpenId(open ? null : m.id)} className="gb-focus w-full grid items-center gap-2 px-3 py-2 text-left" style={{ gridTemplateColumns: "40px 1fr auto" }}>
+                  <span className="text-[11.5px] opacity-55" style={{ fontVariantNumeric: "tabular-nums" }}>{new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-bold truncate">{m.productName}</span>
+                    <span className="block text-[11px] opacity-60 truncate"><span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: meta.color }} />{meta.label}{m.author ? ` · ${firstName(m.author)}` : ""}</span>
+                  </span>
+                  <span className="text-right">
+                    <span className="block font-display font-bold text-[14px]" style={{ color: d > 0 ? "#1E7A46" : d < 0 ? "#B3261E" : "#66707A", fontVariantNumeric: "tabular-nums" }}>{d > 0 ? "+" : ""}{d}</span>
+                    <span className="block text-[10.5px] font-mono opacity-50">{m.before ?? "—"} → {m.after ?? "—"}</span>
+                  </span>
+                </button>
+                {open && (
+                  <div className="px-3 pb-2.5 text-[11.5px] opacity-75 leading-relaxed gb-slide-up" style={{ paddingLeft: 60 }}>
+                    {meta.label} du {new Date(m.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}<br />
+                    Stock avant {m.before ?? "—"} · après {m.after ?? "—"} · variation {d > 0 ? "+" : ""}{d}<br />
+                    {m.note ? <>{m.note}<br /></> : null}
+                    Par {m.author || "—"}
+                  </div>
+                )}
               </div>
-              <div className="text-right shrink-0">
-                <div className="font-mono font-bold text-sm" style={{ color: positive ? "#1CA857" : m.delta < 0 ? "var(--danger)" : "var(--ink)" }}>{positive ? "+" : ""}{m.delta}</div>
-                <div className="text-[10px] opacity-40 font-mono">{m.before}→{m.after}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ))}
+      {filtered.length > limit && <button onClick={() => setLimit((l) => l + 150)} className="gb-focus w-full min-h-[44px] rounded-[14px] mt-2.5 text-[13px] font-bold" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>Afficher plus ({filtered.length - limit} restants)</button>}
     </div>
   );
 }
@@ -9208,75 +9278,100 @@ function ProfitabilitySection({ products, sales, saveSales, movements, saveProdu
     setConfirming(false);
   };
 
-  const PERIODS = [
-    { id: "all", label: "Tout" },
-    { id: "today", label: "Aujourd'hui" },
-    { id: "7j", label: "7 jours" },
-    { id: "30j", label: "30 jours" },
-    { id: "custom", label: "Plage", Icon: CalendarCheck },
-  ];
+  const [sortBy, setSortBy] = useState("profit");
+  const [sinceOpen, setSinceOpen] = useState(false);
+  const pLabel = { all: "depuis le début", today: "aujourd'hui", "7j": "7 jours", "30j": "30 jours", custom: "période choisie" }[periodFilter];
+  const marginPct = periodTotals.revenue > 0 ? Math.round((periodTotals.profit / periodTotals.revenue) * 100) : 0;
+  const costPct = periodTotals.revenue > 0 ? Math.min(100, Math.max(0, (periodTotals.cost / periodTotals.revenue) * 100)) : 0;
+  const sortedRows = [...periodRows].sort((a, b) => (sortBy === "profit" ? b.profit - a.profit : sortBy === "revenue" ? b.revenue - a.revenue : b.sold - a.sold));
+  const maxProfit = Math.max(1, ...sortedRows.filter((r) => !(r.costMissing && r.cost === 0)).map((r) => Math.max(0, r.profit)));
+  const missing = periodRows.filter((r) => r.costMissing);
 
   return (
     <div className="pb-16">
-      <div className="flex gap-2 overflow-x-auto gb-scroll mb-3">
-        {PERIODS.map((p) => (
-          <button key={p.id} onClick={() => setPeriodFilter(p.id)} className="gb-focus shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold" style={{ background: periodFilter === p.id ? "#534AB7" : "var(--card)", color: periodFilter === p.id ? "#fff" : "var(--ink)", border: periodFilter === p.id ? "none" : "1px solid var(--line)" }}>{p.Icon && <p.Icon size={12} />}{p.label}</button>
-        ))}
-      </div>
+      <InvSegment value={periodFilter} onChange={setPeriodFilter} options={[["today", "Aujourd'hui"], ["7j", "7 jours"], ["30j", "30 jours"], ["all", "Tout"], ["custom", "Dates"]]} />
       {periodFilter === "custom" && (
-        <div className="flex items-center gap-2 mb-4 p-2.5 rounded-xl gb-slide-up" style={{ background: "#EEEDFE" }}>
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#AFA9EC", background: "var(--card)" }} />
-          <span className="text-xs font-semibold" style={{ color: "#534AB7" }}>à</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "#AFA9EC", background: "var(--card)" }} />
+        <div className="flex items-center gap-2 mt-2 gb-slide-up">
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+          <span className="text-xs opacity-50">au</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+        </div>
+      )}
+      <div className="mt-2.5">
+        <InvHero>
+          <p className="text-[12.5px] opacity-85">Bénéfice · {pLabel}</p>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="font-display font-bold text-[32px] leading-tight" style={{ color: periodTotals.profit < 0 ? "#FFB4AB" : "#fff" }}>{moneyNum(fmt, periodTotals.profit)}</span>
+            <span className="text-[16px] font-bold" style={{ color: "var(--cap)" }}>FCFA</span>
+            <span className="ml-auto text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#DFF3D2", color: "#27500A" }}>Marge {marginPct} %</span>
+          </div>
+          <div className="h-2.5 rounded-full overflow-hidden flex mt-2.5" style={{ background: "rgba(255,255,255,0.1)" }}>
+            <span style={{ width: `${costPct}%`, background: "#F2C98A" }} /><span style={{ width: `${100 - costPct}%`, background: "#A6E07A" }} />
+          </div>
+          <div className="flex justify-between text-[11px] mt-1.5 opacity-90"><span>● Coût {moneyNum(fmt, periodTotals.cost)}</span><span>● Bénéfice {moneyNum(fmt, periodTotals.profit)}</span></div>
+        </InvHero>
+      </div>
+      <div className="grid grid-cols-3 gap-2 mt-2.5">
+        <InvTile label="Chiffre d'aff." value={moneyNum(fmt, periodTotals.revenue)} color="#185FA5" Icon={TrendingUp} />
+        <InvTile label="Coût total" value={moneyNum(fmt, periodTotals.cost)} color="#854F0B" Icon={Wallet} />
+        <InvTile label="Unités vendues" value={periodTotals.sold} color="#534AB7" Icon={Boxes} />
+      </div>
+      {missing.length > 0 && (
+        <p className="text-[11.5px] rounded-[12px] px-3 py-2 mt-2.5" style={{ background: "#FAEEDA", color: "#854F0B" }}>Prix d'achat manquant pour {missing.length} produit{missing.length > 1 ? "s" : ""} ({missing.slice(0, 3).map((r) => r.name).join(", ")}{missing.length > 3 ? "…" : ""}) : leur marge est surestimée. Renseignez-le dans Produits.</p>
+      )}
+
+      <div className="flex items-center mt-4 mb-2">
+        <h3 className="font-display font-bold text-[14.5px] flex-1">Par produit</h3>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="gb-focus rounded-full h-8 px-2.5 text-[12px] font-bold border" style={{ borderColor: "var(--line)", background: "var(--card)" }} aria-label="Trier">
+          <option value="profit">Trier : Marge</option><option value="revenue">Trier : Chiffre d'aff.</option><option value="sold">Trier : Vendu</option>
+        </select>
+      </div>
+      {periodRows.length === 0 ? <p className="text-sm opacity-50 text-center py-6 rounded-[16px]" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>Aucune vente sur cette période.</p> : (
+        <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <div className="grid px-3.5 py-2 text-[10px] font-bold uppercase tracking-wide opacity-60" style={{ gridTemplateColumns: "1fr 40px 70px 70px", background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+            <span>Produit</span><span className="text-center">Vendu</span><span className="text-right">CA</span><span className="text-right">Marge</span>
+          </div>
+          {sortedRows.map((r, i) => (
+            <div key={r.id} className="grid items-center px-3.5 py-2" style={{ gridTemplateColumns: "1fr 40px 70px 70px", borderTop: i ? "1px solid var(--line)" : "none" }}>
+              <span className="min-w-0 pr-2">
+                <span className="flex items-center gap-1.5 text-[12.5px] font-bold truncate"><CategoryIcon cat={r.category} categories={categories} size={12} /> <span className="truncate">{r.name}</span></span>
+                <span className="block h-1 rounded-full mt-1" style={{ background: "var(--paper-dim)" }}><span className="block h-full rounded-full" style={{ width: `${r.costMissing && r.cost === 0 ? 0 : (Math.max(0, r.profit) / maxProfit) * 100}%`, background: "#2FA565" }} /></span>
+              </span>
+              <span className="text-center text-[12px]">{r.sold}</span>
+              <span className="text-right text-[12px]">{moneyNum(fmt, r.revenue)}</span>
+              <span className="text-right">
+                {r.costMissing && r.cost === 0 ? <span className="text-[12px] opacity-40">—</span> : (
+                  <>
+                    <span className="block text-[12px] font-bold" style={{ color: r.profit >= 0 ? "#1E7A46" : "#B3261E" }}>{r.profit >= 0 ? "+" : ""}{moneyNum(fmt, r.profit)}</span>
+                    <span className="block text-[9.5px] font-semibold opacity-55">{r.revenue > 0 ? Math.round((r.profit / r.revenue) * 100) : 0} %{r.costMissing ? " · coût ?" : ""}</span>
+                  </>
+                )}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mb-5">
-        <StatCard icon={Boxes} label="Unités vendues" value={periodTotals.sold} tintBg="#534AB7" tintFg="#fff" />
-        <StatCard icon={TrendingUp} label="Chiffre d'affaires" value={fmt(periodTotals.revenue)} tintBg="#E6F1FB" tintFg="#185FA5" />
-        <StatCard icon={Wallet} label="Coût total" value={fmt(periodTotals.cost)} tintBg="#FAEEDA" tintFg="#854F0B" />
-        <StatCard icon={Layers} label="Bénéfice" value={fmt(periodTotals.profit)} tintBg={periodTotals.profit >= 0 ? "#EAF3DE" : "#FCEBEB"} tintFg={periodTotals.profit >= 0 ? "#27500A" : "#A32D2D"} />
-      </div>
+      <div className="rounded-[18px] mt-3 mb-2.5 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <button onClick={() => setSinceOpen((o) => !o)} aria-expanded={sinceOpen} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-3 text-left">
+          <ClipboardCheck size={17} color="var(--glass)" />
+          <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">Depuis le dernier inventaire</span><span className="block text-[11.5px] opacity-60">{stockTotals.sold} unités vendues · bénéfice {nbsp(fmt(stockTotals.profit))}</span></span>
+          <ChevronDown size={17} style={{ transform: sinceOpen ? "rotate(180deg)" : "none", transition: "transform .2s", opacity: 0.6 }} />
+        </button>
+        {sinceOpen && (
+      <div className="px-3.5 pb-3.5 gb-slide-up" style={{ borderTop: "1px solid var(--line)" }}>
+        <p className="text-[11px] opacity-50 my-2.5">Stock de départ + arrivages − ventes = stock actuel, pour chaque produit. Indépendant de la période choisie ci-dessus.</p>
 
-      <h3 className="font-display font-bold text-base mb-2">Détail par produit</h3>
-      {periodRows.length === 0 && <p className="text-sm opacity-50 text-center py-6 mb-5">Aucune vente sur cette période.</p>}
-      <div className="flex flex-col gap-2.5 mb-6">
-        {periodRows.map((r) => (
-          <div key={r.id} className="rounded-2xl p-3.5" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-sm font-semibold flex items-center gap-1.5"><CategoryIcon cat={r.category} categories={categories} size={13} /> {r.name}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center mb-2">
-              <div className="min-w-0"><div className="text-[10px] opacity-45">Vendu</div><div className="font-mono text-xs sm:text-sm font-semibold whitespace-nowrap">{r.sold}</div></div>
-              <div className="min-w-0"><div className="text-[10px] opacity-45">Chiffre d'affaires</div><div className="font-mono text-xs sm:text-sm font-semibold whitespace-nowrap">{fmt(r.revenue)}</div></div>
-              <div className="min-w-0"><div className="text-[10px] opacity-45">Marge</div>
-                {r.costMissing && r.cost === 0
-                  ? <div className="font-mono text-xs sm:text-sm font-semibold whitespace-nowrap opacity-40">—</div>
-                  : <div className="font-mono text-xs sm:text-sm font-semibold whitespace-nowrap" style={{ color: r.profit >= 0 ? "#3B6D11" : "var(--danger)" }}>{r.profit >= 0 ? "+" : ""}{fmt(r.profit)}</div>}
-              </div>
-            </div>
-            {r.costMissing && (
-              <p className="text-[11px] font-medium rounded-lg px-2.5 py-1.5" style={{ background: "#FAEEDA", color: "#854F0B" }}>
-                Prix d'achat non renseigné{r.cost > 0 ? ` pour ${r.missingCostQty} unité(s)` : ""} — renseigne-le dans Stock pour obtenir la vraie marge.
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-2xl p-4 mb-2.5" style={{ background: "var(--paper-dim)" }}>
-        <h3 className="font-display font-bold text-sm mb-1">Depuis le dernier inventaire</h3>
-        <p className="text-[11px] opacity-50 mb-3">Stock de départ + arrivages − ventes = stock actuel, pour chaque produit. Indépendant de la période choisie ci-dessus.</p>
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <div className="rounded-xl px-3 py-2" style={{ background: "var(--card)" }}><p className="text-[10px] opacity-50">Unités vendues</p><p className="font-mono font-semibold text-sm">{stockTotals.sold}</p></div>
-          <div className="rounded-xl px-3 py-2" style={{ background: "var(--card)" }}><p className="text-[10px] opacity-50">Bénéfice</p><p className="font-mono font-semibold text-sm" style={{ color: stockTotals.profit >= 0 ? "#3B6D11" : "var(--danger)" }}>{fmt(stockTotals.profit)}</p></div>
+          <div className="rounded-xl px-3 py-2" style={{ background: "var(--paper)" }}><p className="text-[10px] opacity-50">Unités vendues</p><p className="font-mono font-semibold text-sm">{stockTotals.sold}</p></div>
+          <div className="rounded-xl px-3 py-2" style={{ background: "var(--paper)" }}><p className="text-[10px] opacity-50">Bénéfice</p><p className="font-mono font-semibold text-sm" style={{ color: stockTotals.profit >= 0 ? "#3B6D11" : "var(--danger)" }}>{fmt(stockTotals.profit)}</p></div>
         </div>
         {(() => {
           const active = stockRows.filter((r) => r.L.sold || r.L.arrived || r.L.adjusted || r.L.ecart);
           if (active.length === 0) return null;
           const cols = "minmax(0,1.5fr) repeat(4, minmax(0,1fr))";
           return (
-            <div className="rounded-xl px-3 py-2" style={{ background: "var(--card)" }}>
+            <div className="rounded-xl px-3 py-2" style={{ background: "var(--paper)" }}>
               <div className="grid gap-1 text-[10px] opacity-50 pb-1.5" style={{ gridTemplateColumns: cols, borderBottom: "1px solid var(--line)" }}>
                 <span>Produit</span><span className="text-right">Départ</span><span className="text-right">Arrivé</span><span className="text-right">Vendu</span><span className="text-right">Actuel</span>
               </div>
@@ -9300,6 +9395,8 @@ function ProfitabilitySection({ products, sales, saveSales, movements, saveProdu
           );
         })()}
       </div>
+        )}
+      </div>
 
       {confirming ? (
         <div className="rounded-2xl p-4 border gb-slide-up" style={{ borderColor: "var(--cap)", background: "var(--paper-dim)" }}>
@@ -9318,46 +9415,470 @@ function ProfitabilitySection({ products, sales, saveSales, movements, saveProdu
   );
 }
 
-function InventoryHistorySection({ inventories }) {
+function InventoryHistorySection({ inventories, onNewCount, pushToast }) {
   const fmt = useFmt();
   const [open, setOpen] = useState(null);
-  const sorted = [...inventories].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const sorted = [...(inventories || [])].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const totSold = sorted.reduce((t, i) => t + (Number(i.totals?.sold) || 0), 0);
+  const totProfit = sorted.reduce((t, i) => t + (Number(i.totals?.profit) || 0), 0);
+  const firstName = (n) => (n || "").trim().split(/\s+/).slice(-1)[0] || n || "";
+  const exportInv = (inv) => {
+    const header = ["Produit", "Stock de départ", "Vendu", "Stock actuel", "Chiffre d'affaires", "Coût", "Bénéfice"];
+    const rows = (inv.items || []).map((i) => [i.name, i.openingStock, i.sold, i.currentStock, i.revenue, i.cost, i.profit]);
+    const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    exportCsvFile(`inventaire_${new Date(inv.date).toISOString().slice(0, 10)}.csv`, "﻿" + csv).catch(() => pushToast?.("Impossible d'exporter", "error"));
+  };
   return (
-    <div>
-      <h3 className="font-display font-bold text-base mb-2">Inventaires validés</h3>
-      {sorted.length === 0 && <p className="text-sm opacity-50 text-center py-8">Aucun inventaire validé pour l'instant.</p>}
-      <div className="flex flex-col gap-2.5">
-        {sorted.map((inv) => {
-          const soldItems = inv.items.filter((i) => i.sold !== 0);
+    <div className="pb-16">
+      <div className="grid grid-cols-3 gap-2">
+        <InvTile label="Inventaires" value={sorted.length} Icon={ClipboardList} />
+        <InvTile label="Unités vendues" value={totSold} color="#534AB7" Icon={Boxes} />
+        <InvTile label="Bénéfice" value={moneyNum(fmt, totProfit)} color={totProfit >= 0 ? "#27500A" : "#A32D2D"} bg={totProfit >= 0 ? "#EAF3DE" : "#FCEBEB"} border={totProfit >= 0 ? "#CFE6BC" : "#F3C6C2"} Icon={TrendingUp} />
+      </div>
+      {onNewCount && <button onClick={onNewCount} className="gb-focus w-full min-h-[48px] rounded-[14px] mt-2.5 text-white text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><ClipboardList size={17} /> Nouveau comptage</button>}
+      <h3 className="font-display font-bold text-[14.5px] mt-4 mb-2">Inventaires validés</h3>
+      {sorted.length === 0 && <p className="text-sm opacity-50 text-center py-8 rounded-[16px]" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>Aucun inventaire validé pour l'instant.</p>}
+      <div className="relative pl-6">
+        {sorted.length > 0 && <span className="absolute left-[7px] top-4 bottom-6 w-0.5 rounded" style={{ background: "var(--line)" }} />}
+        {sorted.map((inv, idx) => {
+          const isOpen = open === inv.id;
+          const t = inv.totals || {};
+          const soldItems = (inv.items || []).filter((i) => i.sold !== 0);
+          const d = new Date(inv.date);
           return (
-            <div key={inv.id} className="rounded-2xl border overflow-hidden" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-              <button onClick={() => setOpen(open === inv.id ? null : inv.id)} className="gb-focus w-full flex items-center justify-between p-3.5">
-                <div className="text-left">
-                  <div className="text-sm font-semibold">{new Date(inv.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</div>
-                  <div className="text-xs opacity-50">{inv.author} · {inv.totals.sold} unités vendues</div>
-                </div>
-                <span className="font-mono font-bold text-sm" style={{ color: inv.totals.profit >= 0 ? "#1CA857" : "var(--danger)" }}>{fmt(inv.totals.profit)}</span>
-              </button>
-              {open === inv.id && (
-                <div className="px-3.5 pb-3.5 pt-1 border-t gb-slide-up" style={{ borderColor: "var(--line)" }}>
-                  <div className="flex justify-between text-[11px] opacity-50 py-1">
-                    <span>Chiffre d'affaires</span><span className="font-mono">{fmt(inv.totals.revenue)}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px] opacity-50 py-1 mb-1.5">
-                    <span>Coût des ventes</span><span className="font-mono">{fmt(inv.totals.cost)}</span>
-                  </div>
-                  {soldItems.length === 0 && <p className="text-xs opacity-50 py-2">Aucune vente sur cette période.</p>}
-                  {soldItems.map((i) => (
-                    <div key={i.productId} className="flex justify-between text-xs font-mono py-0.5 opacity-80">
-                      <span>{i.name} ({i.sold})</span><span>{fmt(i.profit)}</span>
+            <div key={inv.id} className="relative mb-2.5">
+              <span className="absolute -left-[22px] top-4 w-3.5 h-3.5 rounded-full" style={{ background: "var(--card)", border: "3px solid var(--glass)" }} />
+              <div className="rounded-[16px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                <button onClick={() => setOpen(isOpen ? null : inv.id)} aria-expanded={isOpen} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-3 text-left">
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13.5px] font-bold">Inventaire n°{sorted.length - idx}</span>
+                    <span className="block text-[11.5px] opacity-60">{d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" })} · {d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{inv.author ? ` · ${firstName(inv.author)}` : ""}</span>
+                    <span className="block text-[11.5px] opacity-60">{t.sold || 0} unité{(t.sold || 0) > 1 ? "s" : ""} vendue{(t.sold || 0) > 1 ? "s" : ""}</span>
+                  </span>
+                  <span className="text-right shrink-0"><span className="block text-[10.5px] opacity-55">Bénéfice</span><span className="block font-display font-bold text-[15px]" style={{ color: (t.profit || 0) >= 0 ? "#1E7A46" : "#B3261E" }}>{(t.profit || 0) >= 0 ? "+" : ""}{moneyNum(fmt, t.profit || 0)}</span></span>
+                  <ChevronDown size={16} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .2s", opacity: 0.5 }} />
+                </button>
+                {isOpen && (
+                  <div className="px-3.5 pb-3 gb-slide-up" style={{ borderTop: "1px solid var(--line)" }}>
+                    <div className="grid grid-cols-2 gap-2 mt-2.5">
+                      <div className="rounded-xl px-3 py-2" style={{ background: "var(--paper)" }}><p className="text-[10.5px] opacity-55">Chiffre d'affaires</p><p className="font-bold text-[13px]">{nbsp(fmt(t.revenue || 0))}</p></div>
+                      <div className="rounded-xl px-3 py-2" style={{ background: "var(--paper)" }}><p className="text-[10.5px] opacity-55">Coût des ventes</p><p className="font-bold text-[13px]">{nbsp(fmt(t.cost || 0))}</p></div>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <div className="grid text-[10px] font-bold uppercase tracking-wide opacity-55 mt-2.5 pb-1" style={{ gridTemplateColumns: "1fr 44px 44px 44px 64px", borderBottom: "1px solid var(--line)" }}>
+                      <span>Produit</span><span className="text-center">Dép.</span><span className="text-center">Vend.</span><span className="text-center">Reste</span><span className="text-right">Bénéf.</span>
+                    </div>
+                    {soldItems.length === 0 && <p className="text-xs opacity-50 py-2">Aucune vente sur cette période.</p>}
+                    {soldItems.map((i) => (
+                      <div key={i.productId} className="grid text-[12px] py-1 items-center" style={{ gridTemplateColumns: "1fr 44px 44px 44px 64px" }}>
+                        <span className="truncate">{i.name}</span><span className="text-center">{i.openingStock}</span><span className="text-center">{i.sold}</span><span className="text-center font-bold">{i.currentStock}</span><span className="text-right font-semibold" style={{ color: (i.profit || 0) >= 0 ? "#1E7A46" : "#B3261E" }}>{moneyNum(fmt, i.profit || 0)}</span>
+                      </div>
+                    ))}
+                    <div className="grid grid-cols-2 gap-2 mt-2.5">
+                      <button onClick={() => window.print()} className="gb-focus min-h-[40px] rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "var(--paper-dim)" }}><Printer size={14} /> Imprimer</button>
+                      <button onClick={() => exportInv(inv)} className="gb-focus min-h-[40px] rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "var(--paper-dim)" }}><Download size={14} /> Excel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ---------- Actionnaires : parts et partage mensuel des bénéfices ---------- */
+
+const SHARE_COLORS = ["#0E3B2A", "#E8A33D", "#2C7DA0", "#B3261E", "#6B4FB8", "#16808F", "#DB2777", "#854F0B"];
+const monthKey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}`; };
+const monthLabel = (k) => { const [y, m] = k.split("-").map(Number); const s = new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" }); return s.charAt(0).toUpperCase() + s.slice(1); };
+const shiftMonth = (k, n) => { const [y, m] = k.split("-").map(Number); return monthKey(new Date(y, m - 1 + n, 1)); };
+// Échéance d'une charge fixe pour un mois donné (jour du mois, ramené au
+// dernier jour si le mois est plus court).
+function chargeDueDate(c, key) {
+  const [y, m] = key.split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return new Date(y, m - 1, Math.min(Math.max(1, Number(c.day) || 1), last), 12);
+}
+const chargePaid = (c, key) => (c.paidMonths || []).includes(key);
+// Charges à payer bientôt : échéance dans 5 jours ou moins, ou déjà
+// dépassée ce mois-ci et pas encore marquée payée.
+function chargesDueSoon(charges, now = new Date()) {
+  const today = new Date(now); today.setHours(12, 0, 0, 0);
+  const out = [];
+  (charges || []).forEach((c) => {
+    if (!c.day) return;
+    for (const key of [monthKey(today), shiftMonth(monthKey(today), 1)]) {
+      if (chargePaid(c, key)) continue;
+      const due = chargeDueDate(c, key);
+      const days = Math.round((due - today) / 864e5);
+      if (days <= 5 && (days >= 0 || key === monthKey(today))) out.push({ charge: c, key, due, days });
+      break;
+    }
+  });
+  return out.sort((a, b) => a.days - b.days);
+}
+const dueText = (d) => (d < 0 ? `en retard de ${-d} jour${d < -1 ? "s" : ""}` : d === 0 ? "aujourd'hui" : d === 1 ? "demain" : `dans ${d} jours`);
+
+// Bénéfice d'un mois : ventes du mois (prix × quantité, lots inclus) − coût
+// d'achat des produits vendus − remises − dépenses enregistrées − charges
+// fixes − réserve éventuelle. Même calcul que l'onglet Rentabilité.
+function computeMonthShare({ key, sales, products, expenses, charges, reservePct }) {
+  const costNow = new Map((products || []).map((p) => [p.id, Number(p.costPrice) || 0]));
+  let revenue = 0, cost = 0, missing = 0, remises = 0, count = 0;
+  (sales || []).forEach((s) => {
+    if (monthKey(s.date) !== key) return;
+    count += 1;
+    remises += Number(s.remise) || 0;
+    (s.items || []).forEach((it) => {
+      const prod = it.product; if (!prod) return;
+      const qty = Number(it.qty) || 0;
+      revenue += computeItemTotal({ ...prod, price: Number(prod.price) || 0 }, qty);
+      const c = it.base ? Number(it.base.cost) || 0 : Number(prod.costPrice) || costNow.get(prod.id || it.productId) || 0;
+      if (c <= 0) missing += qty;
+      cost += c * qty;
+    });
+  });
+  const exp = (expenses || []).filter((e) => e.date && monthKey(String(e.date).length <= 10 ? `${e.date}T12:00:00` : e.date) === key);
+  const expTotal = exp.reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const chargesTotal = (charges || []).reduce((t, c) => t + (Number(c.amount) || 0), 0);
+  const gross = revenue - remises - cost;
+  const beforeReserve = gross - expTotal - chargesTotal;
+  const reserve = reservePct > 0 && beforeReserve > 0 ? Math.round((beforeReserve * reservePct) / 100) : 0;
+  return { revenue, cost, remises, gross, exp, expTotal, chargesTotal, reserve, net: beforeReserve - reserve, missing, count };
+}
+function splitShares(net, holders) {
+  const base = Math.max(0, net);
+  const full = Math.abs(holders.reduce((t, h) => t + (Number(h.pct) || 0), 0) - 100) < 0.01;
+  let given = 0;
+  return holders.map((h, i) => {
+    const raw = Math.round((base * (Number(h.pct) || 0)) / 100);
+    const amt = full && i === holders.length - 1 ? Math.round(base - given) : raw;
+    given += amt;
+    return { id: h.id, name: h.name, pct: Number(h.pct) || 0, amount: amt };
+  });
+}
+
+function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pushToast, onOpenExpenses }) {
+  const fmt = useFmt();
+  const [tab, setTab] = useState("holders");
+  const [month, setMonth] = useState(monthKey(new Date()));
+  const [editH, setEditH] = useState(null);
+  const [editC, setEditC] = useState(null);
+  const [partsOpen, setPartsOpen] = useState(false);
+  const [draftPcts, setDraftPcts] = useState({});
+  const [openClosing, setOpenClosing] = useState(null);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const holders = shop?.shareholders || [];
+  const charges = shop?.fixedCharges || [];
+  const closings = shop?.shareClosings || [];
+  const reservePct = Number(shop?.shareReservePct) || 0;
+  const patch = (p) => saveShopMeta({ ...shop, ...p });
+  const totalPct = Math.round(holders.reduce((t, h) => t + (Number(h.pct) || 0), 0) * 100) / 100;
+  const closed = closings.find((c) => c.month === month);
+  const calc = computeMonthShare({ key: month, sales, products, expenses, charges, reservePct });
+  const net = closed ? closed.net : calc.net;
+  const shares = closed ? closed.shares : splitShares(calc.net, holders);
+  const colorOf = (id) => SHARE_COLORS[Math.max(0, holders.findIndex((h) => h.id === id)) % SHARE_COLORS.length];
+  const initials = (n) => (n || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+  const isCurrent = month === monthKey(new Date());
+  let acc = 0;
+  const donut = holders.length ? holders.map((h, i) => { const a = acc; acc += Number(h.pct) || 0; return `${SHARE_COLORS[i % SHARE_COLORS.length]} ${a}% ${Math.min(100, acc)}%`; }).join(", ") + (acc < 100 ? `, var(--paper-dim) ${acc}% 100%` : "") : "var(--paper-dim) 0% 100%";
+  const n0 = (v) => moneyNum(fmt, v);
+
+  const saveHolder = () => {
+    const name = (editH.name || "").trim();
+    const pct = Math.round((Number(String(editH.pct).replace(",", ".")) || 0) * 100) / 100;
+    if (!name) { pushToast("Nom de l'actionnaire requis", "error"); return; }
+    if (!(pct > 0) || pct > 100) { pushToast("Pourcentage entre 0 et 100", "error"); return; }
+    const others = holders.filter((h) => h.id !== editH.id).reduce((t, h) => t + (Number(h.pct) || 0), 0);
+    if (others + pct > 100.001) { pushToast(`Total des parts dépassé : il reste ${Math.round((100 - others) * 100) / 100} % disponibles`, "error"); return; }
+    const rec = { name, pct, phone: (editH.phone || "").trim() };
+    patch({ shareholders: editH.id ? holders.map((h) => (h.id === editH.id ? { ...h, ...rec } : h)) : [...holders, { id: uid(), ...rec }] });
+    pushToast(editH.id ? "Actionnaire modifié" : "Actionnaire ajouté", "ok"); setEditH(null);
+  };
+  const removeHolder = (h) => {
+    if (!window.confirm(`Retirer ${h.name} des actionnaires ?`)) return;
+    patch({ shareholders: holders.filter((x) => x.id !== h.id) }); setEditH(null);
+  };
+  const saveParts = () => {
+    const next = holders.map((h) => ({ ...h, pct: Math.round((Number(String(draftPcts[h.id] ?? h.pct).replace(",", ".")) || 0) * 100) / 100 }));
+    const tot = next.reduce((t, h) => t + h.pct, 0);
+    if (Math.abs(tot - 100) > 0.01) { pushToast(`Le total doit faire 100 % (actuellement ${Math.round(tot * 100) / 100} %)`, "error"); return; }
+    patch({ shareholders: next }); setPartsOpen(false); pushToast("Parts enregistrées", "ok");
+  };
+  const saveCharge = () => {
+    const label = (editC.label || "").trim(); const amount = Math.round(Number(editC.amount) || 0);
+    const day = Number(editC.day) || null;
+    if (!label || !(amount > 0)) { pushToast("Nom et montant requis", "error"); return; }
+    patch({ fixedCharges: editC.id ? charges.map((c) => (c.id === editC.id ? { ...c, label, amount, day } : c)) : [...charges, { id: uid(), label, amount, day, paidMonths: [] }] });
+    setEditC(null); pushToast("Charge enregistrée", "ok");
+  };
+  const closeMonth = () => {
+    if (Math.abs(totalPct - 100) > 0.01) { pushToast("Le total des parts doit faire 100 % avant de clôturer", "error"); return; }
+    const rec = { id: uid(), month, date: new Date().toISOString(), revenue: calc.revenue, cost: calc.cost, remises: calc.remises, gross: calc.gross, expenses: calc.expTotal, charges: calc.chargesTotal, chargesList: charges.map((c) => ({ label: c.label, amount: c.amount })), reserve: calc.reserve, reservePct, net: calc.net, shares: splitShares(calc.net, holders).map((s) => ({ ...s, paid: false })) };
+    patch({ shareClosings: [rec, ...closings.filter((c) => c.month !== month)] });
+    setConfirmClose(false); setTab("history"); setOpenClosing(rec.id); pushToast(`${monthLabel(month)} clôturé : ${nbsp(fmt(Math.max(0, calc.net)))} partagés`, "ok");
+  };
+  const toggleChargePaid = (c) => {
+    const has = chargePaid(c, month);
+    patch({ fixedCharges: charges.map((x) => (x.id !== c.id ? x : { ...x, paidMonths: has ? (x.paidMonths || []).filter((k) => k !== month) : [...(x.paidMonths || []), month] })) });
+    pushToast(has ? `${c.label} : marquée non payée` : `${c.label} : payée pour ${monthLabel(month).toLowerCase()}`, "ok");
+  };
+  const soon = chargesDueSoon(charges);
+  const togglePaid = (cid, sid) => patch({ shareClosings: closings.map((c) => (c.id !== cid ? c : { ...c, shares: c.shares.map((s) => (s.id === sid ? { ...s, paid: !s.paid, paidAt: !s.paid ? new Date().toISOString() : null } : s)) })) });
+  const reopen = (c) => { if (!window.confirm(`Rouvrir ${monthLabel(c.month)} ? La clôture sera annulée et le calcul redeviendra modifiable.`)) return; patch({ shareClosings: closings.filter((x) => x.id !== c.id) }); setOpenClosing(null); };
+  const closingText = (c) => [`📊 Partage des bénéfices — ${shop?.name}`, monthLabel(c.month), "", `Chiffre d'affaires : ${nbsp(fmt(c.revenue))}`, `Coût d'achat : −${nbsp(fmt(c.cost))}`, c.remises ? `Remises : −${nbsp(fmt(c.remises))}` : null, `Dépenses : −${nbsp(fmt(c.expenses))}`, c.charges ? `Charges fixes : −${nbsp(fmt(c.charges))}` : null, c.reserve ? `Réserve (${c.reservePct} %) : −${nbsp(fmt(c.reserve))}` : null, `Bénéfice net partagé : ${nbsp(fmt(Math.max(0, c.net)))}`, "", ...c.shares.map((s) => `• ${s.name} (${s.pct} %) : ${nbsp(fmt(s.amount))}${s.paid ? " ✓ payé" : ""}`)].filter((x) => x !== null).join("\n");
+
+  const Hero = ({ title, value, sub }) => (
+    <InvHero>
+      <p className="text-[12.5px] opacity-85">{title}</p>
+      <p className="font-display font-bold text-[31px] leading-tight" style={{ color: value < 0 ? "#FFB4AB" : "#fff" }}>{n0(value)} <span className="text-[15px]" style={{ color: "var(--cap)" }}>FCFA</span></p>
+      {sub && <p className="text-[11.5px] opacity-75">{sub}</p>}
+    </InvHero>
+  );
+  const MonthBar = () => (
+    <div className="flex items-center gap-2 my-2.5">
+      <button onClick={() => setMonth(shiftMonth(month, -1))} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Mois précédent"><ChevronLeft size={16} /></button>
+      <p className="flex-1 text-center font-display font-bold text-[15px]">{monthLabel(month)}</p>
+      <span className="text-[10.5px] font-bold px-2.5 py-1 rounded-full" style={closed ? { background: "#EAF3DE", color: "#27500A" } : isCurrent ? { background: "#FFF1D6", color: "#9A5B00" } : { background: "var(--paper-dim)" }}>{closed ? "Clôturé" : isCurrent ? "En cours" : "Non clôturé"}</span>
+      <button onClick={() => setMonth(shiftMonth(month, 1))} disabled={isCurrent} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-30" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Mois suivant"><ChevronRight size={16} /></button>
+    </div>
+  );
+  const Line = ({ l, v, color, strong, sub }) => (
+    <div className="flex justify-between items-baseline gap-3" style={{ padding: strong ? "9px 0 7px" : "5px 0", borderTop: strong ? "1px dashed var(--line)" : "none", marginTop: strong ? 3 : 0 }}>
+      <span className={strong ? "text-[13.5px] font-bold" : "text-[12.5px]"} style={strong ? undefined : { color: "#66707A" }}>{l}{sub && <span className="block text-[10.5px] font-normal" style={{ color: "#66707A" }}>{sub}</span>}</span>
+      <span className={`font-bold whitespace-nowrap ${strong ? "text-[15px]" : "text-[13px]"}`} style={{ color }}>{v}</span>
+    </div>
+  );
+  const input = "gb-focus w-full rounded-[14px] px-3.5 min-h-[48px] text-[15px] border mb-3";
+
+  return (
+    <div className="pb-16">
+      <InvSegment value={tab} onChange={setTab} options={[["holders", "Actionnaires"], ["calc", "Calcul du mois"], ["history", "Historique"]]} />
+
+      {tab === "holders" && (
+        <>
+          <MonthBar />
+          <Hero title={closed ? "Bénéfice net partagé" : "Bénéfice net à partager"} value={net} sub={closed ? `Clôturé le ${new Date(closed.date).toLocaleDateString("fr-FR")}` : `Bénéfice ${n0(calc.gross)} − dépenses ${n0(calc.expTotal + calc.chargesTotal)}${calc.reserve ? ` − réserve ${n0(calc.reserve)}` : ""}`} />
+          {holders.length > 0 && (
+            <div className="rounded-[18px] p-3.5 mt-2.5 flex items-center gap-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              <div className="w-[88px] h-[88px] rounded-full shrink-0 flex items-center justify-center" style={{ background: `conic-gradient(${donut})` }}>
+                <div className="w-[58px] h-[58px] rounded-full flex flex-col items-center justify-center" style={{ background: "var(--card)" }}>
+                  <span className="font-display font-bold text-[13px]">{totalPct} %</span>
+                  <span className="text-[8.5px] font-bold" style={{ color: Math.abs(totalPct - 100) < 0.01 ? "#1E7A46" : "#B3261E" }}>{Math.abs(totalPct - 100) < 0.01 ? "✓ complet" : totalPct < 100 ? `${Math.round((100 - totalPct) * 100) / 100} % libre` : "trop"}</span>
+                </div>
+              </div>
+              <div className="flex-1 min-w-0 flex flex-col gap-1">
+                {holders.map((h, i) => <div key={h.id} className="flex items-center gap-2 text-[12px]"><span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: SHARE_COLORS[i % SHARE_COLORS.length] }} /><span className="flex-1 truncate">{h.name}</span><b>{h.pct} %</b></div>)}
+              </div>
+            </div>
+          )}
+          {holders.length > 0 && Math.abs(totalPct - 100) > 0.01 && <p className="text-[12px] rounded-[12px] px-3 py-2 mt-2.5" style={{ background: "#FCEBEB", color: "#A32D2D" }}>Le total des parts fait {totalPct} % : il doit faire exactement 100 % pour partager.</p>}
+          <div className="flex items-center mt-4 mb-2">
+            <h3 className="font-display font-bold text-[14.5px] flex-1">{holders.length} actionnaire{holders.length > 1 ? "s" : ""}</h3>
+            {holders.length > 1 && <button onClick={() => { setDraftPcts({}); setPartsOpen(true); }} className="gb-focus text-[12px] font-bold opacity-70">Modifier les parts</button>}
+          </div>
+          {holders.length === 0 ? (
+            <div className="rounded-[18px] p-5 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+              <div className="w-12 h-12 rounded-2xl mx-auto mb-2 flex items-center justify-center" style={{ background: "#FFF1D6" }}><Users size={22} color="#9A5B00" /></div>
+              <p className="font-bold text-[14px]">Aucun actionnaire</p>
+              <p className="text-[12px] opacity-60 mt-0.5">Ajoutez chaque actionnaire avec son pourcentage : le bénéfice de chaque mois sera partagé automatiquement.</p>
+            </div>
+          ) : (
+            <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              {holders.map((h, i) => {
+                const sh = shares.find((x) => x.id === h.id);
+                return (
+                  <button key={h.id} onClick={() => setEditH({ ...h, pct: String(h.pct) })} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                    <span className="w-10 h-10 rounded-full flex items-center justify-center text-white text-[13px] font-bold shrink-0" style={{ background: SHARE_COLORS[i % SHARE_COLORS.length] }}>{initials(h.name)}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[13.5px] font-bold truncate">{h.name}</span>
+                      <span className="flex items-center gap-2 mt-1"><span className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}><span className="block h-full rounded-full" style={{ width: `${Math.min(100, h.pct)}%`, background: SHARE_COLORS[i % SHARE_COLORS.length] }} /></span><span className="text-[11px] font-bold opacity-70 w-11 text-right">{h.pct} %</span></span>
+                    </span>
+                    <span className="text-right shrink-0 min-w-[72px]"><span className="block text-[10.5px] opacity-55">{closed ? "Partagé" : "Ce mois"}</span><span className="block font-display font-bold text-[14px]" style={{ color: "#1E7A46" }}>{n0(sh?.amount || 0)}</span></span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <button onClick={() => setEditH({ name: "", pct: String(Math.max(0, Math.round((100 - totalPct) * 100) / 100) || ""), phone: "" })} className="gb-focus w-full min-h-[48px] rounded-[14px] mt-2.5 text-[13.5px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--card)", border: "1.5px dashed var(--line)", color: "var(--glass)" }}><Plus size={16} /> Ajouter un actionnaire</button>
+        </>
+      )}
+
+      {tab === "calc" && (
+        <>
+          <MonthBar />
+          {closed && <p className="text-[12px] rounded-[12px] px-3 py-2 mb-2.5" style={{ background: "#EAF3DE", color: "#27500A" }}>Ce mois est clôturé : les chiffres ci-dessous sont ceux enregistrés à la clôture. Voir l'onglet Historique.</p>}
+          <div className="rounded-[18px] px-3.5 py-2" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <Line l={`Chiffre d'affaires (${closed ? "" : `${calc.count} vente${calc.count > 1 ? "s" : ""}`})`.replace(" ()", "")} v={nbsp(fmt(closed ? closed.revenue : calc.revenue))} />
+            <Line l="− Coût d'achat des produits" v={`− ${n0(closed ? closed.cost : calc.cost)}`} color="#9A5B00" />
+            {(closed ? closed.remises : calc.remises) > 0 && <Line l="− Remises accordées" v={`− ${n0(closed ? closed.remises : calc.remises)}`} color="#9A5B00" />}
+            <Line l="= Bénéfice sur ventes" v={nbsp(fmt(closed ? closed.gross : calc.gross))} color="#1E7A46" strong />
+            <Line l="− Dépenses enregistrées" v={`− ${n0(closed ? closed.expenses : calc.expTotal)}`} color="#B3261E" />
+            <Line l="− Charges fixes" v={`− ${n0(closed ? closed.charges : calc.chargesTotal)}`} color="#B3261E" />
+            {(closed ? closed.reserve : calc.reserve) > 0 && <Line l={`− Réserve de l'entreprise (${closed ? closed.reservePct : reservePct} %)`} v={`− ${n0(closed ? closed.reserve : calc.reserve)}`} color="#6B4FB8" />}
+            <Line l="= Bénéfice net à partager" v={nbsp(fmt(net))} color="var(--glass)" strong sub="réparti selon les parts" />
+          </div>
+          {!closed && calc.missing > 0 && <p className="text-[11.5px] rounded-[12px] px-3 py-2 mt-2.5" style={{ background: "#FAEEDA", color: "#854F0B" }}>{calc.missing} unité{calc.missing > 1 ? "s" : ""} vendue{calc.missing > 1 ? "s" : ""} sans prix d'achat : le bénéfice est surestimé. Renseignez les prix d'achat dans Produits.</p>}
+
+          {!closed && soon.length > 0 && (
+            <div className="rounded-[14px] px-3.5 py-2.5 mt-3 flex items-start gap-2.5" style={soon.some((d) => d.days < 0) ? { background: "#FCEBEB", color: "#A32D2D" } : { background: "#FFF1D6", color: "#9A5B00" }}>
+              <Bell size={16} className="shrink-0 mt-0.5" />
+              <p className="text-[12.5px]"><b>À payer bientôt :</b> {soon.map((d) => `${d.charge.label} (${nbsp(fmt(d.charge.amount))}) ${dueText(d.days)}`).join(" · ")}</p>
+            </div>
+          )}
+          <div className="flex items-center mt-4 mb-2">
+            <h3 className="font-display font-bold text-[14.5px] flex-1">Charges fixes mensuelles</h3>
+            {!closed && <button onClick={() => setEditC({ label: "", amount: "" })} className="gb-focus text-[12px] font-bold" style={{ color: "var(--glass)" }}>+ Ajouter</button>}
+          </div>
+          <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            {(closed ? closed.chargesList || [] : charges).map((c, i) => {
+              const paidNow = !closed && chargePaid(c, month);
+              const d = !closed && c.day ? Math.round((chargeDueDate(c, month) - new Date(new Date().setHours(12, 0, 0, 0))) / 864e5) : null;
+              return (
+                <div key={c.id || i} className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                  <button disabled={!!closed} onClick={() => setEditC({ ...c, amount: String(c.amount), day: c.day ? String(c.day) : "" })} className="gb-focus flex-1 min-w-0 flex items-center gap-3 text-left">
+                    <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: paidNow ? "#EAF3DE" : "#FCEBEB" }}>{paidNow ? <Check size={16} color="#27500A" /> : <Wallet size={16} color="#B3261E" />}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[13px] font-bold truncate">{c.label}</span>
+                      <span className="block text-[11px]" style={{ color: paidNow ? "#27500A" : d != null && d <= 5 ? (d < 0 ? "#B3261E" : "#9A5B00") : "#66707A", fontWeight: d != null && d <= 5 && !paidNow ? 700 : 400 }}>
+                        {c.day ? `Le ${c.day} de chaque mois` : "Chaque mois · sans date"}{paidNow ? " · payée" : d != null && isCurrent ? ` · ${dueText(d)}` : ""}
+                      </span>
+                    </span>
+                    <b className="text-[13px] shrink-0" style={{ color: "#B3261E" }}>− {n0(c.amount)}</b>
+                  </button>
+                  {!closed && <button onClick={() => toggleChargePaid(c)} className="gb-focus shrink-0 h-8 px-2.5 rounded-full text-[10.5px] font-bold" style={paidNow ? { background: "#EAF3DE", color: "#27500A" } : { background: "var(--paper-dim)" }}>{paidNow ? "✓ Payée" : "Payer"}</button>}
+                </div>
+              );
+            })}
+            {(closed ? closed.chargesList || [] : charges).length === 0 && <p className="text-[12.5px] text-center py-4 opacity-55">Aucune charge fixe (loyer, électricité, salaires…).</p>}
+          </div>
+
+          <div className="flex items-center mt-4 mb-2">
+            <h3 className="font-display font-bold text-[14.5px] flex-1">Dépenses du mois</h3>
+            {onOpenExpenses && !closed && <button onClick={onOpenExpenses} className="gb-focus text-[12px] font-bold" style={{ color: "var(--glass)" }}>+ Ajouter</button>}
+          </div>
+          <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            {calc.exp.map((e, i) => (
+              <div key={e.id || i} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "#FFF1D6" }}><Coins size={16} color="#9A5B00" /></span>
+                <span className="flex-1 min-w-0"><span className="block text-[13px] font-bold truncate">{e.label}</span><span className="block text-[11px] opacity-55">{new Date(String(e.date).length <= 10 ? `${e.date}T12:00:00` : e.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}{e.author ? ` · ${e.author}` : ""}</span></span>
+                <b className="text-[13px]" style={{ color: "#B3261E" }}>− {n0(e.amount)}</b>
+              </div>
+            ))}
+            {calc.exp.length === 0 && <p className="text-[12.5px] text-center py-4 opacity-55">Aucune dépense enregistrée ce mois-ci.</p>}
+          </div>
+
+          {!closed && (
+            <>
+              <div className="rounded-[14px] px-3.5 py-2.5 mt-3 flex items-center gap-3" style={{ background: "#FFF6E5" }}>
+                <span className="flex-1 text-[12.5px] font-bold" style={{ color: "#9A5B00" }}>Réserve pour l'entreprise<span className="block text-[11px] font-normal opacity-80">Mise de côté avant le partage</span></span>
+                <select value={reservePct} onChange={(e) => patch({ shareReservePct: Number(e.target.value) })} className="gb-focus rounded-[10px] h-9 px-2 text-[13px] font-bold border" style={{ borderColor: "#F2C77A", background: "#fff" }} aria-label="Réserve">
+                  {[0, 5, 10, 15, 20, 25, 30].map((v) => <option key={v} value={v}>{v} %</option>)}
+                </select>
+              </div>
+              {confirmClose ? (
+                <div className="rounded-[16px] p-3.5 mt-3 gb-slide-up" style={{ background: "var(--card)", border: "1.5px solid var(--cap)" }}>
+                  <p className="text-[13px] font-bold">Clôturer {monthLabel(month)} ?</p>
+                  <p className="text-[12px] opacity-70 mt-0.5">{nbsp(fmt(Math.max(0, calc.net)))} seront partagés entre {holders.length} actionnaire{holders.length > 1 ? "s" : ""}. Le relevé sera enregistré dans l'historique.</p>
+                  <div className="grid grid-cols-2 gap-2 mt-3">
+                    <button onClick={() => setConfirmClose(false)} className="gb-focus min-h-[46px] rounded-[14px] text-[13.5px] font-bold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+                    <button onClick={closeMonth} className="gb-focus min-h-[46px] rounded-[14px] text-[13.5px] font-bold text-white" style={{ background: "var(--glass)" }}>Confirmer</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => { if (!holders.length) { pushToast("Ajoutez d'abord les actionnaires", "error"); setTab("holders"); return; } setConfirmClose(true); }} className="gb-focus w-full min-h-[52px] rounded-[16px] mt-3 text-white text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Check size={18} /> Clôturer {monthLabel(month).toLowerCase()} et partager</button>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {tab === "history" && (
+        <>
+          {closings.length === 0 && <div className="rounded-[18px] p-5 text-center mt-3" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}><p className="font-bold text-[14px]">Aucun mois clôturé</p><p className="text-[12px] opacity-60 mt-0.5">Clôturez un mois dans « Calcul du mois » pour créer le premier relevé.</p></div>}
+          <div className="flex flex-col gap-2.5 mt-3">
+            {[...closings].sort((a, b) => (a.month < b.month ? 1 : -1)).map((c) => {
+              const isOpen = openClosing === c.id;
+              const paid = c.shares.filter((s) => s.paid).length;
+              return (
+                <div key={c.id} className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                  <button onClick={() => setOpenClosing(isOpen ? null : c.id)} aria-expanded={isOpen} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ background: isOpen ? "var(--paper)" : "transparent" }}>
+                    <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "#EEF2F8" }}><CalendarCheck size={18} color="var(--glass)" /></span>
+                    <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">{monthLabel(c.month)}</span><span className="block text-[11.5px] opacity-60">Clôturé le {new Date(c.date).toLocaleDateString("fr-FR")} · {paid}/{c.shares.length} payé{paid > 1 ? "s" : ""}</span></span>
+                    <span className="text-right shrink-0"><span className="block text-[10.5px] opacity-55">Partagé</span><span className="block font-display font-bold text-[15px]" style={{ color: "#1E7A46" }}>{n0(Math.max(0, c.net))}</span></span>
+                  </button>
+                  {isOpen && (
+                    <div className="px-3.5 pb-3.5 gb-slide-up" style={{ borderTop: "1px solid var(--line)" }}>
+                      {c.shares.map((s, i) => (
+                        <div key={s.id} className="flex items-center gap-3 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                          <span className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[12px] font-bold shrink-0" style={{ background: colorOf(s.id) }}>{initials(s.name)}</span>
+                          <span className="flex-1 min-w-0"><span className="block text-[13px] font-bold truncate">{s.name}</span><span className="block text-[11px] opacity-55">{s.pct} %{s.paid && s.paidAt ? ` · payé le ${new Date(s.paidAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}` : ""}</span></span>
+                          <span className="text-right shrink-0">
+                            <span className="block font-display font-bold text-[14px]">{n0(s.amount)}</span>
+                            <button onClick={() => togglePaid(c.id, s.id)} className="gb-focus text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5" style={s.paid ? { background: "#EAF3DE", color: "#27500A" } : { background: "#FFF1D6", color: "#9A5B00" }}>{s.paid ? "✓ Payé" : "À payer"}</button>
+                          </span>
+                        </div>
+                      ))}
+                      <div className="rounded-[12px] px-3 py-2 mt-1.5 text-[11.5px]" style={{ background: "var(--paper)" }}>
+                        <div className="flex justify-between py-0.5"><span className="opacity-60">Chiffre d'affaires</span><span>{nbsp(fmt(c.revenue))}</span></div>
+                        <div className="flex justify-between py-0.5"><span className="opacity-60">Coût d'achat</span><span>− {n0(c.cost)}</span></div>
+                        <div className="flex justify-between py-0.5"><span className="opacity-60">Dépenses + charges</span><span>− {n0((c.expenses || 0) + (c.charges || 0))}</span></div>
+                        {c.reserve > 0 && <div className="flex justify-between py-0.5"><span className="opacity-60">Réserve ({c.reservePct} %)</span><span>− {n0(c.reserve)}</span></div>}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mt-2.5">
+                        <button onClick={() => shareText(`Partage — ${monthLabel(c.month)}`, closingText(c)).catch(() => {})} className="gb-focus min-h-[42px] rounded-[12px] text-[12px] font-bold flex items-center justify-center gap-1.5" style={{ background: "var(--paper-dim)" }}><Share2 size={14} /> Partager</button>
+                        <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(closingText(c))}`, "_blank")} className="gb-focus min-h-[42px] rounded-[12px] text-[12px] font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "#25D366" }}>💬 WhatsApp</button>
+                        <button onClick={() => reopen(c)} className="gb-focus min-h-[42px] rounded-[12px] text-[12px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#FCEBEB", color: "#A32D2D" }}><Undo2 size={14} /> Rouvrir</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {editH && (
+        <NuitSheet kicker={editH.id ? "Modifier" : "Nouvel actionnaire"} title={editH.id ? editH.name : "Ajouter un actionnaire"} onClose={() => setEditH(null)}>
+          <NuitField label="Nom"><input value={editH.name} onChange={(e) => setEditH({ ...editH, name: e.target.value })} placeholder="Ex : Henri" className={input} style={{ borderColor: "var(--line)", background: "var(--card)" }} autoFocus /></NuitField>
+          <NuitField label="Part des bénéfices (%)"><input type="number" inputMode="decimal" value={editH.pct} onChange={(e) => setEditH({ ...editH, pct: e.target.value })} placeholder="Ex : 50" className={input} style={{ borderColor: "var(--line)", background: "var(--card)" }} /></NuitField>
+          <NuitField label="Téléphone (facultatif)"><input type="tel" value={editH.phone || ""} onChange={(e) => setEditH({ ...editH, phone: e.target.value })} placeholder="Ex : 07 00 00 00 00" className={input} style={{ borderColor: "var(--line)", background: "var(--card)" }} /></NuitField>
+          <button onClick={saveHolder} className="gb-focus w-full min-h-[52px] rounded-[16px] text-white font-bold text-[15px] flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Check size={18} /> Enregistrer</button>
+          {editH.id && <button onClick={() => removeHolder(editH)} className="gb-focus w-full min-h-[46px] rounded-[16px] mt-2 font-bold text-[13.5px]" style={{ background: "#FCEBEB", color: "#A32D2D" }}>Retirer cet actionnaire</button>}
+        </NuitSheet>
+      )}
+      {partsOpen && (
+        <NuitSheet kicker="Répartition" title="Modifier les parts" onClose={() => setPartsOpen(false)}>
+          {holders.map((h) => (
+            <div key={h.id} className="flex items-center gap-3 mb-2">
+              <span className="flex-1 text-[14px] font-bold truncate">{h.name}</span>
+              <input type="number" inputMode="decimal" value={draftPcts[h.id] ?? h.pct} onChange={(e) => setDraftPcts({ ...draftPcts, [h.id]: e.target.value })} className="gb-focus w-24 rounded-[12px] px-3 h-11 text-right text-[15px] font-bold border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+              <span className="text-[13px] font-bold opacity-60">%</span>
+            </div>
+          ))}
+          {(() => { const t = Math.round(holders.reduce((s, h) => s + (Number(String(draftPcts[h.id] ?? h.pct).replace(",", ".")) || 0), 0) * 100) / 100; return <p className="text-[13px] font-bold rounded-[12px] px-3 py-2 my-2" style={Math.abs(t - 100) < 0.01 ? { background: "#EAF3DE", color: "#27500A" } : { background: "#FCEBEB", color: "#A32D2D" }}>Total : {t} %{Math.abs(t - 100) < 0.01 ? " ✓" : " (doit faire 100 %)"}</p>; })()}
+          <button onClick={saveParts} className="gb-focus w-full min-h-[52px] rounded-[16px] text-white font-bold text-[15px] flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Check size={18} /> Enregistrer les parts</button>
+        </NuitSheet>
+      )}
+      {editC && (
+        <NuitSheet kicker="Charge fixe" title={editC.id ? editC.label : "Nouvelle charge mensuelle"} onClose={() => setEditC(null)}>
+          <NuitField label="Nom"><input value={editC.label} onChange={(e) => setEditC({ ...editC, label: e.target.value })} placeholder="Ex : Loyer, électricité, salaire…" className={input} style={{ borderColor: "var(--line)", background: "var(--card)" }} autoFocus /></NuitField>
+          <NuitField label="Montant par mois"><input type="number" inputMode="numeric" value={editC.amount} onChange={(e) => setEditC({ ...editC, amount: e.target.value })} placeholder="Ex : 25000" className={input} style={{ borderColor: "var(--line)", background: "var(--card)" }} /></NuitField>
+          <NuitField label="Date d'échéance (jour du mois)">
+            <select value={editC.day || ""} onChange={(e) => setEditC({ ...editC, day: e.target.value })} className={input} style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+              <option value="">Sans date</option>
+              {Array.from({ length: 31 }, (_, k) => <option key={k + 1} value={k + 1}>Le {k + 1} de chaque mois</option>)}
+            </select>
+          </NuitField>
+          <p className="text-[11.5px] -mt-1.5 mb-3" style={{ color: "#66707A" }}>Vous serez prévenu 5 jours avant (notification écrite et vocale), puis à chaque connexion jusqu'à ce que la dépense soit marquée payée.</p>
+          <button onClick={saveCharge} className="gb-focus w-full min-h-[52px] rounded-[16px] text-white font-bold text-[15px] flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Check size={18} /> Enregistrer</button>
+          {editC.id && <button onClick={() => { patch({ fixedCharges: charges.filter((c) => c.id !== editC.id) }); setEditC(null); }} className="gb-focus w-full min-h-[46px] rounded-[16px] mt-2 font-bold text-[13.5px]" style={{ background: "#FCEBEB", color: "#A32D2D" }}>Supprimer cette charge</button>}
+        </NuitSheet>
+      )}
     </div>
   );
 }
@@ -9727,108 +10248,195 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
   const gapColor = (g) => (g === 0 ? "#3B6D11" : g < 0 ? "#A32D2D" : "#854F0B");
   const vendorNames = Array.from(new Set([author, ...(vendors || []).map((v) => v.name)].filter(Boolean)));
 
+  const dayLabel = (d) => {
+    const x = new Date(d); const k = x.toDateString();
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    const h = x.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    if (k === new Date().toDateString()) return `Aujourd'hui · ${h}`;
+    if (k === y.toDateString()) return `Hier · ${h}`;
+    return `${x.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })} · ${h}`;
+  };
+  const periodValue = from === toDateInput(new Date(Date.now() - 6 * MS_DAY)) && to === today ? "6" : from === today && to === today ? "0" : from === toDateInput(new Date(Date.now() - 29 * MS_DAY)) && to === today ? "29" : "custom";
+  const [customOpen, setCustomOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const firstName = (n) => (n || "").trim().split(/\s+/).slice(-1)[0] || n;
+  const openedAt = activeCashSession ? new Date(activeCashSession.timestamp || activeCashSession.date) : null;
+
   return (
     <div className="pb-16">
-      {/* Caisse en cours */}
-      <div className="rounded-2xl p-4 mb-3" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="font-display font-bold text-sm flex items-center gap-2"><Banknote size={16} color="#3B6D11" /> Caisse en cours</span>
-          {activeCashSession
-            ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#EAF3DE", color: "#27500A" }}>OUVERTE</span>
-            : <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#FAEEDA", color: "#854F0B" }}>FOND À SAISIR</span>}
-        </div>
-        {activeCashSession && live ? (
-          <>
-            <p className="text-[11px] opacity-55 mb-3">Ouverte le {fmtDateTime(activeCashSession.timestamp || activeCashSession.date)}{activeCashSession.setBy ? ` par ${activeCashSession.setBy}` : ""} · non versée</p>
-            <CashBreakdown r={live} />
-            {(live.byVendor || []).length > 0 && (
-              <>
-                <button onClick={() => setShowVendors(!showVendors)} className="gb-focus w-full mt-3 flex items-center justify-between rounded-xl px-3 py-2.5 text-[13px] font-bold" style={{ background: "var(--paper-dim)" }}>
-                  <span className="flex items-center gap-2"><Users size={15} /> Détail par vendeur ({live.byVendor.length})</span>
-                  <ChevronDown size={16} style={{ transform: showVendors ? "rotate(180deg)" : "none" }} />
-                </button>
-                {showVendors && <CashByVendor list={live.byVendor} compact />}
-              </>
-            )}
-            {!formOpen && (
-              <div className="grid grid-cols-2 gap-2 mt-3.5">
-                <button onClick={() => setCashReport(buildCashReport(activeCashSession, { sales, expenses, printedBy: author }))} className="gb-focus min-h-[46px] rounded-xl text-sm font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}>
-                  <Printer size={16} /> Imprimer
-                </button>
-                <button onClick={() => { setFormOpen(true); setAmount(String(Math.max(0, live.expected))); setError(""); }} className="gb-focus min-h-[46px] rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}>
-                  <Wallet size={16} /> Versement
-                </button>
+      {/* Caisse en cours : l'essentiel en un coup d'œil */}
+      {activeCashSession && live ? (
+        <div className="relative overflow-hidden rounded-[22px] px-4 pt-3.5 pb-4 text-white" style={{ background: "linear-gradient(135deg, var(--glass-light), var(--glass))", boxShadow: "0 14px 28px -16px rgba(0,0,0,0.55)" }}>
+          <span className="absolute -right-8 -top-10 w-32 h-32 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+          <div className="relative flex items-center gap-2">
+            <span className="text-[12.5px] opacity-85">Caisse en cours</span>
+            <span className="ml-auto text-[10.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#DFF3D2", color: "#27500A" }}>● OUVERTE</span>
+          </div>
+          <p className="relative text-[11.5px] opacity-70 mt-0.5">Depuis {openedAt && openedAt.toDateString() === new Date().toDateString() ? "aujourd'hui" : openedAt?.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} {openedAt?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{activeCashSession.setBy ? ` · ${firstName(activeCashSession.setBy)}` : ""}</p>
+          <p className="relative text-[12.5px] opacity-85 mt-3">À verser (espèces attendues)</p>
+          <p className="relative font-display font-bold text-[34px] leading-tight">{fmt(live.expected).replace(/\s?[A-Za-z€$£]+$/, "")} <span className="text-[17px]" style={{ color: "var(--cap)" }}>{shop?.currency === "XAF" || !shop?.currency ? "FCFA" : shop.currency}</span></p>
+          <div className="relative grid grid-cols-3 gap-1.5 mt-3">
+            {[["Fond de caisse", live.fund, "#fff"], ["+ Encaissé", (Number(live.cashSales) || 0) + (Number(live.creditsCollected) || 0), "#A6E07A"], ["− Dépenses", (Number(live.expensesTotal) || 0) + (Number(live.refundsCash) || 0), "#FFB4AB"]].map(([l, v, c]) => (
+              <div key={l} className="rounded-[12px] px-2.5 py-1.5 min-w-0" style={{ background: "rgba(255,255,255,0.09)" }}>
+                <p className="text-[10.5px] opacity-75 truncate">{l}</p>
+                <p className="font-display font-bold text-[14px] truncate" style={{ color: c }}>{fmt(v).replace(/\s?[A-Za-z€$£]+$/, "")}</p>
               </div>
-            )}
-          </>
-        ) : (
-          <p className="text-xs opacity-60">Aucune caisse ouverte. Le fond de caisse sera demandé à l'ouverture de l'écran Vendre.</p>
-        )}
-      </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-[22px] p-4 flex items-center gap-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "#FAEEDA" }}><Banknote size={20} color="#854F0B" /></span>
+          <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">Aucune caisse ouverte</span><span className="block text-[12px] opacity-60">Le fond de caisse sera demandé à l'ouverture de l'écran Vendre.</span></span>
+        </div>
+      )}
+
+      {activeCashSession && live && (
+        <>
+          <div className="grid grid-cols-3 gap-2 mt-2.5">
+            {[["Ventes", live.salesTotalExMobile ?? (Number(live.cashSales) || 0) + (Number(live.creditsCollected) || 0), "var(--ink)"], ["Mobile Money", live.mobileSales, "#1D5FA8"], ["Crédits en cours", live.creditsOpen || 0, "#B3261E"]].map(([l, v, c]) => (
+              <div key={l} className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                <p className="text-[10.5px] truncate" style={{ color: "#66707A" }}>{l}</p>
+                <p className="font-display font-bold text-[13.5px] truncate" style={{ color: c }}>{fmt(Number(v) || 0)}</p>
+              </div>
+            ))}
+          </div>
+          {!formOpen && (
+            <div className="grid gap-2 mt-2.5" style={{ gridTemplateColumns: "1fr 1.4fr" }}>
+              <button onClick={() => setCashReport(buildCashReport(activeCashSession, { sales, expenses, printedBy: author }))} className="gb-focus min-h-[48px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><Printer size={16} /> Imprimer</button>
+              <button onClick={() => { setFormOpen(true); setAmount(String(Math.max(0, live.expected))); setError(""); }} className="gb-focus min-h-[48px] rounded-[14px] text-[13.5px] font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Wallet size={16} /> Faire le versement</button>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Formulaire de versement */}
       {formOpen && live && (
-        <div className="rounded-2xl p-4 mb-3 gb-slide-up" style={{ border: "1.5px solid var(--cap)", background: "var(--card)" }}>
-          <p className="font-display font-bold text-sm mb-1">Nouveau versement</p>
-          <div className="rounded-2xl px-3 mb-3" style={{ background: "var(--paper-dim)" }}>
-            <div className="flex justify-between text-[12.5px] pt-2.5"><span className="opacity-70">Ventes totales (hors Mobile)</span><span className="font-mono">{fmt(live.salesTotalExMobile)}</span></div>
-            <div className="flex justify-between text-[11.5px] pl-3"><span className="opacity-60">dont crédits en cours</span><span className="font-mono" style={{ color: "#B3261E" }}>{fmt(live.creditsOpen)}</span></div>
-            <div className="flex justify-between text-[12.5px]"><span className="opacity-70">Mobile Money</span><span className="font-mono" style={{ color: "#1D5FA8" }}>{fmt(live.mobileSales)}</span></div>
-            <div className="flex justify-between text-[13px] font-bold py-2 mt-1" style={{ borderTop: "1px dashed var(--line)" }}><span>Total général des ventes</span><span className="font-mono">{fmt(live.grandTotal)}</span></div>
-            <div className="flex justify-between items-center text-[13px] font-bold py-2.5 -mx-3 px-3 rounded-b-2xl" style={{ background: "#E6F4EC", color: "#1E7A46" }}><span>Espèces attendues en caisse</span><span className="font-display text-[17px]">{fmt(live.expected)}</span></div>
-          </div>
-          <label className="text-[11px] font-bold opacity-60 block mb-1">Montant versé ({shop?.currency || "FCFA"})</label>
-          <input type="number" min="0" inputMode="numeric" value={amount} onChange={(e) => { setAmount(e.target.value); setError(""); }} className="gb-focus w-full rounded-xl px-3 py-2.5 text-lg font-bold border-2 mb-2.5" style={{ borderColor: "var(--cap)" }} />
+        <div className="rounded-[20px] p-4 mt-2.5 gb-slide-up" style={{ border: "1.5px solid var(--cap)", background: "var(--card)" }}>
+          <p className="font-display font-bold text-[15px]">Faire le versement</p>
+          <div className="rounded-[14px] px-3 py-2.5 mt-2.5 flex items-center justify-between" style={{ background: "#E6F4EC", color: "#1E7A46" }}><span className="text-[12.5px] font-bold">À verser</span><span className="font-display font-bold text-[19px]">{fmt(live.expected)}</span></div>
+          <label className="text-[11.5px] font-bold opacity-60 block mt-3 mb-1">Montant versé ({shop?.currency === "XAF" || !shop?.currency ? "FCFA" : shop.currency})</label>
+          <input type="number" min="0" inputMode="numeric" value={amount} onChange={(e) => { setAmount(e.target.value); setError(""); }} className="gb-focus w-full rounded-[14px] px-3 py-2.5 text-[19px] font-bold border-2 mb-2.5" style={{ borderColor: "var(--cap)" }} />
           <div className="grid grid-cols-2 gap-2 mb-2.5">
             <div className="min-w-0">
-              <label className="text-[11px] font-bold opacity-60 block mb-1">Versé par</label>
-              <input list="versement-people" value={by} onChange={(e) => { setBy(e.target.value); setError(""); }} placeholder="Francisca" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
+              <label className="text-[11.5px] font-bold opacity-60 block mb-1">Versé par</label>
+              <input list="versement-people" value={by} onChange={(e) => { setBy(e.target.value); setError(""); }} placeholder="Francisca" className="gb-focus w-full rounded-xl px-3 py-2.5 text-sm border" style={{ borderColor: "var(--line)" }} />
             </div>
             <div className="min-w-0">
-              <label className="text-[11px] font-bold opacity-60 block mb-1">Reçu par</label>
-              <input list="versement-people" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} className="gb-focus w-full rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
+              <label className="text-[11.5px] font-bold opacity-60 block mb-1">Reçu par</label>
+              <input list="versement-people" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} className="gb-focus w-full rounded-xl px-3 py-2.5 text-sm border" style={{ borderColor: "var(--line)" }} />
             </div>
           </div>
           <datalist id="versement-people">{vendorNames.map((n) => <option key={n} value={n} />)}</datalist>
-          <label className="text-[11px] font-bold opacity-60 block mb-1">Note (facultatif)</label>
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Versement du soir" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-2.5" style={{ borderColor: "var(--line)" }} />
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (facultatif)" className="gb-focus w-full rounded-xl px-3 py-2.5 text-sm border mb-2.5" style={{ borderColor: "var(--line)" }} />
           {liveGap !== null && (
-            <div className="flex justify-between rounded-xl px-3 py-2 text-[13px] mb-2.5" style={{ background: liveGap === 0 ? "#EAF3DE" : liveGap < 0 ? "#FCEBEB" : "#FAEEDA", color: gapColor(liveGap) }}>
-              <span>Écart (versé − attendu)</span><span className="font-mono font-bold">{liveGap > 0 ? "+" : ""}{fmt(liveGap)}</span>
+            <div className="flex justify-between rounded-xl px-3 py-2.5 text-[13px] mb-2.5" style={{ background: liveGap === 0 ? "#EAF3DE" : liveGap < 0 ? "#FCEBEB" : "#FAEEDA", color: gapColor(liveGap) }}>
+              <span>Écart</span><span className="font-bold">{liveGap === 0 ? `${fmt(0)} · juste` : liveGap < 0 ? `Manque ${fmt(-liveGap)}` : `Surplus ${fmt(liveGap)}`}</span>
             </div>
           )}
-          {error && <p className="text-[11px] mb-2" style={{ color: "var(--danger)" }}>{error}</p>}
-          <p className="text-[11px] opacity-50 mb-3">Après validation, la caisse est clôturée et la fenêtre s'ouvre pour saisir le montant qui reste dans la caisse.</p>
-          <div className="flex gap-2">
-            <button onClick={() => { setFormOpen(false); setError(""); }} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
-            <button onClick={submit} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-bold text-white" style={{ background: "var(--glass)" }}>Valider le versement</button>
+          {error && <p className="text-[11.5px] mb-2" style={{ color: "var(--danger)" }}>{error}</p>}
+          <p className="text-[11px] opacity-50 mb-3">Après validation, la caisse est clôturée puis le nouveau fond de caisse est demandé.</p>
+          <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1.4fr" }}>
+            <button onClick={() => { setFormOpen(false); setError(""); }} className="gb-focus min-h-[48px] rounded-[14px] text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+            <button onClick={submit} className="gb-focus min-h-[48px] rounded-[14px] text-sm font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Check size={16} /> Valider</button>
           </div>
         </div>
       )}
 
-      {/* Plage de dates */}
-      <div className="rounded-2xl p-4 mb-3" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
-        <div className="flex items-center gap-2 mb-2.5">
+      {/* Détail du calcul : replié par défaut */}
+      {activeCashSession && live && (
+        <div className="rounded-[18px] mt-2.5 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <button onClick={() => setDetailOpen((o) => !o)} aria-expanded={detailOpen} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-3 text-left">
+            <ClipboardList size={17} color="var(--glass)" />
+            <span className="flex-1 text-[13.5px] font-bold">Voir le détail du calcul</span>
+            <ChevronDown size={17} style={{ transform: detailOpen ? "rotate(180deg)" : "none", transition: "transform .2s", opacity: 0.6 }} />
+          </button>
+          {detailOpen && (
+            <div className="px-3.5 pb-3 gb-slide-up" style={{ borderTop: "1px solid var(--line)" }}>
+              <CashBreakdown r={live} compact />
+              {(live.byVendor || []).length > 0 && (
+                <>
+                  <button onClick={() => setShowVendors(!showVendors)} className="gb-focus w-full mt-1 flex items-center justify-between rounded-xl px-3 py-2.5 text-[13px] font-bold" style={{ background: "var(--paper-dim)" }}>
+                    <span className="flex items-center gap-2"><Users size={15} /> Détail par vendeur ({live.byVendor.length})</span>
+                    <ChevronDown size={16} style={{ transform: showVendors ? "rotate(180deg)" : "none" }} />
+                  </button>
+                  {showVendors && <CashByVendor list={live.byVendor} compact />}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Versements de la période */}
+      <div className="flex items-center gap-2 mt-5 mb-2 px-0.5">
+        <h3 className="font-display font-bold text-[15px] flex-1">Versements</h3>
+        <select value={customOpen ? "custom" : periodValue} onChange={(e) => { const v = e.target.value; if (v === "custom") { setCustomOpen(true); return; } setCustomOpen(false); setQuick(Number(v)); }} className="gb-focus rounded-full px-3 h-9 text-[12.5px] font-bold border" style={{ borderColor: "var(--line)", background: "var(--card)" }} aria-label="Période">
+          <option value="0">Aujourd'hui</option>
+          <option value="6">7 jours</option>
+          <option value="29">30 jours</option>
+          <option value="custom">Dates…</option>
+        </select>
+      </div>
+      {(customOpen || periodValue === "custom") && (
+        <div className="flex items-center gap-2 mb-2.5 gb-slide-up">
           <button onClick={() => shiftRange(-1)} aria-label="Période précédente" className="gb-focus w-9 h-9 shrink-0 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><ChevronLeft size={16} /></button>
           <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="Du" className="gb-focus flex-1 min-w-0 rounded-xl px-2 py-2 text-xs border" style={{ borderColor: "var(--line)" }} />
           <span className="text-[11px] opacity-50">au</span>
           <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="Au" className="gb-focus flex-1 min-w-0 rounded-xl px-2 py-2 text-xs border" style={{ borderColor: "var(--line)" }} />
           <button onClick={() => shiftRange(1)} aria-label="Période suivante" className="gb-focus w-9 h-9 shrink-0 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><ChevronRight size={16} /></button>
         </div>
-        <div className="flex gap-1.5 mb-3.5 overflow-x-auto gb-scroll">
-          {[["Aujourd'hui", 0], ["7 jours", 6], ["30 jours", 29]].map(([label, d]) => (
-            <button key={label} onClick={() => setQuick(d)} className="gb-focus shrink-0 px-3 py-1.5 rounded-full text-[11px] font-semibold" style={{ background: "var(--paper-dim)" }}>{label}</button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <StatCard icon={Wallet} label="Total versé" value={fmt(totals.versed)} tintBg="#EAF3DE" tintFg="#27500A" />
-          <StatCard icon={ClipboardCheck} label="Versements" value={inRange.length} tintBg="#E6F1FB" tintFg="#185FA5" />
-          <StatCard icon={Banknote} label={`Fonds de caisse (${fundsInRange.length})`} value={fmt(fundsTotal)} tintBg="#FAEEDA" tintFg="#854F0B" />
-          <StatCard icon={AlertTriangle} label="Écarts cumulés" value={`${totals.gap > 0 ? "+" : ""}${fmt(totals.gap)}`} tintBg={totals.gap < 0 ? "#FCEBEB" : "#EAF3DE"} tintFg={totals.gap < 0 ? "#A32D2D" : "#27500A"} />
-        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2 mb-2.5">
+        <div className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><p className="text-[10.5px]" style={{ color: "#66707A" }}>Total versé</p><p className="font-display font-bold text-[13.5px] truncate">{fmt(totals.versed)}</p></div>
+        <div className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><p className="text-[10.5px]" style={{ color: "#66707A" }}>Versements</p><p className="font-display font-bold text-[13.5px]">{inRange.length}</p></div>
+        <div className="rounded-[14px] px-2.5 py-2 min-w-0" style={totals.gap < 0 ? { background: "#FCEBEB", border: "1px solid #F3C6C2" } : { background: "#EAF3DE", border: "1px solid #CFE6BC" }}><p className="text-[10.5px]" style={{ color: totals.gap < 0 ? "#A32D2D" : "#27500A" }}>Écarts</p><p className="font-display font-bold text-[13.5px] truncate" style={{ color: totals.gap < 0 ? "#A32D2D" : "#27500A" }}>{totals.gap > 0 ? "+" : ""}{fmt(totals.gap)}</p></div>
       </div>
 
       {cashReport && <CashReportModal shop={shop} report={cashReport} onClose={() => setCashReport(null)} pushToast={pushToast} />}
+
+      {inRange.length === 0 && <p className="text-sm opacity-50 text-center py-6 rounded-[18px]" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>Aucun versement sur cette période.</p>}
+      <div className="rounded-[18px] overflow-hidden" style={inRange.length ? { background: "var(--card)", border: "1px solid var(--line)" } : undefined}>
+        {inRange.map((v, idx) => {
+          const open = openId === v.id;
+          const g = Number(v.gap) || 0;
+          const badge = g === 0 ? { t: "Juste", bg: "#EAF3DE", fg: "#27500A" } : g < 0 ? { t: `Manque ${fmt(-g)}`, bg: "#FCEBEB", fg: "#A32D2D" } : { t: `Surplus ${fmt(g)}`, bg: "#FAEEDA", fg: "#854F0B" };
+          return (
+            <div key={v.id} style={{ borderTop: idx ? "1px solid var(--line)" : "none" }}>
+            <button type="button" onClick={() => setOpenId(open ? null : v.id)} className="gb-focus w-full text-left flex items-center gap-3 px-3.5 py-3">
+              <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: badge.bg, color: badge.fg }}>{g === 0 ? <Check size={19} /> : <AlertTriangle size={18} />}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13.5px] font-bold">{dayLabel(v.date)}</span>
+                <span className="block text-[11.5px] truncate" style={{ color: "#66707A" }}>{v.by ? `${firstName(v.by)} · ` : ""}attendu {fmt(v.expected)}</span>
+              </span>
+              <span className="flex flex-col items-end gap-1 shrink-0">
+                <span className="font-display font-bold text-[14px]">{fmt(v.amount)}</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: badge.bg, color: badge.fg }}>{badge.t}</span>
+              </span>
+            </button>
+              {open && (
+                <div className="px-3.5 pb-3 flex flex-col gap-1 gb-slide-up" style={{ borderTop: "1px dashed var(--line)" }}>
+                  <p className="text-[11px] opacity-55 mt-2">Caisse ouverte le {fmtDateTime(v.openedAt)} · fond {fmt(v.fund)}{v.by ? ` · ${v.by}` : ""}{v.receivedBy ? ` → ${v.receivedBy}` : ""}</p>
+                  <CashBreakdown r={v} compact />
+                  <div className="rounded-xl px-3 py-2 mt-1" style={{ background: "var(--paper-dim)" }}>
+                    <Line label="Montant versé" value={fmt(v.amount)} strong />
+                  </div>
+                  {v.note && <p className="text-[11px] opacity-60 mt-1">Note : {v.note}</p>}
+                  {v.recordedBy && <p className="text-[11px] opacity-45">Enregistré par {v.recordedBy}</p>}
+                  {v.editedAt && <p className="text-[11px] opacity-45">Modifié le {fmtDateTime(v.editedAt)}{v.editedBy ? ` par ${v.editedBy}` : ""}</p>}
+                  {(onUpdateVersement || onDeleteVersement) && (
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {onUpdateVersement && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setEditV({ id: v.id, amount: String(v.amount ?? ""), by: v.by || "", receivedBy: v.receivedBy || "", note: v.note || "", expected: Number(v.expected) || 0, date: v.date }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "#E6F1FB", color: "#185FA5" }}><Pencil size={15} /> Modifier</span>}
+                      {onDeleteVersement && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setDeleteV(v); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "#FCEBEB", color: "#A32D2D" }}><Trash2 size={15} /> Supprimer</span>}
+                    </div>
+                  )}
+                  <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const session = ownCashEntries(cashRegisterEntries, shopId).find((x) => x.id === v.sessionId) || { id: v.sessionId, amount: v.fund, timestamp: v.openedAt, setBy: v.openedBy }; setCashReport({ ...buildCashReport(session, { sales, expenses, versement: v, printedBy: author }), fund: Number(v.fund) || 0, cashSales: Number(v.cashSales) || 0, cashSalesCount: v.cashSalesCount || 0, creditsCollected: Number(v.creditsCollected) || 0, creditsCount: v.creditsCount || 0, expensesTotal: Number(v.expensesTotal) || 0, expensesCount: v.expensesCount || 0, mobileSales: Number(v.mobileSales) || 0, mobileSalesCount: v.mobileSalesCount || 0, refundsCash: Number(v.refundsCash) || 0, refundsCashCount: v.refundsCashCount || 0, expected: Number(v.expected) || 0, ...CASH_DETAIL_KEYS.reduce((o, k) => ({ ...o, [k]: undefined }), {}), ...cashDetailOf(v) }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus mt-2 min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Printer size={15} /> Imprimer la clôture</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {/* Caisse jour par jour sur la plage choisie */}
       {(() => {
@@ -9838,7 +10446,7 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
         if (days.length === 0) return null;
         const label = (k) => new Date(k + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
         return (
-          <div className="rounded-2xl mb-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <div className="rounded-[18px] mt-2.5 mb-3 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
             <button onClick={toggleDays} aria-expanded={daysOpen} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-3 text-left">
               <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "#FAEEDA" }}><Banknote size={17} color="#854F0B" /></span>
               <span className="flex-1 min-w-0">
@@ -9872,43 +10480,6 @@ function VersementsSection({ shop, sales, expenses, vendors, cashRegisterEntries
         );
       })()}
 
-      {/* Historique des versements */}
-      <h3 className="font-display font-bold text-base mb-2">Historique des versements</h3>
-      {inRange.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun versement sur cette période.</p>}
-      <div className="flex flex-col gap-2.5">
-        {inRange.map((v) => {
-          const open = openId === v.id;
-          const g = Number(v.gap) || 0;
-          return (
-            <button type="button" key={v.id} onClick={() => setOpenId(open ? null : v.id)} className="gb-focus w-full text-left rounded-2xl p-3.5" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[13px] font-semibold">Versement du {fmtDateTime(v.date)}</span>
-                <span className="font-mono font-bold text-sm shrink-0">{fmt(v.amount)}</span>
-              </div>
-              <p className="text-[11px] opacity-55 mt-0.5">Caisse ouverte le {fmtDateTime(v.openedAt)} · fond {fmt(v.fund)}{v.by ? ` · ${v.by}` : ""}{v.receivedBy ? ` → ${v.receivedBy}` : ""}</p>
-              <p className="text-[11px] font-semibold mt-0.5" style={{ color: gapColor(g) }}>Attendu {fmt(v.expected)} · écart {g > 0 ? "+" : ""}{fmt(g)}</p>
-              {open && (
-                <div className="mt-2.5 pt-2.5 flex flex-col gap-1" style={{ borderTop: "1px solid var(--line)" }}>
-                  <CashBreakdown r={v} compact />
-                  <div className="rounded-xl px-3 py-2 mt-1" style={{ background: "var(--paper-dim)" }}>
-                    <Line label="Montant versé" value={fmt(v.amount)} strong />
-                  </div>
-                  {v.note && <p className="text-[11px] opacity-60 mt-1">Note : {v.note}</p>}
-                  {v.recordedBy && <p className="text-[11px] opacity-45">Enregistré par {v.recordedBy}</p>}
-                  {v.editedAt && <p className="text-[11px] opacity-45">Modifié le {fmtDateTime(v.editedAt)}{v.editedBy ? ` par ${v.editedBy}` : ""}</p>}
-                  {(onUpdateVersement || onDeleteVersement) && (
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      {onUpdateVersement && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setEditV({ id: v.id, amount: String(v.amount ?? ""), by: v.by || "", receivedBy: v.receivedBy || "", note: v.note || "", expected: Number(v.expected) || 0, date: v.date }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "#E6F1FB", color: "#185FA5" }}><Pencil size={15} /> Modifier</span>}
-                      {onDeleteVersement && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setDeleteV(v); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "#FCEBEB", color: "#A32D2D" }}><Trash2 size={15} /> Supprimer</span>}
-                    </div>
-                  )}
-                  <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); const session = ownCashEntries(cashRegisterEntries, shopId).find((x) => x.id === v.sessionId) || { id: v.sessionId, amount: v.fund, timestamp: v.openedAt, setBy: v.openedBy }; setCashReport({ ...buildCashReport(session, { sales, expenses, versement: v, printedBy: author }), fund: Number(v.fund) || 0, cashSales: Number(v.cashSales) || 0, cashSalesCount: v.cashSalesCount || 0, creditsCollected: Number(v.creditsCollected) || 0, creditsCount: v.creditsCount || 0, expensesTotal: Number(v.expensesTotal) || 0, expensesCount: v.expensesCount || 0, mobileSales: Number(v.mobileSales) || 0, mobileSalesCount: v.mobileSalesCount || 0, refundsCash: Number(v.refundsCash) || 0, refundsCashCount: v.refundsCashCount || 0, expected: Number(v.expected) || 0, ...CASH_DETAIL_KEYS.reduce((o, k) => ({ ...o, [k]: undefined }), {}), ...cashDetailOf(v) }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }} className="gb-focus mt-2 min-h-[42px] rounded-xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Printer size={15} /> Imprimer la clôture</span>
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
 
       {editV && (() => {
         const amt = Number(editV.amount);
@@ -10001,7 +10572,7 @@ function InventorySection({ shop, avoirs = [], expenses, vendors, cashRegisterEn
     <div>
       <div className="flex gap-2 overflow-x-auto gb-scroll mb-4">
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className="gb-focus shrink-0 px-3.5 py-2 rounded-xl text-xs font-semibold" style={{ background: tab === t.id ? "var(--glass)" : "var(--paper-dim)", color: tab === t.id ? "#fff" : "var(--ink)" }}>{t.label}</button>
+          <button key={t.id} onClick={() => setTab(t.id)} className="gb-focus shrink-0 px-3.5 h-9 rounded-full text-[12.5px] font-bold" style={tab === t.id ? { background: "var(--glass)", color: "#fff", boxShadow: "0 6px 14px -8px rgba(0,0,0,0.5)" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>{t.label}</button>
         ))}
       </div>
       {tab === "apercu" && <InventoryOverview products={products} categories={categories} movements={movements} />}
@@ -10009,7 +10580,7 @@ function InventorySection({ shop, avoirs = [], expenses, vendors, cashRegisterEn
       {tab === "comptage" && <StockCountSection products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} categories={categories} author={author} pushToast={pushToast} pushNotification={pushNotification} avoirs={avoirs} />}
       {tab === "rentabilite" && <ProfitabilitySection products={products} sales={sales} saveSales={saveSales} movements={movements} saveProducts={saveProducts} inventories={inventories} saveInventories={saveInventories} categories={categories} author={author} pushToast={pushToast} />}
       {tab === "versements" && <VersementsSection shop={shop} sales={sales || []} expenses={expenses || []} vendors={vendors || []} cashRegisterEntries={cashRegisterEntries || []} versements={versements || []} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} onUpdateVersement={onUpdateVersement} onDeleteVersement={onDeleteVersement} author={author} pushToast={pushToast} />}
-      {tab === "historique" && <InventoryHistorySection inventories={inventories} />}
+      {tab === "historique" && <InventoryHistorySection inventories={inventories} onNewCount={() => setTab("comptage")} pushToast={pushToast} />}
     </div>
   );
 }
@@ -11872,6 +12443,7 @@ const ADMIN_SECTIONS = [
   { id: "fournisseurs", desc: "Commandes et achats", label: "Fournisseurs", Icon: Truck, group: "Gestion commerciale" },
   { id: "depenses", desc: "Sorties d'argent du mois", label: "Dépenses", Icon: Wallet, group: "Finances" },
   { id: "export", desc: "Excel pour le comptable", label: "Export comptable", Icon: FileText, group: "Finances" },
+  { id: "actionnaires", desc: "Parts et bénéfices partagés", label: "Actionnaires", Icon: Users, group: "Finances" },
   { id: "vendeurs", desc: "Comptes et codes d'accès", label: "Vendeurs", Icon: Users, group: "Équipe et clients" },
   { id: "performance", desc: "Objectifs et classement", label: "Performance vendeurs", Icon: TrendingUp, group: "Équipe et clients" },
   { id: "clients", desc: "Fichier clients et historique", label: "Clients", Icon: UserPlus, group: "Équipe et clients" },
@@ -12446,10 +13018,17 @@ function LicenseSection({ license, licenseStatus, onActivate, pushToast, shopNam
           </LicPrimaryButton>
         </div>
       )}
-      <button onClick={() => setPricingStep("activate")} className="gb-focus w-full min-h-[50px] rounded-[18px] text-[14.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform" style={{ background: LIC.card, border: `1.5px solid ${LIC.line}`, color: LIC.pri }}>
-        <KeyRound size={16} /> J'ai un code d'activation
-      </button>
-      <p className="text-center text-[11.5px] mt-3" style={{ color: LIC.mut }}>Aucun paiement dans l'application : vous recevez votre code après votre commande.</p>
+      {/* Licence à vie : plus rien à activer, le bouton disparaît. */}
+      {license?.lifetime ? (
+        <p className="text-center text-[12px] mt-1 flex items-center justify-center gap-1.5" style={{ color: LIC.mut }}><Check size={14} color={LIC.pri} /> Votre licence est définitive : aucun code à saisir.</p>
+      ) : (
+        <>
+          <button onClick={() => setPricingStep("activate")} className="gb-focus w-full min-h-[50px] rounded-[18px] text-[14.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform" style={{ background: LIC.card, border: `1.5px solid ${LIC.line}`, color: LIC.pri }}>
+            <KeyRound size={16} /> J'ai un code d'activation
+          </button>
+          <p className="text-center text-[11.5px] mt-3" style={{ color: LIC.mut }}>Aucun paiement dans l'application : vous recevez votre code après votre commande.</p>
+        </>
+      )}
 
       {pricingStep && (
         <PricingScreen
@@ -12490,6 +13069,7 @@ function notifMeta(n, fmtM) {
       if (lv <= 2) return T(AlertTriangle, "#B3261E", "#FCEBEA", "stock", `Stock critique : ${n.productName}`, `Il ne reste que ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""}. Rechargez le stock.`);
       return T(AlertTriangle, "#9A5B00", "#FFF1D6", "stock", `Stock bas : ${n.productName}`, `Il reste ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""}. Pensez à réapprovisionner.`);
     }
+    case "charge_due": return T(CalendarCheck, n.late ? "#B3261E" : "#9A5B00", n.late ? "#FCEBEA" : "#FFF1D6", "argent", `${n.count > 1 ? `${n.count} dépenses à payer` : `À payer : ${n.first}`}`, `${n.lines || ""} · Admin › Actionnaires › Calcul du mois`);
     case "expiry_alert": return T(CalendarCheck, "#B3261E", "#FCEBEA", "stock", `Péremption : ${n.count} lot${n.count > 1 ? "s" : ""}`, `${n.expired ? `Dont ${n.expired} périmé${n.expired > 1 ? "s" : ""}` : "Expire(nt) sous 3 jours"} — ${n.first}${n.count > 1 ? "…" : ""} · Stock › Péremption`);
     case "stock_movement": return T(ClipboardCheck, "#1D5FA8", "#E8F0FB", "stock", "Comptage validé", `${n.count} écart${n.count > 1 ? "s" : ""} ajusté${n.count > 1 ? "s" : ""}`);
     case "product_created": return T(PackagePlus, "#1E7A46", "#E6F4EC", "stock", "Produit créé", n.productName);
@@ -13152,6 +13732,7 @@ function AdminScreen({
       {section === "categories" && <CategoriesSection categories={categories} saveCategories={saveCategories} products={products} pushToast={pushToast} />}
       {section === "fournisseurs" && <SuppliersSection suppliers={suppliers} saveSuppliers={saveSuppliers} expenses={expenses} saveExpenses={saveExpenses} products={products} saveProducts={saveProducts} categories={categories} saveCategories={saveCategories} movements={movements} saveMovements={saveMovements} orders={orders} saveOrders={saveOrders} supplierProducts={supplierProducts} saveSupplierProducts={saveSupplierProducts} pushToast={pushToast} pushNotification={pushNotification} shop={shop} />}
       {section === "export" && <AccountingExportSection shop={shop} sales={sales} expenses={expenses} products={products} versements={versements} pushToast={pushToast} />}
+      {section === "actionnaires" && <ShareholdersSection shop={shop} saveShopMeta={saveShopMeta} sales={sales || []} products={products || []} expenses={expenses || []} pushToast={pushToast} onOpenExpenses={() => { setSection("depenses"); onSectionChange?.("depenses"); }} />}
       {section === "depenses" && <ExpensesSection expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} pushNotification={pushNotification} shop={shop} />}
       {section === "performance" && <VendorPerformanceSection shop={shop} sales={sales} vendors={vendors} saveShopMeta={saveShopMeta} />}
       {section === "vendeurs" && <VendorsSection vendors={vendors} saveVendors={saveVendors} pushToast={pushToast} adminPin={shop.adminPin} adminPinHash={shop.adminPinHash} backendLinked={shop.backendLinked} pushNotification={pushNotification} />}
@@ -13770,6 +14351,7 @@ function PlusScreen({ shop, role, userName, sales, clients, suppliers, onGo, onA
       { Icon: ClipboardList, label: "Inventaires", sub: "Faire un inventaire", color: "#16325C", go: () => onGo("n-inventory") },
       { Icon: Coins, label: "Dépenses", sub: "Suivre vos dépenses", color: "#DB2777", go: () => onAdminSection("depenses") },
       { Icon: Tag, label: "Promotions", sub: "Créer des offres", color: "#F27A1A", go: () => onGo("n-promos") },
+      { Icon: Users, label: "Actionnaires", sub: "Parts et partage des bénéfices", color: "#0E3B2A", go: () => onAdminSection("actionnaires") },
       { Icon: Users, label: "Employés", sub: "Vendeurs, comptes et objectifs", color: "#7B4DDB", go: () => onAdminSection("vendeurs") },
       { Icon: Settings, label: "Paramètres", sub: "Entreprise, sécurité, sauvegarde, apparence", color: "#6B7686", go: () => onGo("n-settings") },
     ] : [
@@ -16534,6 +17116,22 @@ function AppInner() {
     if (qty > 0) saveMovements([{ id: uid(), date: now, productId, productName: p.name, type: "ajustement", delta: -qty, before: p.stock, after, author: actorName(), note: `${label}${lot?.expiry ? ` (lot expirant le ${new Date(`${lot.expiry}T12:00:00`).toLocaleDateString("fr-FR")})` : ""}` }, ...movements]);
     pushToast(action === "loss" ? "Perte déclarée, stock mis à jour" : "Lot retiré du stock", "ok");
   };
+
+  // Rappel des dépenses mensuelles (charges fixes avec une date) : 5 jours
+  // avant l'échéance, et à chaque connexion de l'administrateur tant que la
+  // dépense n'est pas marquée payée — notification écrite + annonce vocale.
+  useEffect(() => {
+    if (role !== "admin" || !activeShopId || !shop) return;
+    const due = chargesDueSoon(shop.fixedCharges);
+    if (!due.length) return;
+    const key = `chargeReminder:${activeShopId}:${new Date().toDateString()}`;
+    try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+    const money = (n) => formatMoney(Number(n) || 0, shop?.currency);
+    const lines = due.map((d) => `${d.charge.label} ${money(d.charge.amount)} ${dueText(d.days)}`).join(" · ");
+    pushNotification({ type: "charge_due", count: due.length, first: `${due[0].charge.label} (${money(due[0].charge.amount)})`, lines, late: due.some((d) => d.days < 0) });
+    const spoken = due.map((d) => `${d.charge.label}, ${spokenAmount(money(d.charge.amount))}, ${d.days < 0 ? dueText(d.days) : `à payer ${dueText(d.days)}`}`).join(". ");
+    setTimeout(() => speak(`Rappel de dépense. ${spoken}.`, true), 1500);
+  }, [role, activeShopId, shop?.fixedCharges]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Alerte péremption : une fois par jour et par entreprise, dès qu'un lot
   // est périmé ou expire dans les 3 jours.
