@@ -4682,7 +4682,9 @@ function LossModal({ products, initialProductId, onSave, onClose, edit, onDelete
   const [note, setNote] = useState(editNote);
   const [formula, setFormula] = useState(edit?.formulaId || "base");
   const [opts, setOpts] = useState(edit?.opts || {});
-  const [unitPrice, setUnitPrice] = useState(edit && edit.unitPrice ? String(edit.unitPrice) : "");
+  // Prix d'1 article perdu : prix d'achat par défaut (prix de vente pour
+  // « Livré non payé »), modifiable à la main.
+  const [unitPrice, setUnitPrice] = useState(edit ? String(edit.unitPrice || (Number(edit.qty) ? Math.round((Number(edit.value) || 0) / Number(edit.qty)) : "")) : "");
   const [client, setClient] = useState(editClient);
   const [confirmDel, setConfirmDel] = useState(false);
   const inStock = products.filter((p) => !p.stockFrom && Number(p.stock) > 0);
@@ -4695,10 +4697,10 @@ function LossModal({ products, initialProductId, onSave, onClose, edit, onDelete
   const chosen = formulas.find((f) => f.id === formula) || (edit?.formulaName ? formulas.find((f) => edit.formulaName === f.name || edit.formulaName.startsWith(`${f.name} +`)) : null) || formulas[0];
   const optList = p?.options || [];
   const optTotal = optList.reduce((t, o) => t + (Number(o.price) || 0) * (opts[o.id] || 0), 0);
-  const autoPrice = (chosen?.price || 0) + optTotal;
+  const autoPrice = unpaid ? (chosen?.price || 0) + optTotal : Number(p?.costPrice) || 0;
   const salePrice = unitPrice === "" ? autoPrice : Number(unitPrice) || 0;
   const formulaName = chosen ? `${chosen.name}${optList.filter((o) => opts[o.id]).map((o) => ` + ${opts[o.id] > 1 ? `${opts[o.id]} × ` : ""}${o.name}`).join("")}` : "";
-  const value = unpaid ? salePrice * qty : (Number(p?.costPrice) || 0) * qty;
+  const value = salePrice * qty;
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
       <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[90vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
@@ -4734,7 +4736,7 @@ function LossModal({ products, initialProductId, onSave, onClose, edit, onDelete
             <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Motif</p>
             <div className="flex flex-wrap gap-2 mb-3">
               {LOSS_REASONS.map((r) => (
-                <button key={r.id} onClick={() => setReason(r.id)} className="gb-focus min-h-[40px] px-3.5 rounded-full text-[13px] font-bold" style={reason === r.id ? { background: r.color, color: "#fff" } : { background: r.bg, color: r.color }}>{r.label}</button>
+                <button key={r.id} onClick={() => { if ((r.id === "impaye") !== unpaid) setUnitPrice(""); setReason(r.id); }} className="gb-focus min-h-[40px] px-3.5 rounded-full text-[13px] font-bold" style={reason === r.id ? { background: r.color, color: "#fff" } : { background: r.bg, color: r.color }}>{r.label}</button>
               ))}
             </div>
             {unpaid && (
@@ -4786,13 +4788,19 @@ function LossModal({ products, initialProductId, onSave, onClose, edit, onDelete
                 <button onClick={() => setQty((v) => Math.min(max, v + 1))} className="gb-focus w-11 h-11 flex items-center justify-center" aria-label="Plus"><Plus size={16} /></button>
               </div>
             </div>
+            {!unpaid && (
+              <label className="flex items-center gap-3 mb-3">
+                <span className="flex-1 text-[13.5px] font-semibold opacity-70">Prix d'1 article <span className="block text-[11px] font-normal opacity-70">{Number(p.costPrice) > 0 ? `prix d'achat : ${fmt(p.costPrice)}` : "aucun prix d'achat enregistré"}</span></span>
+                <input type="number" inputMode="numeric" value={unitPrice === "" ? String(autoPrice) : unitPrice} onChange={(e) => setUnitPrice(e.target.value)} aria-label="Prix d'1 article perdu" className="gb-focus w-[132px] rounded-xl px-3 min-h-[44px] text-[16px] font-bold text-right border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+              </label>
+            )}
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Précision (facultatif) — ex : invendus du jour" className="gb-focus w-full rounded-[13px] px-3 min-h-[46px] text-[14px] border mb-3" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
             <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-              {[[edit ? "Retiré du stock (au total)" : "Retiré du stock", `– ${qty} ${plural(qty, p.unit || V.unit, `${p.unit || V.unit}s`)}${edit && qty !== Number(edit.qty) ? ` (avant : ${edit.qty})` : ""}`], ["Stock après", `${max - qty}`], [unpaid ? `Valeur de la perte (${qty} × ${fmt(salePrice)})` : "Valeur de la perte (prix d'achat)", `– ${fmt(value)}`]].map(([l, v], i) => (
+              {[[edit ? "Retiré du stock (au total)" : "Retiré du stock", `– ${qty} ${plural(qty, p.unit || V.unit, `${p.unit || V.unit}s`)}${edit && qty !== Number(edit.qty) ? ` (avant : ${edit.qty})` : ""}`], ["Stock après", `${max - qty}`], [`Valeur de la perte (${qty} × ${fmt(salePrice)})`, `– ${fmt(value)}`]].map(([l, v], i) => (
                 <div key={l} className="flex justify-between px-3.5 py-2.5 text-[13px]" style={{ borderTop: i ? "1px solid var(--line)" : "none", fontWeight: i === 2 ? 800 : 500, color: i === 2 ? "#B3261E" : "var(--ink)" }}><span>{l}</span><span className="font-mono">{v}</span></div>
               ))}
             </div>
-            <button onClick={() => onSave({ product: p, qty, reason: LOSS_REASONS.find((r) => r.id === reason)?.label || "Autre", note: [unpaid && client.trim() ? `client ${client.trim()}` : "", note.trim()].filter(Boolean).join(" · "), client: unpaid ? client.trim() : "", ...(unpaid ? { value, formulaName, unitPrice: salePrice, formulaId: chosen?.id || "base", opts } : {}) })} disabled={qty < 1 || qty > max || (unpaid && !(salePrice > 0))} className="gb-focus w-full min-h-[54px] rounded-[15px] text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #D0473B, #A3261C)", boxShadow: "0 10px 20px -8px rgba(163,38,28,0.55)" }}>
+            <button onClick={() => onSave({ product: p, qty, reason: LOSS_REASONS.find((r) => r.id === reason)?.label || "Autre", note: [unpaid && client.trim() ? `client ${client.trim()}` : "", note.trim()].filter(Boolean).join(" · "), client: unpaid ? client.trim() : "", value, unitPrice: salePrice, ...(unpaid ? { formulaName, formulaId: chosen?.id || "base", opts } : {}) })} disabled={qty < 1 || qty > max || (unpaid && !(salePrice > 0)) || salePrice < 0} className="gb-focus w-full min-h-[54px] rounded-[15px] text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #D0473B, #A3261C)", boxShadow: "0 10px 20px -8px rgba(163,38,28,0.55)" }}>
               {edit ? <><Check size={18} /> Enregistrer les modifications</> : <><PackageX size={18} /> Déclarer la perte</>}
             </button>
             {edit && onDelete && (
@@ -17296,7 +17304,7 @@ function AppInner() {
     const by = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
     saveProducts(products.map((x) => (x.id === p.id ? { ...x, stock: before - q } : x)));
     const label = formulaName || p.name;
-    saveMovements([{ id: uid(), date: new Date().toISOString(), productId: p.id, productName: p.name, ...(formulaName && formulaName !== p.name ? { formulaName } : {}), ...(unitPrice ? { unitPrice: Number(unitPrice) } : {}), ...(givenValue != null ? { formulaId, opts, client: client || undefined } : {}), type: "perte", delta: -q, qty: q, before, after: before - q, author: by, reason, extra: note, value, note: `Perte · ${reason}${formulaName && formulaName !== p.name ? ` · ${formulaName}` : ""}${note ? ` · ${note}` : ""}` }, ...movements]);
+    saveMovements([{ id: uid(), date: new Date().toISOString(), productId: p.id, productName: p.name, ...(formulaName && formulaName !== p.name ? { formulaName } : {}), ...(unitPrice ? { unitPrice: Number(unitPrice) } : {}), ...(formulaId ? { formulaId, opts } : {}), ...(client ? { client } : {}), type: "perte", delta: -q, qty: q, before, after: before - q, author: by, reason, extra: note, value, note: `Perte · ${reason}${formulaName && formulaName !== p.name ? ` · ${formulaName}` : ""}${note ? ` · ${note}` : ""}` }, ...movements]);
     logAudit("stock", `Perte déclarée : ${q} × ${label} (${reason})${note ? ` · ${note}` : ""} · ${formatMoney(value, shop?.currency)}`, { amount: -value });
     pushToast(`Perte enregistrée : ${q} × ${label} · ${reason}${givenValue != null ? ` · ${formatMoney(value, shop?.currency)}` : ""}`, "ok");
   };
@@ -17309,12 +17317,12 @@ function AppInner() {
     const oldQ = Number(m.qty) || 0;
     const stockNow = Number(p?.stock) || 0;
     const q = Math.max(1, Math.min(Number(qty) || 1, stockNow + oldQ));
-    const unpaid = givenValue != null;
-    const value = unpaid ? (Number(unitPrice) || 0) * q : (Number(p?.costPrice) || (oldQ ? (Number(m.value) || 0) / oldQ : 0)) * q;
+    const unpaid = !!formulaId;
+    const value = unitPrice != null ? (Number(unitPrice) || 0) * q : givenValue != null ? Number(givenValue) || 0 : (Number(p?.costPrice) || (oldQ ? (Number(m.value) || 0) / oldQ : 0)) * q;
     if (p && q !== oldQ) saveProducts(products.map((x) => (x.id === p.id ? { ...x, stock: stockNow + oldQ - q } : x)));
     const by = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
     const fName = unpaid && formulaName && formulaName !== m.productName ? formulaName : undefined;
-    const next = { ...m, qty: q, delta: -q, after: (Number(m.before) || 0) - q, reason, extra: note, client: client || undefined, value, formulaName: fName, unitPrice: unpaid ? Number(unitPrice) || 0 : undefined, formulaId: unpaid ? formulaId : undefined, opts: unpaid ? opts : undefined, editedAt: new Date().toISOString(), editedBy: by, note: `Perte · ${reason}${fName ? ` · ${fName}` : ""}${note ? ` · ${note}` : ""}` };
+    const next = { ...m, qty: q, delta: -q, after: (Number(m.before) || 0) - q, reason, extra: note, client: client || undefined, value, formulaName: fName, unitPrice: unitPrice != null ? Number(unitPrice) || 0 : m.unitPrice, formulaId: unpaid ? formulaId : undefined, opts: unpaid ? opts : undefined, editedAt: new Date().toISOString(), editedBy: by, note: `Perte · ${reason}${fName ? ` · ${fName}` : ""}${note ? ` · ${note}` : ""}` };
     saveMovements(movements.map((x) => (x.id === lossId ? next : x)));
     logAudit("stock", `Perte modifiée : ${oldQ} → ${q} × ${fName || m.productName} (${reason}) · ${formatMoney(value, shop?.currency)}`, { amount: -(value - (Number(m.value) || 0)) });
     pushToast(`Perte modifiée${q !== oldQ ? ` · stock ${q < oldQ ? "+" : "−"}${Math.abs(oldQ - q)}` : ""}`, "ok");
