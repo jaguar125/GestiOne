@@ -4664,27 +4664,48 @@ const LOSS_REASONS = [
   { id: "endommage", label: "Endommagé", color: "#6B4FB8", bg: "#EFEAFB" },
   { id: "casse", label: "Cassé", color: "#1D5FA8", bg: "#E8F0FB" },
   { id: "autre", label: "Autre", color: "#3B5B7A", bg: "#EDF2F7" },
+  // Article livré au client mais jamais payé : la perte vaut le prix de vente
+  // de la formule livrée (ex : Pain fourré 500), rien n'entre dans les ventes.
+  { id: "impaye", label: "Livré non payé", color: "#C2410C", bg: "#FFE7DA" },
 ];
-function LossModal({ products, initialProductId, onSave, onClose }) {
+function LossModal({ products, initialProductId, onSave, onClose, edit, onDelete }) {
   const fmt = useFmt();
   const V = useVocab();
+  // edit = mouvement de perte existant : on reprend ses valeurs
+  const editReason = edit ? (LOSS_REASONS.find((r) => r.label === edit.reason)?.id || "autre") : null;
+  const editClient = edit ? (edit.client ?? ((String(edit.extra || "").match(/^client ([^·]+)/) || [])[1] || "").trim()) : "";
+  const editNote = edit ? (edit.client != null ? edit.extra && edit.extra !== `client ${edit.client}` ? String(edit.extra).replace(`client ${edit.client} · `, "") : "" : String(edit.extra || "").replace(/^client [^·]+(· )?/, "").trim()) : "";
   const [q, setQ] = useState("");
-  const [pid, setPid] = useState(initialProductId || null);
-  const [qty, setQty] = useState(1);
-  const [reason, setReason] = useState("perime");
-  const [note, setNote] = useState("");
+  const [pid, setPid] = useState(edit ? edit.productId : initialProductId || null);
+  const [qty, setQty] = useState(edit ? Number(edit.qty) || 1 : 1);
+  const [reason, setReason] = useState(editReason || "perime");
+  const [note, setNote] = useState(editNote);
+  const [formula, setFormula] = useState(edit?.formulaId || "base");
+  const [opts, setOpts] = useState(edit?.opts || {});
+  const [unitPrice, setUnitPrice] = useState(edit && edit.unitPrice ? String(edit.unitPrice) : "");
+  const [client, setClient] = useState(editClient);
+  const [confirmDel, setConfirmDel] = useState(false);
   const inStock = products.filter((p) => !p.stockFrom && Number(p.stock) > 0);
   const list = inStock.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()));
   const p = products.find((x) => x.id === pid);
-  const max = Number(p?.stock) || 0;
-  const value = (Number(p?.costPrice) || 0) * qty;
+  // En modification, la quantité déjà retirée est rendue disponible.
+  const max = (Number(p?.stock) || 0) + (edit && p && edit.productId === p.id ? Number(edit.qty) || 0 : 0);
+  const unpaid = reason === "impaye";
+  const formulas = p ? [{ id: "base", name: p.name, price: Number(p.price) || 0 }, ...(p.variants || []).map((v) => ({ id: v.id, name: v.name, price: Number(v.price) || 0 })), ...products.filter((x) => x.stockFrom === p.id).map((x) => ({ id: x.id, name: x.name, price: Number(x.price) || 0 }))] : [];
+  const chosen = formulas.find((f) => f.id === formula) || (edit?.formulaName ? formulas.find((f) => edit.formulaName === f.name || edit.formulaName.startsWith(`${f.name} +`)) : null) || formulas[0];
+  const optList = p?.options || [];
+  const optTotal = optList.reduce((t, o) => t + (Number(o.price) || 0) * (opts[o.id] || 0), 0);
+  const autoPrice = (chosen?.price || 0) + optTotal;
+  const salePrice = unitPrice === "" ? autoPrice : Number(unitPrice) || 0;
+  const formulaName = chosen ? `${chosen.name}${optList.filter((o) => opts[o.id]).map((o) => ` + ${opts[o.id] > 1 ? `${opts[o.id]} × ` : ""}${o.name}`).join("")}` : "";
+  const value = unpaid ? salePrice * qty : (Number(p?.costPrice) || 0) * qty;
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
       <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[90vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
         <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
         <div className="flex items-center gap-3 mb-3">
           <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA" }}><PackageX size={20} color="#B3261E" /></span>
-          <div className="flex-1 min-w-0"><p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60">Stock</p><p className="font-display font-bold text-[19px]">Déclarer une perte</p></div>
+          <div className="flex-1 min-w-0"><p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60">{edit ? `Déclarée le ${new Date(edit.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} · ${edit.author || ""}` : "Stock"}</p><p className="font-display font-bold text-[19px]">{edit ? "Modifier la perte" : "Déclarer une perte"}</p></div>
           <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
         </div>
         {!p ? (
@@ -4706,9 +4727,9 @@ function LossModal({ products, initialProductId, onSave, onClose }) {
           </>
         ) : (
           <>
-            <button onClick={() => setPid(null)} className="gb-focus w-full rounded-[16px] p-3 flex items-center gap-3 text-left mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-              <div className="flex-1 min-w-0"><p className="text-[15px] font-bold truncate">{p.name}</p><p className="text-[12px] opacity-60">{p.stock} en stock · prix d'achat {fmt(p.costPrice || 0)}</p></div>
-              <span className="text-[12px] font-bold" style={{ color: "var(--glass)" }}>Changer</span>
+            <button onClick={() => !edit && setPid(null)} disabled={!!edit} className="gb-focus w-full rounded-[16px] p-3 flex items-center gap-3 text-left mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              <div className="flex-1 min-w-0"><p className="text-[15px] font-bold truncate">{p.name}</p><p className="text-[12px] opacity-60">{p.stock} en stock{edit ? ` (+${edit.qty} de cette perte)` : ""} · prix d'achat {fmt(p.costPrice || 0)}</p></div>
+              {!edit && <span className="text-[12px] font-bold" style={{ color: "var(--glass)" }}>Changer</span>}
             </button>
             <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Motif</p>
             <div className="flex flex-wrap gap-2 mb-3">
@@ -4716,6 +4737,47 @@ function LossModal({ products, initialProductId, onSave, onClose }) {
                 <button key={r.id} onClick={() => setReason(r.id)} className="gb-focus min-h-[40px] px-3.5 rounded-full text-[13px] font-bold" style={reason === r.id ? { background: r.color, color: "#fff" } : { background: r.bg, color: r.color }}>{r.label}</button>
               ))}
             </div>
+            {unpaid && (
+              <div className="rounded-[16px] p-3 mb-3 gb-slide-up" style={{ background: "#FFF4EC", border: "1px solid #F7CDB5" }}>
+                <p className="text-[12px] mb-2" style={{ color: "#9A3412" }}>Le client a reçu sa commande mais n'a pas payé : l'article sort du stock, la perte vaut son <b>prix de vente</b> et rien n'est ajouté aux ventes.</p>
+                {formulas.length > 1 && (
+                  <>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.1em] mb-1.5" style={{ color: "#9A3412" }}>Qu'est-ce qui a été livré ?</p>
+                    <div className="rounded-[14px] overflow-hidden mb-2" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                      {formulas.map((f, i) => {
+                        const on = (chosen?.id || "base") === f.id;
+                        return (
+                          <button key={f.id} onClick={() => { setFormula(f.id); setUnitPrice(""); }} className="gb-focus w-full flex items-center gap-3 px-3.5 py-2.5 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none", background: on ? "#FFF6EC" : "transparent" }}>
+                            <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={on ? { background: "#C2410C" } : { border: "2px solid #C9C5BB" }}>{on && <span className="w-2 h-2 rounded-full bg-white" />}</span>
+                            <span className="flex-1 text-[14px] font-bold">{f.name}</span>
+                            <span className="font-mono text-[13px] font-bold">{fmt(f.price)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+                {optList.length > 0 && (
+                  <>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.1em] mb-1.5" style={{ color: "#9A3412" }}>Suppléments</p>
+                    <div className="flex flex-col gap-1.5 mb-2">
+                      {optList.map((o) => (
+                        <div key={o.id} className="flex items-center gap-2 rounded-[12px] px-3 py-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                          <span className="flex-1 text-[13px] font-semibold">{o.name} <span className="opacity-60">+{fmt(o.price)}</span></span>
+                          <button onClick={() => { setOpts({ ...opts, [o.id]: Math.max(0, (opts[o.id] || 0) - 1) }); setUnitPrice(""); }} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Moins"><Minus size={14} /></button>
+                          <b className="w-5 text-center">{opts[o.id] || 0}</b>
+                          <button onClick={() => { setOpts({ ...opts, [o.id]: (opts[o.id] || 0) + 1 }); setUnitPrice(""); }} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Plus"><Plus size={14} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block"><span className="block text-[11px] font-semibold mb-1" style={{ color: "#9A3412" }}>Prix de vente (1 article)</span><input type="number" inputMode="numeric" value={unitPrice === "" ? String(autoPrice) : unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="gb-focus w-full rounded-[12px] px-3 min-h-[44px] text-[15px] font-bold border" style={{ borderColor: "#F7CDB5", background: "var(--card)" }} /></label>
+                  <label className="block"><span className="block text-[11px] font-semibold mb-1" style={{ color: "#9A3412" }}>Client (facultatif)</span><input value={client} onChange={(e) => setClient(e.target.value)} placeholder="Ex : Moussa" className="gb-focus w-full rounded-[12px] px-3 min-h-[44px] text-[14px] border" style={{ borderColor: "#F7CDB5", background: "var(--card)" }} /></label>
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-3 mb-3">
               <span className="flex-1 text-[13.5px] font-semibold opacity-70">Quantité perdue <span className="opacity-60">(max {max})</span></span>
               <div className="flex items-center rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
@@ -4726,20 +4788,33 @@ function LossModal({ products, initialProductId, onSave, onClose }) {
             </div>
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Précision (facultatif) — ex : invendus du jour" className="gb-focus w-full rounded-[13px] px-3 min-h-[46px] text-[14px] border mb-3" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
             <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-              {[["Retiré du stock", `– ${qty} ${plural(qty, p.unit || V.unit, `${p.unit || V.unit}s`)}`], ["Stock après", `${max - qty}`], ["Valeur de la perte (prix d'achat)", `– ${fmt(value)}`]].map(([l, v], i) => (
+              {[[edit ? "Retiré du stock (au total)" : "Retiré du stock", `– ${qty} ${plural(qty, p.unit || V.unit, `${p.unit || V.unit}s`)}${edit && qty !== Number(edit.qty) ? ` (avant : ${edit.qty})` : ""}`], ["Stock après", `${max - qty}`], [unpaid ? `Valeur de la perte (${qty} × ${fmt(salePrice)})` : "Valeur de la perte (prix d'achat)", `– ${fmt(value)}`]].map(([l, v], i) => (
                 <div key={l} className="flex justify-between px-3.5 py-2.5 text-[13px]" style={{ borderTop: i ? "1px solid var(--line)" : "none", fontWeight: i === 2 ? 800 : 500, color: i === 2 ? "#B3261E" : "var(--ink)" }}><span>{l}</span><span className="font-mono">{v}</span></div>
               ))}
             </div>
-            <button onClick={() => onSave({ product: p, qty, reason: LOSS_REASONS.find((r) => r.id === reason)?.label || "Autre", note: note.trim() })} disabled={qty < 1 || qty > max} className="gb-focus w-full min-h-[54px] rounded-[15px] text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #D0473B, #A3261C)", boxShadow: "0 10px 20px -8px rgba(163,38,28,0.55)" }}>
-              <PackageX size={18} /> Déclarer la perte
+            <button onClick={() => onSave({ product: p, qty, reason: LOSS_REASONS.find((r) => r.id === reason)?.label || "Autre", note: [unpaid && client.trim() ? `client ${client.trim()}` : "", note.trim()].filter(Boolean).join(" · "), client: unpaid ? client.trim() : "", ...(unpaid ? { value, formulaName, unitPrice: salePrice, formulaId: chosen?.id || "base", opts } : {}) })} disabled={qty < 1 || qty > max || (unpaid && !(salePrice > 0))} className="gb-focus w-full min-h-[54px] rounded-[15px] text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #D0473B, #A3261C)", boxShadow: "0 10px 20px -8px rgba(163,38,28,0.55)" }}>
+              {edit ? <><Check size={18} /> Enregistrer les modifications</> : <><PackageX size={18} /> Déclarer la perte</>}
             </button>
+            {edit && onDelete && (
+              confirmDel ? (
+                <div className="rounded-[16px] p-3 mt-2.5 gb-slide-up" style={{ background: "#FCEBEA", border: "1px solid #F2C9C5" }}>
+                  <p className="text-[13px] font-semibold mb-2.5" style={{ color: "#8A2419" }}>Supprimer cette perte ? <b>{edit.qty} × {edit.formulaName || edit.productName}</b> retourne{Number(edit.qty) > 1 ? "nt" : ""} dans le stock ({fmt(edit.value || 0)} ne sera plus compté en perte).</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setConfirmDel(false)} className="gb-focus flex-1 min-h-[44px] rounded-[12px] font-bold text-[13.5px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>Annuler</button>
+                    <button onClick={() => onDelete(edit)} className="gb-focus flex-1 min-h-[44px] rounded-[12px] font-bold text-[13.5px] text-white flex items-center justify-center gap-1.5" style={{ background: "#B3261E" }}><Trash2 size={15} /> Supprimer</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmDel(true)} className="gb-focus w-full min-h-[48px] rounded-[15px] mt-2.5 font-bold text-[14px] flex items-center justify-center gap-2" style={{ background: "transparent", color: "#B3261E", border: "1.5px solid #F2C9C5" }}><Trash2 size={16} /> Supprimer cette perte</button>
+              )
+            )}
           </>
         )}
       </div>
     </div>
   );
 }
-function LossesView({ movements, onDeclare }) {
+function LossesView({ movements, onDeclare, onEdit }) {
   const fmt = useFmt();
   const [period, setPeriod] = useState("mois");
   const now = new Date();
@@ -4750,7 +4825,7 @@ function LossesView({ movements, onDeclare }) {
   return (
     <div>
       <div className="flex items-end justify-between gap-3 mb-3">
-        <div><h2 className="font-display font-bold text-[24px] leading-tight">Pertes</h2><p className="text-[13px] opacity-60">Périmés, gâtés, endommagés…</p></div>
+        <div><h2 className="font-display font-bold text-[24px] leading-tight">Pertes</h2><p className="text-[13px] opacity-60">Périmés, gâtés, endommagés, livrés non payés…</p></div>
       </div>
       <button onClick={onDeclare} className="gb-focus w-full min-h-[52px] rounded-[15px] text-white font-bold text-[15px] flex items-center justify-center gap-2 mb-3 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #D0473B, #A3261C)", boxShadow: "0 8px 18px -8px rgba(163,38,28,0.55)" }}><PackageX size={18} /> Déclarer une perte</button>
       <div className="flex gap-1.5 mb-3">
@@ -4767,16 +4842,19 @@ function LossesView({ movements, onDeclare }) {
       <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
         {losses.length === 0 && <p className="px-4 py-6 text-center text-[13px] opacity-60">Aucune perte déclarée sur la période.</p>}
         {losses.map((m, i) => {
-          const r = LOSS_REASONS.find((x) => x.label === m.reason) || LOSS_REASONS[4];
+          const r = LOSS_REASONS.find((x) => x.label === m.reason) || LOSS_REASONS.find((x) => x.id === "autre");
           return (
-            <div key={m.id} className="flex items-center gap-3 px-3.5 py-3" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+            <button key={m.id} onClick={() => onEdit?.(m)} disabled={!onEdit} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
               <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: r.bg }}><PackageX size={17} color={r.color} /></span>
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] font-bold truncate">{m.qty} × {m.productName}</p>
-                <p className="text-[11.5px] opacity-60 truncate">{r.label}{m.extra ? ` · ${m.extra}` : ""} · {new Date(m.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} {new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {m.author}</p>
+                <p className="text-[14px] font-bold truncate">{m.qty} × {m.formulaName || m.productName}</p>
+                <p className="text-[11.5px] opacity-60 truncate">{r.label}{m.extra ? ` · ${m.extra}` : ""}{m.editedAt ? " · modifiée" : ""} · {new Date(m.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} {new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {m.author}</p>
               </div>
-              <span className="font-mono text-[13px] font-bold shrink-0" style={{ color: "#B3261E" }}>– {fmt(m.value || 0)}</span>
-            </div>
+              <span className="shrink-0 text-right">
+                <span className="block font-mono text-[13px] font-bold" style={{ color: "#B3261E" }}>– {fmt(m.value || 0)}</span>
+                {onEdit && <span className="inline-flex items-center gap-1 text-[11px] font-bold mt-0.5" style={{ color: "var(--glass)" }}><Pencil size={11} /> Modifier</span>}
+              </span>
+            </button>
           );
         })}
       </div>
@@ -4784,9 +4862,10 @@ function LossesView({ movements, onDeclare }) {
   );
 }
 
-function StockScreen({ products, categories, sales = [], movements = [], inventories = [], suppliers = [], supplierProducts = [], isAdmin, onCreateOrders, onLotAction, onAddLot, onRecordLoss, shop }) {
+function StockScreen({ products, categories, sales = [], movements = [], inventories = [], suppliers = [], supplierProducts = [], isAdmin, onCreateOrders, onLotAction, onAddLot, onRecordLoss, onUpdateLoss, onDeleteLoss, shop }) {
   const [mode, setMode] = useState("etat");
   const [lossOpen, setLossOpen] = useState(false);
+  const [editLoss, setEditLoss] = useState(null);
   const expiryAlerts = expiringLots(products).filter((l) => l.days <= 7).length;
   const fmt = useFmt();
   const [ledgerProductId, setLedgerProductId] = useState(null);
@@ -4822,10 +4901,11 @@ function StockScreen({ products, categories, sales = [], movements = [], invento
         ))}
       </div>
       {lossOpen && <LossModal products={products} onSave={(d) => { onRecordLoss?.(d); setLossOpen(false); }} onClose={() => setLossOpen(false)} />}
+      {editLoss && <LossModal key={editLoss.id} products={products} edit={editLoss} onSave={(d) => { onUpdateLoss?.(editLoss.id, d); setEditLoss(null); }} onDelete={(m) => { onDeleteLoss?.(m.id); setEditLoss(null); }} onClose={() => setEditLoss(null)} />}
       {mode === "variantes" ? (
         <VariantStockView products={products} />
       ) : mode === "pertes" ? (
-        <LossesView movements={movements} onDeclare={() => setLossOpen(true)} />
+        <LossesView movements={movements} onDeclare={() => setLossOpen(true)} onEdit={isAdmin && onUpdateLoss ? setEditLoss : undefined} />
       ) : mode === "forecast" ? (
         <StockForecast products={products} sales={sales} suppliers={suppliers} supplierProducts={supplierProducts} isAdmin={isAdmin} onCreateOrders={onCreateOrders} />
       ) : mode === "expiry" ? (
@@ -9502,6 +9582,9 @@ function chargeDueDate(c, key) {
   return new Date(y, m - 1, Math.min(Math.max(1, Number(c.day) || 1), last), 12);
 }
 const chargePaid = (c, key) => (c.paidMonths || []).includes(key);
+// Une charge peut être désactivée pour un mois précis (offMonths) : elle n'est
+// alors ni comptée ni rappelée ce mois-là, et reste active les autres mois.
+const chargeActive = (c, key) => !!c && c.active !== false && !(key && (c.offMonths || []).includes(key));
 // Charges à payer bientôt : échéance dans 5 jours ou moins, ou déjà
 // dépassée ce mois-ci et pas encore marquée payée.
 function chargesDueSoon(charges, now = new Date()) {
@@ -9510,7 +9593,7 @@ function chargesDueSoon(charges, now = new Date()) {
   (charges || []).forEach((c) => {
     if (!c.day) return;
     for (const key of [monthKey(today), shiftMonth(monthKey(today), 1)]) {
-      if (chargePaid(c, key)) continue;
+      if (chargePaid(c, key) || !chargeActive(c, key)) continue;
       const due = chargeDueDate(c, key);
       const days = Math.round((due - today) / 864e5);
       if (days <= 5 && (days >= 0 || key === monthKey(today))) out.push({ charge: c, key, due, days });
@@ -9522,8 +9605,8 @@ function chargesDueSoon(charges, now = new Date()) {
 const dueText = (d) => (d < 0 ? `en retard de ${-d} jour${d < -1 ? "s" : ""}` : d === 0 ? "aujourd'hui" : d === 1 ? "demain" : `dans ${d} jours`);
 
 // Bénéfice d'un mois : ventes du mois (prix × quantité, lots inclus) − coût
-// d'achat des produits vendus − remises − dépenses enregistrées − charges
-// fixes − réserve éventuelle. Même calcul que l'onglet Rentabilité.
+// d'achat des produits vendus − remises − charges fixes − réserve éventuelle.
+// Les dépenses du quotidien sont seulement listées, jamais déduites ici.
 function computeMonthShare({ key, sales, products, expenses, charges, reservePct }) {
   const costNow = new Map((products || []).map((p) => [p.id, Number(p.costPrice) || 0]));
   let revenue = 0, cost = 0, missing = 0, remises = 0, count = 0;
@@ -9540,11 +9623,13 @@ function computeMonthShare({ key, sales, products, expenses, charges, reservePct
       cost += c * qty;
     });
   });
-  const exp = (expenses || []).filter((e) => e.date && monthKey(String(e.date).length <= 10 ? `${e.date}T12:00:00` : e.date) === key);
+  // Dépenses saisies au quotidien : seulement listées (elles sont déjà
+  // retirées de la caisse du jour). Les commandes fournisseurs n'y figurent pas.
+  const exp = (expenses || []).filter((e) => e.date && !e.supplierId && !/^Commande —/.test(e.label || "") && monthKey(String(e.date).length <= 10 ? `${e.date}T12:00:00` : e.date) === key);
   const expTotal = exp.reduce((t, e) => t + (Number(e.amount) || 0), 0);
-  const chargesTotal = (charges || []).reduce((t, c) => t + (Number(c.amount) || 0), 0);
+  const chargesTotal = (charges || []).filter((c) => chargeActive(c, key)).reduce((t, c) => t + (Number(c.amount) || 0), 0);
   const gross = revenue - remises - cost;
-  const beforeReserve = gross - expTotal - chargesTotal;
+  const beforeReserve = gross - chargesTotal;
   const reserve = reservePct > 0 && beforeReserve > 0 ? Math.round((beforeReserve * reservePct) / 100) : 0;
   return { revenue, cost, remises, gross, exp, expTotal, chargesTotal, reserve, net: beforeReserve - reserve, missing, count };
 }
@@ -9617,7 +9702,7 @@ function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pu
   };
   const closeMonth = () => {
     if (Math.abs(totalPct - 100) > 0.01) { pushToast("Le total des parts doit faire 100 % avant de clôturer", "error"); return; }
-    const rec = { id: uid(), month, date: new Date().toISOString(), revenue: calc.revenue, cost: calc.cost, remises: calc.remises, gross: calc.gross, expenses: calc.expTotal, charges: calc.chargesTotal, chargesList: charges.map((c) => ({ label: c.label, amount: c.amount })), reserve: calc.reserve, reservePct, net: calc.net, shares: splitShares(calc.net, holders).map((s) => ({ ...s, paid: false })) };
+    const rec = { id: uid(), month, date: new Date().toISOString(), revenue: calc.revenue, cost: calc.cost, remises: calc.remises, gross: calc.gross, expenses: calc.expTotal, charges: calc.chargesTotal, chargesList: charges.filter((c) => chargeActive(c, month)).map((c) => ({ label: c.label, amount: c.amount })), reserve: calc.reserve, reservePct, net: calc.net, shares: splitShares(calc.net, holders).map((s) => ({ ...s, paid: false })) };
     patch({ shareClosings: [rec, ...closings.filter((c) => c.month !== month)] });
     setConfirmClose(false); setTab("history"); setOpenClosing(rec.id); pushToast(`${monthLabel(month)} clôturé : ${nbsp(fmt(Math.max(0, calc.net)))} partagés`, "ok");
   };
@@ -9626,10 +9711,24 @@ function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pu
     patch({ fixedCharges: charges.map((x) => (x.id !== c.id ? x : { ...x, paidMonths: has ? (x.paidMonths || []).filter((k) => k !== month) : [...(x.paidMonths || []), month] })) });
     pushToast(has ? `${c.label} : marquée non payée` : `${c.label} : payée pour ${monthLabel(month).toLowerCase()}`, "ok");
   };
+  const toggleChargeActive = (c) => {
+    const on = !chargeActive(c, month);
+    const off = (c.offMonths || []).filter((k) => k !== month);
+    patch({ fixedCharges: charges.map((x) => (x.id !== c.id ? x : { ...x, active: true, offMonths: on ? off : [...off, month] })) });
+    pushToast(on ? `${c.label} réactivée pour ${monthLabel(month).toLowerCase()}` : `${c.label} désactivée pour ${monthLabel(month).toLowerCase()} uniquement`, "ok");
+  };
+  const deleteCharge = (c) => {
+    if (!window.confirm(`Supprimer définitivement la charge « ${c.label} » ?\nLes mois déjà clôturés ne sont pas modifiés.`)) return;
+    patch({ fixedCharges: charges.filter((x) => x.id !== c.id) });
+    if (editC?.id === c.id) setEditC(null);
+    pushToast(`${c.label} supprimée`, "ok");
+  };
+  const activeCharges = charges.filter((c) => chargeActive(c, month));
+  const shortMonth = (k) => { const [y, m] = k.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }); };
   const soon = chargesDueSoon(charges);
   const togglePaid = (cid, sid) => patch({ shareClosings: closings.map((c) => (c.id !== cid ? c : { ...c, shares: c.shares.map((s) => (s.id === sid ? { ...s, paid: !s.paid, paidAt: !s.paid ? new Date().toISOString() : null } : s)) })) });
   const reopen = (c) => { if (!window.confirm(`Rouvrir ${monthLabel(c.month)} ? La clôture sera annulée et le calcul redeviendra modifiable.`)) return; patch({ shareClosings: closings.filter((x) => x.id !== c.id) }); setOpenClosing(null); };
-  const closingText = (c) => [`📊 Partage des bénéfices — ${shop?.name}`, monthLabel(c.month), "", `Chiffre d'affaires : ${nbsp(fmt(c.revenue))}`, `Coût d'achat : −${nbsp(fmt(c.cost))}`, c.remises ? `Remises : −${nbsp(fmt(c.remises))}` : null, `Dépenses : −${nbsp(fmt(c.expenses))}`, c.charges ? `Charges fixes : −${nbsp(fmt(c.charges))}` : null, c.reserve ? `Réserve (${c.reservePct} %) : −${nbsp(fmt(c.reserve))}` : null, `Bénéfice net partagé : ${nbsp(fmt(Math.max(0, c.net)))}`, "", ...c.shares.map((s) => `• ${s.name} (${s.pct} %) : ${nbsp(fmt(s.amount))}${s.paid ? " ✓ payé" : ""}`)].filter((x) => x !== null).join("\n");
+  const closingText = (c) => [`📊 Partage des bénéfices — ${shop?.name}`, monthLabel(c.month), "", `Chiffre d'affaires : ${nbsp(fmt(c.revenue))}`, `Coût d'achat : −${nbsp(fmt(c.cost))}`, c.remises ? `Remises : −${nbsp(fmt(c.remises))}` : null, c.charges ? `Charges fixes : −${nbsp(fmt(c.charges))}` : null, c.reserve ? `Réserve (${c.reservePct} %) : −${nbsp(fmt(c.reserve))}` : null, `Bénéfice net partagé : ${nbsp(fmt(Math.max(0, c.net)))}`, "", ...c.shares.map((s) => `• ${s.name} (${s.pct} %) : ${nbsp(fmt(s.amount))}${s.paid ? " ✓ payé" : ""}`)].filter((x) => x !== null).join("\n");
 
   const Hero = ({ title, value, sub }) => (
     <InvHero>
@@ -9661,7 +9760,7 @@ function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pu
       {tab === "holders" && (
         <>
           <MonthBar />
-          <Hero title={closed ? "Bénéfice net partagé" : "Bénéfice net à partager"} value={net} sub={closed ? `Clôturé le ${new Date(closed.date).toLocaleDateString("fr-FR")}` : `Bénéfice ${n0(calc.gross)} − dépenses ${n0(calc.expTotal + calc.chargesTotal)}${calc.reserve ? ` − réserve ${n0(calc.reserve)}` : ""}`} />
+          <Hero title={closed ? "Bénéfice net partagé" : "Bénéfice net à partager"} value={net} sub={closed ? `Clôturé le ${new Date(closed.date).toLocaleDateString("fr-FR")}` : `Bénéfice ${n0(calc.gross)} − charges fixes ${n0(calc.chargesTotal)}${calc.reserve ? ` − réserve ${n0(calc.reserve)}` : ""}`} />
           {holders.length > 0 && (
             <div className="rounded-[18px] p-3.5 mt-2.5 flex items-center gap-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
               <div className="w-[88px] h-[88px] rounded-full shrink-0 flex items-center justify-center" style={{ background: `conic-gradient(${donut})` }}>
@@ -9716,7 +9815,6 @@ function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pu
             <Line l="− Coût d'achat des produits" v={`− ${n0(closed ? closed.cost : calc.cost)}`} color="#9A5B00" />
             {(closed ? closed.remises : calc.remises) > 0 && <Line l="− Remises accordées" v={`− ${n0(closed ? closed.remises : calc.remises)}`} color="#9A5B00" />}
             <Line l="= Bénéfice sur ventes" v={nbsp(fmt(closed ? closed.gross : calc.gross))} color="#1E7A46" strong />
-            <Line l="− Dépenses enregistrées" v={`− ${n0(closed ? closed.expenses : calc.expTotal)}`} color="#B3261E" />
             <Line l="− Charges fixes" v={`− ${n0(closed ? closed.charges : calc.chargesTotal)}`} color="#B3261E" />
             {(closed ? closed.reserve : calc.reserve) > 0 && <Line l={`− Réserve de l'entreprise (${closed ? closed.reservePct : reservePct} %)`} v={`− ${n0(closed ? closed.reserve : calc.reserve)}`} color="#6B4FB8" />}
             <Line l="= Bénéfice net à partager" v={nbsp(fmt(net))} color="var(--glass)" strong sub="réparti selon les parts" />
@@ -9730,26 +9828,43 @@ function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pu
             </div>
           )}
           <div className="flex items-center mt-4 mb-2">
-            <h3 className="font-display font-bold text-[14.5px] flex-1">Charges fixes mensuelles</h3>
+            <h3 className="font-display font-bold text-[14.5px] flex-1">Charges fixes mensuelles
+              {!closed && charges.length > 0 && <span className="block text-[11px] font-normal opacity-60">{activeCharges.length} active{activeCharges.length > 1 ? "s" : ""}{charges.length - activeCharges.length > 0 ? ` · ${charges.length - activeCharges.length} désactivée${charges.length - activeCharges.length > 1 ? "s" : ""}` : ""} · {nbsp(fmt(calc.chargesTotal))} comptés</span>}
+            </h3>
             {!closed && <button onClick={() => setEditC({ label: "", amount: "" })} className="gb-focus text-[12px] font-bold" style={{ color: "var(--glass)" }}>+ Ajouter</button>}
           </div>
           <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
             {(closed ? closed.chargesList || [] : charges).map((c, i) => {
-              const paidNow = !closed && chargePaid(c, month);
-              const d = !closed && c.day ? Math.round((chargeDueDate(c, month) - new Date(new Date().setHours(12, 0, 0, 0))) / 864e5) : null;
+              const on = closed ? true : chargeActive(c, month);
+              const otherOff = closed ? [] : (c.offMonths || []).filter((k) => k !== month).sort();
+              const paidNow = !closed && on && chargePaid(c, month);
+              const d = !closed && on && c.day ? Math.round((chargeDueDate(c, month) - new Date(new Date().setHours(12, 0, 0, 0))) / 864e5) : null;
               return (
-                <div key={c.id || i} className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
-                  <button disabled={!!closed} onClick={() => setEditC({ ...c, amount: String(c.amount), day: c.day ? String(c.day) : "" })} className="gb-focus flex-1 min-w-0 flex items-center gap-3 text-left">
-                    <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: paidNow ? "#EAF3DE" : "#FCEBEB" }}>{paidNow ? <Check size={16} color="#27500A" /> : <Wallet size={16} color="#B3261E" />}</span>
+                <div key={c.id || i} className="px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none", background: on ? "transparent" : "var(--paper-dim)" }}>
+                  <button disabled={!!closed} onClick={() => setEditC({ ...c, amount: String(c.amount), day: c.day ? String(c.day) : "" })} className="gb-focus w-full min-w-0 flex items-center gap-3 text-left" style={{ opacity: on ? 1 : 0.55 }}>
+                    <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: !on ? "var(--card)" : paidNow ? "#EAF3DE" : "#FCEBEB" }}>{paidNow ? <Check size={16} color="#27500A" /> : <Wallet size={16} color={on ? "#B3261E" : "#66707A"} />}</span>
                     <span className="flex-1 min-w-0">
-                      <span className="block text-[13px] font-bold truncate">{c.label}</span>
-                      <span className="block text-[11px]" style={{ color: paidNow ? "#27500A" : d != null && d <= 5 ? (d < 0 ? "#B3261E" : "#9A5B00") : "#66707A", fontWeight: d != null && d <= 5 && !paidNow ? 700 : 400 }}>
-                        {c.day ? `Le ${c.day} de chaque mois` : "Chaque mois · sans date"}{paidNow ? " · payée" : d != null && isCurrent ? ` · ${dueText(d)}` : ""}
+                      <span className="block text-[13px] font-bold truncate" style={{ textDecoration: on ? "none" : "line-through" }}>{c.label}</span>
+                      <span className="block text-[11px]" style={{ color: !on ? "#66707A" : paidNow ? "#27500A" : d != null && d <= 5 ? (d < 0 ? "#B3261E" : "#9A5B00") : "#66707A", fontWeight: on && d != null && d <= 5 && !paidNow ? 700 : 400 }}>
+                        {!on ? `Désactivée pour ${monthLabel(month).toLowerCase()} · active les autres mois` : <>{c.day ? `Le ${c.day} de chaque mois` : "Chaque mois · sans date"}{paidNow ? " · payée" : d != null && isCurrent ? ` · ${dueText(d)}` : ""}</>}
                       </span>
+                      {otherOff.length > 0 && <span className="block text-[10.5px] mt-0.5" style={{ color: "#66707A" }}>Désactivée en {otherOff.map(shortMonth).join(", ")}</span>}
                     </span>
-                    <b className="text-[13px] shrink-0" style={{ color: "#B3261E" }}>− {n0(c.amount)}</b>
+                    <b className="text-[13px] shrink-0 whitespace-nowrap" style={{ color: on ? "#B3261E" : "#66707A" }}>− {n0(c.amount)}</b>
                   </button>
-                  {!closed && <button onClick={() => toggleChargePaid(c)} className="gb-focus shrink-0 h-8 px-2.5 rounded-full text-[10.5px] font-bold" style={paidNow ? { background: "#EAF3DE", color: "#27500A" } : { background: "var(--paper-dim)" }}>{paidNow ? "✓ Payée" : "Payer"}</button>}
+                  {!closed && (
+                    <div className="flex items-center gap-2 mt-2 pl-12">
+                      <button onClick={() => toggleChargeActive(c)} role="switch" aria-checked={on} aria-label={`${on ? "Désactiver" : "Activer"} ${c.label}`} className="gb-focus flex items-center gap-2 h-8 pr-1 text-[11.5px] font-bold" style={{ color: on ? "#1E7A46" : "#66707A" }}>
+                        <span className="relative w-9 h-5 rounded-full transition-colors shrink-0" style={{ background: on ? "#1E8E50" : "#C9CED3" }}>
+                          <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all" style={{ left: on ? 18 : 2 }} />
+                        </span>
+                        {on ? `Activée en ${monthLabel(month).split(" ")[0].toLowerCase()}` : `Désactivée en ${monthLabel(month).split(" ")[0].toLowerCase()}`}
+                      </button>
+                      <span className="flex-1" />
+                      {on && <button onClick={() => toggleChargePaid(c)} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[11px] font-bold" style={paidNow ? { background: "#EAF3DE", color: "#27500A" } : { background: "var(--paper-dim)" }}>{paidNow ? "✓ Payée" : "Payer"}</button>}
+                      <button onClick={() => deleteCharge(c)} aria-label={`Supprimer ${c.label}`} className="gb-focus shrink-0 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#FCEBEB" }}><Trash2 size={14} color="#B3261E" /></button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -9757,15 +9872,16 @@ function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pu
           </div>
 
           <div className="flex items-center mt-4 mb-2">
-            <h3 className="font-display font-bold text-[14.5px] flex-1">Dépenses du mois</h3>
+            <h3 className="font-display font-bold text-[14.5px] flex-1">Dépenses du mois <span className="block text-[11px] font-normal opacity-60">Pour information · déjà déduites des ventes du jour, non retirées du partage</span></h3>
             {onOpenExpenses && !closed && <button onClick={onOpenExpenses} className="gb-focus text-[12px] font-bold" style={{ color: "var(--glass)" }}>+ Ajouter</button>}
           </div>
           <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            {calc.exp.length > 0 && <div className="flex justify-between px-3.5 py-2 text-[11.5px] font-bold" style={{ background: "var(--paper)", borderBottom: "1px solid var(--line)" }}><span className="opacity-60">{calc.exp.length} dépense{calc.exp.length > 1 ? "s" : ""} ce mois</span><span>{nbsp(fmt(calc.expTotal))}</span></div>}
             {calc.exp.map((e, i) => (
               <div key={e.id || i} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
                 <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "#FFF1D6" }}><Coins size={16} color="#9A5B00" /></span>
                 <span className="flex-1 min-w-0"><span className="block text-[13px] font-bold truncate">{e.label}</span><span className="block text-[11px] opacity-55">{new Date(String(e.date).length <= 10 ? `${e.date}T12:00:00` : e.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}{e.author ? ` · ${e.author}` : ""}</span></span>
-                <b className="text-[13px]" style={{ color: "#B3261E" }}>− {n0(e.amount)}</b>
+                <b className="text-[13px] opacity-70">{n0(e.amount)}</b>
               </div>
             ))}
             {calc.exp.length === 0 && <p className="text-[12.5px] text-center py-4 opacity-55">Aucune dépense enregistrée ce mois-ci.</p>}
@@ -9825,7 +9941,7 @@ function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pu
                       <div className="rounded-[12px] px-3 py-2 mt-1.5 text-[11.5px]" style={{ background: "var(--paper)" }}>
                         <div className="flex justify-between py-0.5"><span className="opacity-60">Chiffre d'affaires</span><span>{nbsp(fmt(c.revenue))}</span></div>
                         <div className="flex justify-between py-0.5"><span className="opacity-60">Coût d'achat</span><span>− {n0(c.cost)}</span></div>
-                        <div className="flex justify-between py-0.5"><span className="opacity-60">Dépenses + charges</span><span>− {n0((c.expenses || 0) + (c.charges || 0))}</span></div>
+                        <div className="flex justify-between py-0.5"><span className="opacity-60">Charges fixes</span><span>− {n0(c.charges || 0)}</span></div>
                         {c.reserve > 0 && <div className="flex justify-between py-0.5"><span className="opacity-60">Réserve ({c.reservePct} %)</span><span>− {n0(c.reserve)}</span></div>}
                       </div>
                       <div className="grid grid-cols-3 gap-2 mt-2.5">
@@ -9876,7 +9992,7 @@ function ShareholdersSection({ shop, saveShopMeta, sales, products, expenses, pu
           </NuitField>
           <p className="text-[11.5px] -mt-1.5 mb-3" style={{ color: "#66707A" }}>Vous serez prévenu 5 jours avant (notification écrite et vocale), puis à chaque connexion jusqu'à ce que la dépense soit marquée payée.</p>
           <button onClick={saveCharge} className="gb-focus w-full min-h-[52px] rounded-[16px] text-white font-bold text-[15px] flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Check size={18} /> Enregistrer</button>
-          {editC.id && <button onClick={() => { patch({ fixedCharges: charges.filter((c) => c.id !== editC.id) }); setEditC(null); }} className="gb-focus w-full min-h-[46px] rounded-[16px] mt-2 font-bold text-[13.5px]" style={{ background: "#FCEBEB", color: "#A32D2D" }}>Supprimer cette charge</button>}
+          {editC.id && <button onClick={() => deleteCharge(charges.find((c) => c.id === editC.id) || editC)} className="gb-focus w-full min-h-[46px] rounded-[16px] mt-2 font-bold text-[13.5px]" style={{ background: "#FCEBEB", color: "#A32D2D" }}>Supprimer cette charge</button>}
         </NuitSheet>
       )}
     </div>
@@ -12453,6 +12569,13 @@ const ADMIN_SECTIONS = [
   { id: "assistance", desc: "Messages du support", label: "Assistance", Icon: MessageCircle, group: "Assistance" },
 ];
 
+// Un message local "en cours d'envoi" est déjà arrivé sur le serveur si un message
+// identique (même auteur, même texte) y figure à ±2 min.
+function supportAlreadyOnServer(local, serverMsgs) {
+  const t = new Date(local.created_at).getTime();
+  return serverMsgs.some((m) => m.sender === local.sender && m.body === local.body && Math.abs(new Date(m.created_at).getTime() - t) < 120000);
+}
+
 function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
   const [email, setEmail] = useState("");
   const [secret, setSecret] = useState("");
@@ -12462,17 +12585,31 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
   const [thread, setThread] = useState([]);
   const [reply, setReply] = useState("");
 
-  const fetchList = async (em, sc) => {
-    setLoading(true);
+  const listBusy = useRef(false);
+  const threadBusy = useRef(false);
+  const activeRef = useRef(null);
+  const threadEndRef = useRef(null);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [netIssue, setNetIssue] = useState(false);
+  const errText = (e, action) => api.networkErrorText(e, action) || e?.message || "Erreur";
+
+  // silent = rafraîchissement automatique : aucune alerte, on garde les données déjà affichées
+  const fetchList = async (em, sc, { silent = false } = {}) => {
+    if (listBusy.current) return false;
+    listBusy.current = true;
+    if (!silent) setLoading(true);
     try {
       const data = await api.ownerSupportList({ email: em, secret: sc });
       setConversations(data.conversations);
+      setNetIssue(false);
       return true;
     } catch (e) {
-      pushToast(e.message || "Accès refusé", "error");
+      if (silent && api.isNetworkError(e)) setNetIssue(true);
+      else pushToast(errText(e, "charger les messages") || "Accès refusé", "error");
       return false;
     } finally {
-      setLoading(false);
+      listBusy.current = false;
+      if (!silent) setLoading(false);
     }
   };
 
@@ -12483,7 +12620,10 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
 
   useEffect(() => {
     if (!ownerAccess) return;
-    const interval = setInterval(() => fetchList(ownerAccess.email, ownerAccess.secret), 15000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "hidden" || activeRef.current) return;
+      fetchList(ownerAccess.email, ownerAccess.secret, { silent: true });
+    }, 15000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerAccess]);
@@ -12494,21 +12634,80 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
     if (ok) { onVerifyOwner({ email: em, secret }); pushToast("Accès propriétaire vérifié", "ok"); }
   };
 
-  const openThread = async (deviceId) => {
-    setActiveDeviceId(deviceId);
+  // Fusionne les messages du serveur avec ceux en cours d'envoi / en échec
+  const mergeThread = (serverMsgs) => setThread((cur) => {
+    const local = cur.filter((m) => m.pending || m.failed);
+    return [...serverMsgs, ...local.filter((l) => !supportAlreadyOnServer(l, serverMsgs))];
+  });
+
+  const loadThread = async (deviceId, { silent = false } = {}) => {
+    if (threadBusy.current) return;
+    threadBusy.current = true;
     try {
       const data = await api.ownerSupportMessages({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId });
-      setThread(data.messages);
-    } catch (e) { pushToast(e.message, "error"); }
+      if (activeRef.current === deviceId) { mergeThread(data.messages || []); setNetIssue(false); }
+    } catch (e) {
+      if (silent && api.isNetworkError(e)) setNetIssue(true);
+      else if (!silent) pushToast(errText(e, "ouvrir la conversation"), "error");
+    } finally {
+      threadBusy.current = false;
+      if (!silent) setThreadLoading(false);
+    }
   };
 
-  const sendReply = async () => {
-    if (!reply.trim()) return;
+  const openThread = (deviceId) => {
+    activeRef.current = deviceId;
+    setActiveDeviceId(deviceId);
+    setThread([]);
+    setThreadLoading(true);
+    loadThread(deviceId);
+  };
+
+  const closeThread = () => {
+    activeRef.current = null;
+    setActiveDeviceId(null);
+    fetchList(ownerAccess.email, ownerAccess.secret, { silent: true });
+  };
+
+  // Conversation ouverte : nouveaux messages vérifiés toutes les 5 s
+  useEffect(() => {
+    if (!ownerAccess || !activeDeviceId) return;
+    const t = setInterval(() => {
+      if (document.visibilityState !== "hidden") loadThread(activeDeviceId, { silent: true });
+    }, 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerAccess, activeDeviceId]);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ block: "end" });
+  }, [thread.length, activeDeviceId]);
+
+  const deliver = async (tmp) => {
+    const deviceId = activeRef.current;
     try {
-      await api.ownerSupportReply({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: activeDeviceId, message: reply.trim() });
-      setReply("");
-      openThread(activeDeviceId);
-    } catch (e) { pushToast(e.message, "error"); }
+      const res = await api.ownerSupportReply({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId, message: tmp.body });
+      setThread((cur) => cur.map((m) => (m.id === tmp.id ? (res.message ? { ...res.message } : { ...m, pending: false }) : m)));
+      if (!res.message) loadThread(deviceId, { silent: true });
+    } catch (e) {
+      setThread((cur) => cur.map((m) => (m.id === tmp.id ? { ...m, pending: false, failed: true } : m)));
+      pushToast(api.networkErrorText(e, "envoyer le message") ? "Message non envoyé — touchez-le pour réessayer." : errText(e), "error");
+    }
+  };
+
+  const sendReply = () => {
+    const text = reply.trim();
+    if (!text || !activeDeviceId) return;
+    const tmp = { id: `tmp-${Date.now()}`, sender: "owner", body: text, created_at: new Date().toISOString(), pending: true };
+    setThread((cur) => [...cur, tmp]);
+    setReply("");
+    deliver(tmp);
+  };
+
+  const retrySend = (m) => {
+    if (!m.failed) return;
+    setThread((cur) => cur.map((x) => (x.id === m.id ? { ...x, failed: false, pending: true } : x)));
+    deliver(m);
   };
 
   const delConversation = async (deviceId) => {
@@ -12516,9 +12715,10 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
     try {
       await api.ownerSupportDelete({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId });
       pushToast("Conversation supprimée", "ok");
+      activeRef.current = null;
       setActiveDeviceId(null);
       fetchList(ownerAccess.email, ownerAccess.secret);
-    } catch (e) { pushToast(e.message, "error"); }
+    } catch (e) { pushToast(errText(e, "supprimer la conversation"), "error"); }
   };
 
   if (!ownerAccess) {
@@ -12547,7 +12747,7 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
     return (
       <div className="rounded-2xl overflow-hidden" style={{ background: "var(--paper-dim)" }}>
         <div className="px-3.5 py-3 flex items-center gap-2.5" style={{ background: "var(--glass)" }}>
-          <button onClick={() => setActiveDeviceId(null)} className="gb-focus shrink-0"><ArrowUpCircle size={17} color="#fff" style={{ transform: "rotate(-90deg)" }} /></button>
+          <button onClick={closeThread} className="gb-focus shrink-0" aria-label="Retour"><ArrowUpCircle size={17} color="#fff" style={{ transform: "rotate(-90deg)" }} /></button>
           <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px]" style={{ background: "var(--cap)", color: "var(--glass)" }}>{initials(conv?.name || "Anonyme")}</div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white flex items-center gap-1.5 truncate">
@@ -12562,19 +12762,29 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
           {thread.map((m) => (
             <div
               key={m.id}
+              onClick={() => retrySend(m)}
               className="rounded-xl px-3 py-2 text-sm max-w-[80%] gb-slide-up"
               style={{
-                background: m.sender === "owner" ? "var(--glass)" : "var(--card)",
-                color: m.sender === "owner" ? "#fff" : "var(--ink)",
+                background: m.failed ? "#FDECEC" : m.sender === "owner" ? "var(--glass)" : "var(--card)",
+                color: m.failed ? "#A32D2D" : m.sender === "owner" ? "#fff" : "var(--ink)",
                 alignSelf: m.sender === "owner" ? "flex-end" : "flex-start",
-                border: m.sender === "owner" ? "none" : "1px solid var(--line)",
+                border: m.failed ? "1px solid #F09595" : m.sender === "owner" ? "none" : "1px solid var(--line)",
+                opacity: m.pending ? 0.7 : 1,
+                cursor: m.failed ? "pointer" : "default",
               }}
             >
               {m.body}
+              {(m.pending || m.failed) && (
+                <span className="block text-[10px] mt-0.5 text-right" style={{ opacity: 0.8 }}>
+                  {m.pending ? "Envoi…" : "Échec · toucher pour réessayer"}
+                </span>
+              )}
             </div>
           ))}
-          {thread.length === 0 && <p className="text-sm opacity-50 text-center py-4">Aucun message.</p>}
+          {thread.length === 0 && <p className="text-sm opacity-50 text-center py-4">{threadLoading ? "Chargement…" : "Aucun message."}</p>}
+          <div ref={threadEndRef} />
         </div>
+        {netIssue && <p className="text-[11px] text-center py-1" style={{ background: "#FFF4E0", color: "#8A5A00" }}>Connexion lente — nouvelle tentative automatique…</p>}
         <div className="flex items-center gap-2 p-3" style={{ background: "var(--card)", borderTop: "1px solid var(--line)" }}>
           <input value={reply} onChange={(e) => setReply(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendReply()} placeholder="Répondre…" className="gb-focus flex-1 min-w-0 rounded-full px-4 py-2.5 text-sm border" style={{ borderColor: "var(--line)" }} />
           <button onClick={sendReply} className="gb-focus shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "var(--cap)" }} aria-label="Envoyer">
@@ -12597,6 +12807,7 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> {loading ? "…" : "Actualiser"}
         </button>
       </div>
+      {netIssue && <p className="text-[11px] rounded-xl px-3 py-2 mb-2.5" style={{ background: "#FFF4E0", color: "#8A5A00" }}>Connexion lente — la liste sera actualisée automatiquement.</p>}
       <div className="flex flex-col gap-2.5">
         {activeConversations.map((c) => (
           <button key={c.device_id} onClick={() => openThread(c.device_id)} className="gb-focus w-full text-left rounded-2xl p-3.5 flex gap-3 items-start" style={{ background: "var(--card)", boxShadow: "0 2px 10px rgba(15,27,22,0.07)" }}>
@@ -12663,6 +12874,7 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
   const [activatingId, setActivatingId] = useState(null);
   const [resetResult, setResetResult] = useState(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const fetchShops = async (em, sc, silent) => {
     if (!silent) setLoading(true);
@@ -12728,15 +12940,23 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
     );
   }
 
+  // licence = licence payante en cours (à vie incluse) · trial = essai en cours
+  // · inactive = essai/licence expiré ou jamais activé
+  const kindOf = (s) => (s.subscription?.status === "active" ? "licence" : s.subscription?.status === "trial" ? "trial" : "inactive");
+  const soonMs = 7 * 864e5;
   const totals = (allShops || []).reduce((acc, s) => {
+    const sub = s.subscription || {};
+    const k = kindOf(s);
     acc.total += 1;
-    if (s.subscription?.status === "active") acc.active += 1;
-    else if (s.subscription?.status === "trial") acc.trial += 1;
-    else acc.inactive += 1;
+    acc[k] += 1;
+    if (k === "licence" && (sub.plan === "lifetime" || !sub.expiresAt)) acc.lifetime += 1;
+    if (k === "inactive") { if (sub.status === "expired") acc.expired += 1; else acc.never += 1; }
+    if (k !== "inactive" && sub.expiresAt && new Date(sub.expiresAt) - Date.now() < soonMs) acc.soon += 1;
     return acc;
-  }, { total: 0, trial: 0, active: 0, inactive: 0 });
+  }, { total: 0, licence: 0, trial: 0, inactive: 0, lifetime: 0, expired: 0, never: 0, soon: 0 });
+  const pctOf = (n) => (totals.total ? Math.round((n / totals.total) * 100) : 0);
 
-  const filteredShops = (allShops || []).filter((s) => (s.name || "").toLowerCase().includes(search.trim().toLowerCase()));
+  const filteredShops = (allShops || []).filter((s) => (s.name || "").toLowerCase().includes(search.trim().toLowerCase()) && (statusFilter === "all" || kindOf(s) === statusFilter));
 
   const deleteShop = async (shopId, shopName) => {
     if (!window.confirm(`Supprimer définitivement "${shopName}" et toutes ses données ? Cette action est irréversible.`)) return;
@@ -12788,15 +13008,57 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        <StatCard icon={Store} label="Entreprises" value={totals.total} dark />
-        <StatCard icon={Check} label="Actives" value={totals.active + totals.trial} tintBg="#EAF3DE" tintFg="#3B6D11" />
-        <StatCard icon={AlertTriangle} label="Inactives" value={totals.inactive} tintBg={totals.inactive > 0 ? "#FCEBEB" : undefined} tintFg={totals.inactive > 0 ? "#A32D2D" : undefined} />
+      {/* Synthèse du parc */}
+      <div className="rounded-[22px] p-4 mb-3 text-white relative overflow-hidden" style={{ background: "linear-gradient(135deg, #12352A 0%, #1E5A45 100%)", boxShadow: "0 10px 24px -12px rgba(18,53,42,0.6)" }}>
+        <span className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <div className="flex items-start justify-between gap-3 relative">
+          <div>
+            <p className="text-[11px] font-bold tracking-[0.08em] uppercase opacity-70">Entreprises inscrites</p>
+            <p className="font-display font-bold text-[38px] leading-none mt-1.5">{totals.total}</p>
+            <p className="text-[12px] opacity-75 mt-1.5">{totals.licence + totals.trial} en activité · taux de conversion {totals.licence + totals.trial + totals.expired ? Math.round((totals.licence / (totals.licence + totals.trial + totals.expired)) * 100) : 0} %</p>
+          </div>
+          <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.12)" }}><Store size={20} color="#F6C453" /></span>
+        </div>
+        <div className="flex h-2.5 rounded-full overflow-hidden mt-4 relative" style={{ background: "rgba(255,255,255,0.14)" }}>
+          {totals.licence > 0 && <span style={{ width: `${pctOf(totals.licence)}%`, background: "#7ED957" }} />}
+          {totals.trial > 0 && <span style={{ width: `${pctOf(totals.trial)}%`, background: "#F6A93B" }} />}
+          {totals.inactive > 0 && <span style={{ width: `${pctOf(totals.inactive)}%`, background: "#F07272" }} />}
+        </div>
+        <div className="flex flex-wrap gap-x-3.5 gap-y-1 mt-2 text-[11px] font-semibold relative">
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: "#7ED957" }} />Licences {pctOf(totals.licence)} %</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: "#F6A93B" }} />Essais {pctOf(totals.trial)} %</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: "#F07272" }} />Inactives {pctOf(totals.inactive)} %</span>
+        </div>
       </div>
 
-      <div className="rounded-2xl p-3.5 mb-4 flex items-start gap-2.5" style={{ background: "#E1F5EE" }}>
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {[
+          { k: "licence", label: "Licences activées", n: totals.licence, sub: totals.lifetime ? `dont ${totals.lifetime} à vie` : "payantes en cours", Icon: KeyRound, bg: "#EAF3DE", fg: "#2E6B10", ring: "#97C459" },
+          { k: "trial", label: "Essais actifs", n: totals.trial, sub: "période gratuite", Icon: Clock, bg: "#FDF0DA", fg: "#8A5208", ring: "#EF9F27" },
+          { k: "inactive", label: "Inactives", n: totals.inactive, sub: totals.inactive ? [totals.expired ? `${totals.expired} expirée${totals.expired > 1 ? "s" : ""}` : null, totals.never ? `${totals.never} jamais activée${totals.never > 1 ? "s" : ""}` : null].filter(Boolean).join(" · ") : "aucune", Icon: AlertTriangle, bg: "#FCEBEB", fg: "#A32D2D", ring: "#F09595" },
+        ].map((t) => {
+          const on = statusFilter === t.k;
+          return (
+            <button key={t.k} onClick={() => setStatusFilter(on ? "all" : t.k)} aria-pressed={on} className="gb-focus rounded-[18px] p-3 text-left flex flex-col transition-all" style={{ background: on ? t.bg : "var(--card)", border: `1.5px solid ${on ? t.ring : "var(--line)"}`, boxShadow: on ? "none" : "0 2px 8px rgba(15,27,22,0.05)" }}>
+              <span className="w-8 h-8 rounded-[10px] flex items-center justify-center mb-2" style={{ background: t.bg }}><t.Icon size={15} color={t.fg} /></span>
+              <span className="font-display font-bold text-[24px] leading-none" style={{ color: t.fg }}>{t.n}</span>
+              <span className="text-[11.5px] font-bold mt-1.5 leading-tight">{t.label}</span>
+              <span className="text-[10px] opacity-55 mt-0.5 leading-tight">{t.sub}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {totals.soon > 0 && (
+        <button onClick={() => setStatusFilter("all")} className="w-full rounded-[14px] px-3.5 py-2.5 mb-3 flex items-center gap-2.5 text-left" style={{ background: "#FFF4E0", color: "#8A5A00" }}>
+          <Bell size={15} className="shrink-0" />
+          <span className="text-[12px]"><b>{totals.soon} entreprise{totals.soon > 1 ? "s" : ""}</b> arrive{totals.soon > 1 ? "nt" : ""} à expiration dans moins de 7 jours — pensez à la relance.</span>
+        </button>
+      )}
+
+      <div className="rounded-2xl px-3.5 py-2.5 mb-3 flex items-start gap-2.5" style={{ background: "#E1F5EE" }}>
         <ShieldCheck size={14} className="shrink-0 mt-0.5" color="#0F6E56" />
-        <p className="text-[11px]" style={{ color: "#0F6E56" }}>Cette vue est connectée au serveur — elle liste <strong>toutes les entreprises créées sur tous les appareils</strong>, pas seulement celui-ci.</p>
+        <p className="text-[11px]" style={{ color: "#0F6E56" }}>Données du serveur : <strong>toutes les entreprises, tous appareils confondus</strong>.</p>
       </div>
 
       <div className="relative mb-4">
@@ -12810,7 +13072,11 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
         />
       </div>
 
-      <h3 className="font-display font-bold text-base mb-2">Toutes les entreprises ({filteredShops.length}{filteredShops.length !== (allShops || []).length ? ` / ${(allShops || []).length}` : ""})</h3>
+      <div className="flex items-center gap-2 mb-2">
+        <h3 className="font-display font-bold text-base flex-1">{statusFilter === "all" ? "Toutes les entreprises" : statusFilter === "licence" ? "Licences activées" : statusFilter === "trial" ? "Essais actifs" : "Entreprises inactives"} ({filteredShops.length})</h3>
+        {statusFilter !== "all" && <button onClick={() => setStatusFilter("all")} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[12px] font-bold flex items-center gap-1" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><X size={12} /> Tout afficher</button>}
+      </div>
+      {filteredShops.length === 0 && <p className="text-[12.5px] text-center py-6 opacity-55">Aucune entreprise dans cette catégorie.</p>}
       <div className="flex flex-col gap-2.5">
         {filteredShops.map((s) => {
           const typeLabel = ESTABLISHMENT_TYPES.find((t) => t.id === s.type)?.label || s.type || "";
@@ -12820,7 +13086,7 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
           const isTrialActive = sub.status === "trial";
           const isPaidActive = sub.status === "active";
           const isActive = isPaidActive || isTrialActive;
-          const label = isPaidActive ? "ACTIF" : isTrialActive ? "ESSAI ACTIF" : sub.status === "expired" ? "EXPIRÉ" : "INACTIF";
+          const label = isPaidActive ? (sub.plan === "lifetime" || !sub.expiresAt ? "LICENCE À VIE" : "LICENCE ACTIVE") : isTrialActive ? "ESSAI ACTIF" : sub.status === "expired" ? "EXPIRÉ" : "INACTIF";
           // Même code couleur que la barre de progression juste en dessous :
           // vert = licence payante active, orange = essai en cours, rouge =
           // expiré (ou jamais activé).
@@ -13255,6 +13521,26 @@ function SnackSection({ shop, products, saveProducts, movements, saveMovements, 
     pushToast(`${qty} ${p.name.toLowerCase()} ajoutés · ${fmt(unit)} l'unité`, "ok");
     setBuyOpen(null);
   };
+  // Modification d'un lot de pains déjà enregistré : quantité, montant payé,
+  // prix de vente et date. Le stock, la dépense liée et les prix du produit
+  // (si c'est le dernier lot) sont corrigés en même temps.
+  const [editLot, setEditLot] = useState(null);
+  const editBreadLot = ({ productId, qty, amount, price, date }) => {
+    const lot = editLot; if (!lot) return;
+    const p = products.find((x) => x.id === productId);
+    const dq = qty - (Number(lot.qty) || 0);
+    const isLatest = !lots.some((l) => l.kind === "pain" && l.productId === productId && new Date(l.date) > new Date(lot.date));
+    const unit = qty > 0 ? Math.round((amount / qty) * 100) / 100 : 0;
+    if (p) {
+      const before = Number(p.stock) || 0;
+      if (dq !== 0 || isLatest) saveProducts(products.map((x) => (x.id === productId ? { ...x, stock: before + dq, ...(isLatest ? { costPrice: unit, price } : {}) } : x)));
+      if (dq !== 0) saveMovements([{ id: uid(), date: todayISO(), productId, productName: p.name, type: "ajustement", delta: dq, before, after: before + dq, author, note: `Correction du lot du ${dStr(lot.date)} : ${lot.qty} → ${qty}` }, ...movements]);
+    }
+    saveSnackLots(lots.map((l) => (l.id === lot.id ? { ...l, qty, amount, price, date } : l)));
+    if (lot.expenseId && expenses.some((e) => e.id === lot.expenseId)) saveExpenses(expenses.map((e) => (e.id === lot.expenseId ? { ...e, amount, label: `Achat de ${qty} ${(p?.unit || "pain")}${qty > 1 ? "s" : ""} (${p?.name || "pain"})`, date } : e)));
+    pushToast(`Lot modifié : ${qty} pains · ${fmt(amount)} · vendu ${fmt(price)} l'unité`, "ok");
+    setEditLot(null);
+  };
   // Répartit le stock actuel sur les lots, du plus récent au plus ancien :
   // un lot entièrement « consommé » est vendu.
   const breadLotsOf = (p) => {
@@ -13354,7 +13640,8 @@ function SnackSection({ shop, products, saveProducts, movements, saveMovements, 
                           <span className="text-[13px] font-bold">Lot du {dStr(l.date)}</span>
                           <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={done ? { background: "#fff", color: SK.ok } : { background: SK.okBg, color: SK.ok }}>{done ? "VENDU" : "EN COURS"}</span>
                         </div>
-                        <p className="text-[11.5px]" style={{ color: SK.mut }}>{l.qty} achetés · {fmt(l.amount)} · {fmt(l.amount / Math.max(1, l.qty))} l'unité</p>
+                        <p className="text-[11.5px]" style={{ color: SK.mut }}>{l.qty} achetés · {fmt(l.amount)} · {fmt(l.amount / Math.max(1, l.qty))} l'unité · vendu {fmt(l.price)}</p>
+                        <button onClick={() => setEditLot(l)} className="gb-focus mt-1 text-[12px] font-bold flex items-center gap-1" style={{ color: SK.ok }}><Pencil size={12} /> Modifier le lot (quantité, montant, prix)</button>
                         {!done && (
                           <div className="mt-2">
                             <div className="flex justify-between text-[11.5px] font-semibold"><span>{l.sold} vendu{l.sold > 1 ? "s" : ""}</span><span style={{ color: SK.amb }}>{l.remaining} restant{l.remaining > 1 ? "s" : ""}</span></div>
@@ -13493,19 +13780,21 @@ function SnackSection({ shop, products, saveProducts, movements, saveMovements, 
         );
       })()}
 
+      {editLot && <BreadBuySheet product={products.find((x) => x.id === editLot.productId)} edit={editLot} onSave={editBreadLot} onClose={() => setEditLot(null)} />}
       {buyOpen && <BreadBuySheet product={products.find((x) => x.id === buyOpen)} last={lots.filter((l) => l.kind === "pain" && l.productId === buyOpen).sort((a, b) => new Date(b.date) - new Date(a.date))[0]} onSave={buyBread} onClose={() => setBuyOpen(null)} />}
       {ingSheet && <IngredientSheet state={ingSheet} onAdd={addIngredient} onRefill={refill} onEdit={editLotPrice} onClose={() => setIngSheet(null)} />}
     </div>
   );
 }
 
-function BreadBuySheet({ product, last, onSave, onClose }) {
+function BreadBuySheet({ product, last, edit, onSave, onClose }) {
   const fmt = useFmt();
   // Pré-rempli avec le dernier achat : si rien n'a changé, il suffit de valider.
-  const [qty, setQty] = useState(last ? String(last.qty) : "");
-  const [amount, setAmount] = useState(last ? String(last.amount) : "");
-  const [price, setPrice] = useState(String(product?.price || ""));
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  // En modification, pré-rempli avec le lot choisi.
+  const [qty, setQty] = useState(edit ? String(edit.qty) : last ? String(last.qty) : "");
+  const [amount, setAmount] = useState(edit ? String(edit.amount) : last ? String(last.amount) : "");
+  const [price, setPrice] = useState(String(edit ? edit.price || product?.price || "" : product?.price || ""));
+  const [date, setDate] = useState((edit ? new Date(edit.date) : new Date()).toISOString().slice(0, 10));
   const q = Number(qty) || 0, a = Number(amount) || 0, pr = Number(price) || 0;
   const unit = q > 0 ? a / q : 0;
   const margin = pr - unit;
@@ -13515,8 +13804,9 @@ function BreadBuySheet({ product, last, onSave, onClose }) {
     onSave({ productId: product.id, qty: q, amount: a, price: pr, date: isNaN(d) ? new Date().toISOString() : d.toISOString() });
   };
   return (
-    <SnackSheet kicker="Nouvel achat" title={product?.name || "Pains"} onClose={onClose}>
-      {last && <p className="text-[12px] rounded-[11px] px-3 py-2 mb-2.5" style={{ background: SK.okBg, color: SK.ok }}>Rempli avec le dernier achat ({last.qty} pour {fmt(last.amount)}). Modifiez si la quantité ou le prix a changé.</p>}
+    <SnackSheet kicker={edit ? "Modifier le lot" : "Nouvel achat"} title={product?.name || "Pains"} onClose={onClose}>
+      {edit && <p className="text-[12px] rounded-[11px] px-3 py-2 mb-2.5" style={{ background: SK.okBg, color: SK.ok }}>Lot du {new Date(edit.date).toLocaleDateString("fr-FR")} : {edit.qty} pains pour {fmt(edit.amount)}. Le stock et la dépense liée seront corrigés.</p>}
+      {!edit && last && <p className="text-[12px] rounded-[11px] px-3 py-2 mb-2.5" style={{ background: SK.okBg, color: SK.ok }}>Rempli avec le dernier achat ({last.qty} pour {fmt(last.amount)}). Modifiez si la quantité ou le prix a changé.</p>}
       <div className="grid grid-cols-2 gap-2.5">
         <div><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Quantité achetée</p><input type="number" inputMode="numeric" className={skInput} style={{ borderColor: SK.line }} placeholder="Ex : 10" value={qty} onChange={(e) => setQty(e.target.value)} /></div>
         <div><p className="text-[11.5px] font-semibold mb-1" style={{ color: SK.mut }}>Montant payé</p><input type="number" inputMode="numeric" className={skInput} style={{ borderColor: SK.line }} placeholder="Ex : 750" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
@@ -13531,8 +13821,8 @@ function BreadBuySheet({ product, last, onSave, onClose }) {
         </div>
       )}
       {margin < 0 && q > 0 && a > 0 && <p className="text-[12px] font-semibold mt-2" style={{ color: SK.red }}>Attention : le prix de vente est inférieur au prix d'achat.</p>}
-      <p className="text-[11.5px] mt-3 flex items-center gap-1.5" style={{ color: SK.mut }}><Check size={14} color={SK.ok} /> Le stock augmente et l'achat est ajouté aux dépenses.</p>
-      <button onClick={submit} disabled={q <= 0 || a <= 0 || pr <= 0} className="gb-focus w-full min-h-[54px] rounded-[15px] mt-3 text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}><Check size={18} /> Enregistrer l'achat</button>
+      <p className="text-[11.5px] mt-3 flex items-center gap-1.5" style={{ color: SK.mut }}><Check size={14} color={SK.ok} /> {edit ? "Le stock, la dépense et le prix de vente sont mis à jour." : "Le stock augmente et l'achat est ajouté aux dépenses."}</p>
+      <button onClick={submit} disabled={q <= 0 || a <= 0 || pr <= 0} className="gb-focus w-full min-h-[54px] rounded-[15px] mt-3 text-white font-bold text-[15.5px] flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}><Check size={18} /> {edit ? "Enregistrer les modifications" : "Enregistrer l'achat"}</button>
     </SnackSheet>
   );
 }
@@ -13777,6 +14067,8 @@ function SupportChatWidget({ shop }) {
   const [message, setMessage] = useState("");
   const [thread, setThread] = useState([]);
   const [sending, setSending] = useState(false);
+  const [contactErr, setContactErr] = useState("");
+  const pollBusy = useRef(false);
   const threadEndRef = useRef(null);
   const started = localStorage.getItem("support_started") === "true";
   const tab = stage === "faq" ? "faq" : "chat";
@@ -13788,7 +14080,11 @@ function SupportChatWidget({ shop }) {
     const hbInterval = setInterval(beat, 20000);
     let pollInterval;
     if (stage === "thread") {
-      const poll = () => api.supportPoll().then((d) => setThread(d.messages)).catch(() => {});
+      const poll = () => {
+        if (pollBusy.current || document.visibilityState === "hidden") return;
+        pollBusy.current = true;
+        api.supportPoll().then((d) => mergeThread(d.messages || [])).catch(() => {}).finally(() => { pollBusy.current = false; });
+      };
       poll();
       pollInterval = setInterval(poll, 5000);
     }
@@ -13801,29 +14097,51 @@ function SupportChatWidget({ shop }) {
   const submitContact = async () => {
     if (!name.trim() || !phone.trim() || !message.trim()) return;
     setSending(true);
+    setContactErr("");
     try {
-      await api.supportSend({ name: name.trim(), phone: phone.trim(), email: email.trim(), shopName: shop?.name, message: message.trim() });
+      const res = await api.supportSend({ name: name.trim(), phone: phone.trim(), email: email.trim(), shopName: shop?.name, message: message.trim() });
       localStorage.setItem("support_name", name.trim());
       localStorage.setItem("support_phone", phone.trim());
       localStorage.setItem("support_email", email.trim());
       localStorage.setItem("support_started", "true");
+      if (res?.message) setThread([res.message]);
       setMessage("");
       setStage("thread");
-    } catch { /* réessai possible, on reste sur le formulaire */ }
+    } catch (e) {
+      setContactErr(api.networkErrorText(e, "envoyer le message") ? "Connexion lente : message non envoyé. Réessayez." : e?.message || "Envoi impossible. Réessayez.");
+    }
     setSending(false);
   };
 
-  const sendMore = async (text) => {
+  // Messages du serveur + messages locaux encore en cours d'envoi ou en échec
+  const mergeThread = (serverMsgs) => setThread((cur) => {
+    const local = cur.filter((m) => m.pending || m.failed);
+    return [...serverMsgs, ...local.filter((l) => !supportAlreadyOnServer(l, serverMsgs))];
+  });
+
+  const deliver = async (tmp) => {
+    try {
+      const res = await api.supportSend({ name, phone, email, shopName: shop?.name, message: tmp.body });
+      setThread((cur) => cur.map((m) => (m.id === tmp.id ? (res?.message ? { ...res.message } : { ...m, pending: false, id: `sent-${tmp.id}` }) : m)));
+    } catch {
+      setThread((cur) => cur.map((m) => (m.id === tmp.id ? { ...m, pending: false, failed: true } : m)));
+    }
+  };
+
+  // Affichage immédiat du message, envoi en arrière-plan
+  const sendMore = (text) => {
     const body = (text ?? message).trim();
     if (!body) return;
-    setSending(true);
-    try {
-      await api.supportSend({ name, phone, email, shopName: shop?.name, message: body });
-      if (text === undefined) setMessage("");
-      const d = await api.supportPoll();
-      setThread(d.messages);
-    } catch { /* hors-ligne — réessayer plus tard */ }
-    setSending(false);
+    const tmp = { id: `tmp-${Date.now()}`, sender: "user", body, created_at: new Date().toISOString(), pending: true };
+    setThread((cur) => [...cur, tmp]);
+    if (text === undefined) setMessage("");
+    deliver(tmp);
+  };
+
+  const retrySend = (m) => {
+    if (!m.failed) return;
+    setThread((cur) => cur.map((x) => (x.id === m.id ? { ...x, failed: false, pending: true } : x)));
+    deliver(m);
   };
 
   const copyLink = () => {
@@ -13859,7 +14177,7 @@ function SupportChatWidget({ shop }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-bold text-[14.5px] leading-tight truncate">Assistance GestiOne</p>
-                  <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "#C9D1D8" }}>{sending ? "Envoi en cours…" : "En ligne · réponse rapide"}</p>
+                  <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "#C9D1D8" }}>{thread.some((m) => m.pending) ? "Envoi en cours…" : "En ligne · réponse rapide"}</p>
                 </div>
                 <button onClick={() => setOpen(false)} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Fermer l'assistance"><X size={17} color="#fff" /></button>
               </div>
@@ -13951,6 +14269,7 @@ function SupportChatWidget({ shop }) {
                 <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Décrivez votre question ou votre problème…" rows={3} className="gb-focus w-full rounded-xl px-3 py-2.5 text-[14.5px] border resize-none" style={{ borderColor: "#DAD8D0", background: "#fff" }} />
               </div>
               <div className="shrink-0 px-3 py-2.5" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
+                {contactErr && <p className="text-[12.5px] font-semibold rounded-xl px-3 py-2" style={{ background: "#FDECEC", color: "#A32D2D" }}>{contactErr}</p>}
                 <button onClick={submitContact} disabled={sending || !name.trim() || !phone.trim() || !message.trim()} className="gb-focus w-full min-h-[46px] rounded-xl text-[14.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#1E8E50" }}>
                   <Send size={16} /> {sending ? "Envoi…" : "Envoyer au support"}
                 </button>
@@ -13978,34 +14297,35 @@ function SupportChatWidget({ shop }) {
                     return (
                       <div key={m.id} className={`flex items-end gap-2 gb-slide-up ${agent ? "pr-9" : "pl-11 justify-end"}`}>
                         {agent && <span className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center shrink-0 text-white text-[12px] font-bold" style={{ background: "#2F6F5E" }}>G</span>}
-                        <div className={`min-w-0 max-w-full px-3 pt-2.5 pb-2 flex flex-col gap-1 ${agent ? "rounded-2xl rounded-bl-[4px]" : "rounded-2xl rounded-br-[4px]"}`} style={agent ? { background: "#fff", border: "1px solid #E3E1DA", color: "#16202A" } : { background: "#1F2A33", color: "#fff" }}>
+                        <div className={`min-w-0 max-w-full px-3 pt-2.5 pb-2 flex flex-col gap-1 ${agent ? "rounded-2xl rounded-bl-[4px]" : "rounded-2xl rounded-br-[4px]"}`} style={agent ? { background: "#fff", border: "1px solid #E3E1DA", color: "#16202A" } : { background: m.failed ? "#5A2530" : "#1F2A33", color: "#fff", opacity: m.pending ? 0.75 : 1 }}>
                           {agent && (!prev || prev.sender !== "owner") && <span className="text-[12px] font-bold" style={{ color: "#2F6F5E" }}>Équipe GestiOne</span>}
                           <span className="text-[13.5px] leading-relaxed whitespace-pre-line break-words">{m.body}</span>
-                          <span className="self-end flex items-center gap-1 text-[11px] font-semibold" style={{ color: agent ? "#6B747E" : "#B7C0C8" }}>
-                            {fmtTime(m.created_at)}
-                            {!agent && <Check size={12} color="#7FD6C2" />}
-                          </span>
+                          {m.failed ? (
+                            <button onClick={() => retrySend(m)} className="gb-focus self-end flex items-center gap-1 text-[11px] font-bold" style={{ color: "#F5A3A3" }}>
+                              <RefreshCw size={11} /> Non envoyé · Réessayer
+                            </button>
+                          ) : (
+                            <span className="self-end flex items-center gap-1 text-[11px] font-semibold" style={{ color: agent ? "#6B747E" : "#B7C0C8" }}>
+                              {m.pending ? "Envoi…" : fmtTime(m.created_at)}
+                              {!agent && !m.pending && <Check size={12} color="#7FD6C2" />}
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
                   })}
-                  {sending && (
-                    <div className="self-end flex items-center gap-1 px-3.5 py-3 rounded-2xl" style={{ background: "#1F2A33" }}>
-                      {[0, 0.15, 0.3].map((d) => <span key={d} className="w-1.5 h-1.5 rounded-full" style={{ background: "#fff", opacity: 0.6, animation: `gb-blink 1s ease-in-out infinite ${d}s` }} />)}
-                    </div>
-                  )}
                   <div ref={threadEndRef} />
                 </div>
                 <div className="px-3 pt-2 pb-0.5 flex flex-wrap gap-1.5 shrink-0" style={{ background: "#EFEDE7" }}>
                   {["Impression", "Licence", "Synchro"].map((q) => (
-                    <button key={q} onClick={() => sendMore(`J'ai une question : ${q.toLowerCase()}`)} disabled={sending} className="gb-focus shrink-0 min-h-[32px] px-2.5 rounded-full text-[12px] font-bold whitespace-nowrap disabled:opacity-50" style={{ background: "#fff", border: "1px solid #C6D9D2", color: "#1F4F43" }}>{q}</button>
+                    <button key={q} onClick={() => sendMore(`J'ai une question : ${q.toLowerCase()}`)} className="gb-focus shrink-0 min-h-[32px] px-2.5 rounded-full text-[12px] font-bold whitespace-nowrap disabled:opacity-50" style={{ background: "#fff", border: "1px solid #C6D9D2", color: "#1F4F43" }}>{q}</button>
                   ))}
                 </div>
                 <div className="px-3 pt-2 pb-2.5 flex items-end gap-2 shrink-0" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
                   <label className="flex-1 min-w-0 min-h-[46px] px-3.5 rounded-2xl border flex items-center" style={{ background: "#fff", borderColor: "#DAD8D0" }}>
                     <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMore()} placeholder="Écrivez votre message…" aria-label="Votre message" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
                   </label>
-                  <button onClick={() => sendMore()} disabled={sending || !message.trim()} aria-label="Envoyer" className="gb-focus w-[46px] h-[46px] rounded-2xl flex items-center justify-center shrink-0" style={{ background: message.trim() ? "#1E8E50" : "#D9DCDF", color: message.trim() ? "#fff" : "#6B747E" }}><Send size={19} /></button>
+                  <button onClick={() => sendMore()} disabled={!message.trim()} aria-label="Envoyer" className="gb-focus w-[46px] h-[46px] rounded-2xl flex items-center justify-center shrink-0" style={{ background: message.trim() ? "#1E8E50" : "#D9DCDF", color: message.trim() ? "#fff" : "#6B747E" }}><Send size={19} /></button>
                 </div>
               </>
             )}
@@ -16967,17 +17287,48 @@ function AppInner() {
     logAudit("stock", `Arrivage : +${qty} × ${p.name}${cost > 0 ? ` à ${formatMoney(cost, shop?.currency)}` : ""}${note ? ` · ${note}` : ""}`, { productId });
     pushToast(`${p.name} : +${qty} en stock`, "ok");
   };
-  const handleRecordLoss = ({ product, qty, reason, note }) => {
+  const handleRecordLoss = ({ product, qty, reason, note, client, value: givenValue, formulaName, unitPrice, formulaId, opts }) => {
     const p = products.find((x) => x.id === product.id);
     if (!p || qty <= 0) return;
     const before = Number(p.stock) || 0;
     const q = Math.min(qty, before);
-    const value = (Number(p.costPrice) || 0) * q;
+    const value = givenValue != null ? (Number(unitPrice) || 0) * q : (Number(p.costPrice) || 0) * q;
     const by = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
     saveProducts(products.map((x) => (x.id === p.id ? { ...x, stock: before - q } : x)));
-    saveMovements([{ id: uid(), date: new Date().toISOString(), productId: p.id, productName: p.name, type: "perte", delta: -q, qty: q, before, after: before - q, author: by, reason, extra: note, value, note: `Perte · ${reason}${note ? ` · ${note}` : ""}` }, ...movements]);
-    logAudit("stock", `Perte déclarée : ${q} × ${p.name} (${reason})${note ? ` · ${note}` : ""} · ${formatMoney(value, shop?.currency)}`, { amount: -value });
-    pushToast(`Perte enregistrée : ${q} × ${p.name} · ${reason}`, "ok");
+    const label = formulaName || p.name;
+    saveMovements([{ id: uid(), date: new Date().toISOString(), productId: p.id, productName: p.name, ...(formulaName && formulaName !== p.name ? { formulaName } : {}), ...(unitPrice ? { unitPrice: Number(unitPrice) } : {}), ...(givenValue != null ? { formulaId, opts, client: client || undefined } : {}), type: "perte", delta: -q, qty: q, before, after: before - q, author: by, reason, extra: note, value, note: `Perte · ${reason}${formulaName && formulaName !== p.name ? ` · ${formulaName}` : ""}${note ? ` · ${note}` : ""}` }, ...movements]);
+    logAudit("stock", `Perte déclarée : ${q} × ${label} (${reason})${note ? ` · ${note}` : ""} · ${formatMoney(value, shop?.currency)}`, { amount: -value });
+    pushToast(`Perte enregistrée : ${q} × ${label} · ${reason}${givenValue != null ? ` · ${formatMoney(value, shop?.currency)}` : ""}`, "ok");
+  };
+
+  // Modifier une perte : le stock est corrigé de l'écart de quantité.
+  const handleUpdateLoss = (lossId, { qty, reason, note, client, value: givenValue, formulaName, unitPrice, formulaId, opts }) => {
+    const m = movements.find((x) => x.id === lossId && x.type === "perte");
+    if (!m) return;
+    const p = products.find((x) => x.id === m.productId);
+    const oldQ = Number(m.qty) || 0;
+    const stockNow = Number(p?.stock) || 0;
+    const q = Math.max(1, Math.min(Number(qty) || 1, stockNow + oldQ));
+    const unpaid = givenValue != null;
+    const value = unpaid ? (Number(unitPrice) || 0) * q : (Number(p?.costPrice) || (oldQ ? (Number(m.value) || 0) / oldQ : 0)) * q;
+    if (p && q !== oldQ) saveProducts(products.map((x) => (x.id === p.id ? { ...x, stock: stockNow + oldQ - q } : x)));
+    const by = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
+    const fName = unpaid && formulaName && formulaName !== m.productName ? formulaName : undefined;
+    const next = { ...m, qty: q, delta: -q, after: (Number(m.before) || 0) - q, reason, extra: note, client: client || undefined, value, formulaName: fName, unitPrice: unpaid ? Number(unitPrice) || 0 : undefined, formulaId: unpaid ? formulaId : undefined, opts: unpaid ? opts : undefined, editedAt: new Date().toISOString(), editedBy: by, note: `Perte · ${reason}${fName ? ` · ${fName}` : ""}${note ? ` · ${note}` : ""}` };
+    saveMovements(movements.map((x) => (x.id === lossId ? next : x)));
+    logAudit("stock", `Perte modifiée : ${oldQ} → ${q} × ${fName || m.productName} (${reason}) · ${formatMoney(value, shop?.currency)}`, { amount: -(value - (Number(m.value) || 0)) });
+    pushToast(`Perte modifiée${q !== oldQ ? ` · stock ${q < oldQ ? "+" : "−"}${Math.abs(oldQ - q)}` : ""}`, "ok");
+  };
+  // Supprimer une perte : la quantité retourne dans le stock.
+  const handleDeleteLoss = (lossId) => {
+    const m = movements.find((x) => x.id === lossId && x.type === "perte");
+    if (!m) return;
+    const q = Number(m.qty) || 0;
+    const p = products.find((x) => x.id === m.productId);
+    if (p && q) saveProducts(products.map((x) => (x.id === p.id ? { ...x, stock: (Number(x.stock) || 0) + q } : x)));
+    saveMovements(movements.filter((x) => x.id !== lossId));
+    logAudit("stock", `Perte supprimée : ${q} × ${m.formulaName || m.productName} (${m.reason}) · ${formatMoney(m.value || 0, shop?.currency)} — remis en stock`, { amount: Number(m.value) || 0 });
+    pushToast(`Perte supprimée · ${q} × ${m.formulaName || m.productName} remis en stock`, "ok");
   };
 
   const handleUpdateSale = (saleId, newItems, newPaymentMethod) => {
@@ -17264,7 +17615,7 @@ function AppInner() {
                     {view === "stock" && nuit && (
                       <NuitStockScreen products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"}
                         onRecordLoss={handleRecordLoss} onAddStock={handleAddStock} onEditProduct={(pid) => { setAdminMenuOpen(false); setAdminJump({ id: "produits", edit: pid, n: Date.now() }); setView("admin"); }}
-                        renderLegacy={() => <StockScreen onRecordLoss={handleRecordLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />} />
+                        renderLegacy={() => <StockScreen onRecordLoss={handleRecordLoss} onUpdateLoss={handleUpdateLoss} onDeleteLoss={handleDeleteLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />} />
                     )}
                     {nuit && view === "reports" && (
                       <NuitReports shop={shop} sales={sales || []} products={products} categories={categories} expenses={expenses} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onOverview={() => goAdminSection("stats")} pushToast={pushToast} />
@@ -17275,7 +17626,7 @@ function AppInner() {
                     {nuit && view === "n-promos" && role === "admin" && <NuitPromotions products={products} saveProducts={saveProducts} categories={categories} onBack={() => setView("more")} pushToast={pushToast} />}
                     {nuit && view === "n-settings" && role === "admin" && <NuitSettings shop={shop} saveShopMeta={saveShopMeta} onBack={() => setView("more")} onAdminSection={goAdminSection} onOpenAdminMenu={() => { setAdminJump(null); setView("admin"); setAdminMenuOpen(true); }}
                       onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} />}
-                    {view === "stock" && !nuit && <StockScreen onRecordLoss={handleRecordLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
+                    {view === "stock" && !nuit && <StockScreen onRecordLoss={handleRecordLoss} onUpdateLoss={handleUpdateLoss} onDeleteLoss={handleDeleteLoss} products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"} onCreateOrders={handleCreateForecastOrders} onLotAction={handleLotAction} onAddLot={handleAddLot} shop={shop} />}
                     {view === "credits" && <PositionScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettleCredit={handleSettleCredit} onRedeemMoney={handleRedeemMoneyAvoir} onRedeemProduct={handleRedeemProductAvoir} onReturnSale={handleReturnSale} auditLog={auditLog} pushToast={pushToast}
                       onDeleteAvoirs={role === "admin" ? (ids, restock) => requireAdmin("Supprimer un avoir", () => handleDeleteAvoirs(ids, restock)) : undefined}
                       onWriteOffCredit={role === "admin" ? (id) => requireAdmin("Annuler une dette", () => handleWriteOffCredit(id)) : undefined}
