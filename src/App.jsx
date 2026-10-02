@@ -13,9 +13,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import * as Tone from "tone";
 import * as api from "./api.js";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
-import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile } from "./nativeExport.js";
+import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
-import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt } from "./printer.js";
+import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder } from "./printer.js";
 
 const GESTIONE_ICON_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJpY29uVGl0bGUiPgogIDx0aXRsZSBpZD0iaWNvblRpdGxlIj5HZXN0aU9uZSDigJQgaWPDtG5lIGRlIGwnYXBwbGljYXRpb248L3RpdGxlPgogIDxkZWZzPgogICAgPCEtLSA9PT09PT09PT09PT09PT09PSBEw4lHUkFEw4lTIChtb2RpZmlhYmxlKSA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdHcmFkIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDYzQjczIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTUlIiBzdG9wLWNvbG9yPSIjMDYxQjQ1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2MUI0NSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxyYWRpYWxHcmFkaWVudCBpZD0iZ2xvd0dyYWQiIGN4PSIxNSUiIGN5PSIxMCUiIHI9Ijc1JSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDBEOUE1IiBzdG9wLW9wYWNpdHk9IjAuNTUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0NSUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMC4xMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYXduaW5nT3JhbmdlIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjhBMDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjRkY2QjAwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJhd25pbmdXaGl0ZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZGRkZGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0U4RUNGNSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZmFjYWRlR3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZEMjFGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZG93R3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDBCOEQ5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2M0I3MyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ2VhckdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJhckdyYWQiIHgxPSIwIiB5MT0iMSIgeDI9IjAiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRkQyMUYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im9uZUdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJzb2Z0U2hhZG93IiB4PSItNDAlIiB5PSItNDAlIiB3aWR0aD0iMTgwJSIgaGVpZ2h0PSIxODAlIj4KICAgICAgPGZlRHJvcFNoYWRvdyBkeD0iMCIgZHk9IjEwIiBzdGREZXZpYXRpb249IjE0IiBmbG9vZC1jb2xvcj0iIzA2MUI0NSIgZmxvb2Qtb3BhY2l0eT0iMC40NSIvPgogICAgPC9maWx0ZXI+CiAgICA8ZmlsdGVyIGlkPSJzbWFsbFNoYWRvdyIgeD0iLTYwJSIgeT0iLTYwJSIgd2lkdGg9IjIyMCUiIGhlaWdodD0iMjIwJSI+CiAgICAgIDxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSI0IiBzdGREZXZpYXRpb249IjYiIGZsb29kLWNvbG9yPSIjMDYxQjQ1IiBmbG9vZC1vcGFjaXR5PSIwLjM1Ii8+CiAgICA8L2ZpbHRlcj4KCiAgICA8Y2xpcFBhdGggaWQ9Imljb25DbGlwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiByeD0iMjI0Ii8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPGcgY2xpcC1wYXRoPSJ1cmwoI2ljb25DbGlwKSI+CiAgICA8IS0tID09PT09PT09PT09PT09PT09IGcjYmFja2dyb3VuZCA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxnIGlkPSJiYWNrZ3JvdW5kIj4KICAgICAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNiZ0dyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9InVybCgjZ2xvd0dyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik0gLTYwLDUxMiBBIDU2MCw1NjAgMCAwIDAgNjAsOTYwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMEQ5QTUiIHN0cm9rZS1vcGFjaXR5PSIwLjM1IiBzdHJva2Utd2lkdGg9IjM0Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNjIgMTQ4KSBzY2FsZSgxKSI+CiAgICAgIAogIDxnIGlkPSJicmFuZE1hcmsiPgogICAgPCEtLSA9PT09PSBnI3N0b3JlIDogYm91dGlxdWUgKGF1dmVudCwgZmHDp2FkZSwgdml0cmluZSwgcG9ydGUpID09PT09IC0tPgogICAgPGcgaWQ9InN0b3JlIiBmaWx0ZXI9InVybCgjc29mdFNoYWRvdykiPgogICAgICA8IS0tIGJhbmRlYXUgaGF1dCBkZSBsJ2F1dmVudCAtLT4KICAgICAgPHJlY3QgeD0iODAiIHk9Ijg2IiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjQ0IiByeD0iMTYiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICA8IS0tIGxhbWJyZXF1aW4gcmF5w6kgKHJheXVyZXMgb3JhbmdlIC8gYmxhbmMsIGJhcyBhcnJvbmRpIGZhw6dvbiBzdG9yZSBiYW5uZSkgLS0+CiAgICAgIDxnIGlkPSJhd25pbmctc3RyaXBlcyI+CiAgICAgICAgPHBhdGggZD0iTTgwLDEzMCBoNjggdjc4IHEwLDI2IC0zNCwyNiBxLTM0LDAgLTM0LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgICA8cGF0aCBkPSJNMTQ4LDEzMCBoNjggdjg4IHEwLDI0IC0zNCwyNCBxLTM0LDAgLTM0LC0yNCBaIiBmaWxsPSJ1cmwoI2F3bmluZ1doaXRlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yMTYsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yODQsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nV2hpdGUpIi8+CiAgICAgICAgPHBhdGggZD0iTTM1MiwxMzAgaDY4IHY4OCBxMCwyNCAtMzQsMjQgcS0zNCwwIC0zNCwtMjQgWiIgZmlsbD0idXJsKCNhd25pbmdPcmFuZ2UpIi8+CiAgICAgICAgPHBhdGggZD0iTTQyMCwxMzAgaDY4IHY3OCBxMCwyNiAtMzQsMjYgcS0zNCwwIC0zNCwtMjYgWiIgZmlsbD0idXJsKCNhd25pbmdXaGl0ZSkiLz4KICAgICAgICA8cGF0aCBkPSJNNDg4LDEzMCBoNzIgdjcwIHEwLDI2IC0zNiwyNiBxLTM2LDAgLTM2LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgPC9nPgogICAgICA8IS0tIGZhw6dhZGUgLS0+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJ1cmwoI2ZhY2FkZUdyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMwNjFCNDUiIHN0cm9rZS1vcGFjaXR5PSIwLjE1IiBzdHJva2Utd2lkdGg9IjQiLz4KICAgICAgPCEtLSB2aXRyaW5lIGJsZXVlIGF2ZWMgcGFuaWVyIC0tPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0idXJsKCN3aW5kb3dHcmFkKSIvPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utb3BhY2l0eT0iMC4zNSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICAgIDxnIGlkPSJiYXNrZXQiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIj4KICAgICAgICA8cGF0aCBkPSJNMjIzLDM1MiBxMzAsLTQ2IDYwLDAiIC8+CiAgICAgICAgPHBhdGggZD0iTTIwMywzNTIgaDE2MCBsLTE2LDc4IHEtMywxNCAtMTgsMTQgaC05MiBxLTE1LDAgLTE4LC0xNCBaIiBmaWxsPSIjRkZGRkZGIiBzdHJva2U9Im5vbmUiLz4KICAgICAgICA8cGF0aCBkPSJNMjI4LDM2NiB2NTYgTTI1MywzNjYgdjYyIE0yNzgsMzY2IHY1NiIgc3Ryb2tlPSIjMDBCOEQ5IiBzdHJva2Utd2lkdGg9IjgiLz4KICAgICAgPC9nPgogICAgICA8IS0tIHBvcnRlIC0tPgogICAgICA8cmVjdCB4PSIzOTIiIHk9IjMyMiIgd2lkdGg9IjExMiIgaGVpZ2h0PSIxODgiIHJ4PSIxMCIgZmlsbD0iIzA2MUI0NSIvPgogICAgICA8Y2lyY2xlIGN4PSI0NzIiIGN5PSI0MTYiIHI9IjciIGZpbGw9IiNGRkQyMUYiLz4KICAgIDwvZz4KCiAgICA8IS0tID09PT09IGcjZ3Jvd3RoIDogZ3JhcGhpcXVlIGVuIGJhcnJlcyArIGZsw6hjaGUgYXNjZW5kYW50ZSA9PT09PSAtLT4KICAgIDxnIGlkPSJncm93dGgiPgogICAgICA8cmVjdCB4PSI1NDAiIHk9IjM2OCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjkyIiByeD0iNiIgZmlsbD0idXJsKCNiYXJHcmFkKSIvPgogICAgICA8cmVjdCB4PSI1ODQiIHk9IjMzMCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjEzMCIgcng9IjYiIGZpbGw9InVybCgjYmFyR3JhZCkiLz4KICAgICAgPHJlY3QgeD0iNjI4IiB5PSIyODYiIHdpZHRoPSIzNCIgaGVpZ2h0PSIxNzQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2JhckdyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik01NTYsMjcyIEw2NTAsMTc4IE02NTAsMTc4IGgtNDYgTTY1MCwxNzggdjQ2IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkQyMUYiIHN0cm9rZS13aWR0aD0iMTYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogICAgPC9nPgoKICAgIDwhLS0gPT09PT0gZyNtYW5hZ2VtZW50IDogZW5ncmVuYWdlIChnZXN0aW9uKSA9PT09PSAtLT4KICAgIDxnIGlkPSJtYW5hZ2VtZW50IiBmaWx0ZXI9InVybCgjc21hbGxTaGFkb3cpIj4KICAgICAgPGcgZmlsbD0idXJsKCNnZWFyR3JhZCkiPgogICAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoMC4wKSIvPgogICAgICA8cmVjdCB4PSItMTUuMCIgeT0iLTEwOC4wIiB3aWR0aD0iMzAuMCIgaGVpZ2h0PSIzNC4wIiByeD0iNiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTYwIDQ4MCkgcm90YXRlKDM2LjApIi8+CiAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoNzIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxMDguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxNDQuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxODAuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyMTYuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyNTIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyODguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgzMjQuMCkiLz4KICAgICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9Ijg4IiAvPgogICAgICA8L2c+CiAgICAgIDxjaXJjbGUgY3g9IjU2MCIgY3k9IjQ4MCIgcj0iODgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLW9wYWNpdHk9IjAuMzUiIHN0cm9rZS13aWR0aD0iNCIvPgogICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9IjM0IiBmaWxsPSIjMDYxQjQ1Ii8+CiAgICA8L2c+CiAgPC9nPgoKICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=";
 
@@ -972,6 +972,9 @@ function findActiveCashSession(entries, versements, shopId) {
 // Bilan d'une session entre son ouverture et `until` (maintenant, ou la date
 // du versement) : espèces attendues = fond + ventes en espèces + crédits
 // encaissés − dépenses. Le Mobile Money est compté à part (hors tiroir).
+function isSupplierOrderExpense(e) {
+  return !!(e && (e.supplierId || /^Commande —/.test(e.label || "")));
+}
 function computeCashSession(session, { sales = [], expenses = [], until = null } = {}) {
   const from = cashTime(session?.timestamp || session?.date);
   const to = until ? cashTime(until) : Date.now();
@@ -1030,7 +1033,9 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
       }
     }
   });
-  const periodExpenses = (expenses || []).filter((e) => inWindow(e.date));
+  // Dépenses du quotidien uniquement : les commandes fournisseurs (validées
+  // depuis Fournisseurs) ne sont pas des dépenses de caisse.
+  const periodExpenses = (expenses || []).filter((e) => inWindow(e.date) && !isSupplierOrderExpense(e));
   // Une dépense sans auteur (anciennes saisies) reste dans le total général
   // sans être attribuée à un vendeur.
   periodExpenses.forEach((e) => { if ((e.author || "").trim()) V(e.author).expenses += Number(e.amount) || 0; });
@@ -8871,6 +8876,8 @@ function ProductsSection({ products, saveProducts, categories, movements, saveMo
     return () => clearTimeout(t);
   }, [initialEdit]);
   const [adding, setAdding] = useState(false);
+  const [pq, setPq] = useState("");
+  const [pFilter, setPFilter] = useState("all");
   const upsert = (p) => {
     const existing = products.find((x) => x.id === p.id);
     const priceChanged = existing && (Number(existing.price) !== Number(p.price) || Number(existing.bulkPrice || 0) !== Number(p.bulkPrice || 0));
@@ -8905,32 +8912,74 @@ function ProductsSection({ products, saveProducts, categories, movements, saveMo
   };
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-bold text-base flex items-center gap-2"><Boxes size={16} color="#534AB7" /> Produits ({products.length})</h3>
-        <button onClick={() => { setAdding(true); setEditing(null); }} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: "var(--glass)" }}><PackagePlus size={14} /> Ajouter</button>
-      </div>
-      {adding && <ProductForm categories={categories} products={products} pushToast={pushToast} onSave={upsert} onCancel={() => setAdding(false)} />}
-      <div className="flex flex-col gap-2.5">
-        {products.map((p) => editing === p.id ? (
-          <div key={p.id} id={`pform-${p.id}`} style={{ scrollMarginTop: 130 }}><ProductForm initial={p} categories={categories} products={products} pushToast={pushToast} onSave={upsert} onCancel={() => setEditing(null)} /></div>
-        ) : (
-          <div key={p.id} className="rounded-2xl p-3 flex items-center gap-3" style={{ border: `1px solid ${p.stock <= p.minStock ? "#F09595" : "var(--line)"}`, background: "var(--card)" }}>
-            <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${getCategory(categories, p.category).color}1f` }}><CategoryIcon cat={p.category} categories={categories} size={19} /></div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold truncate flex items-center gap-1.5">
-                {p.name}
-                {p.favorite && <Star size={11} color="var(--cap)" fill="var(--cap)" className="shrink-0" />}
+      {(() => {
+        const isLow = (p) => !p.stockFrom && Number(p.stock) <= Number(p.minStock || 0);
+        const lowN = products.filter(isLow).length;
+        const favN = products.filter((p) => p.favorite).length;
+        const photoN = products.filter((p) => p.image).length;
+        const nq = pq.trim().toLowerCase();
+        const shown = products.filter((p) => (!nq || (p.name || "").toLowerCase().includes(nq)) && (pFilter === "all" || (pFilter === "low" && isLow(p)) || (pFilter === "fav" && p.favorite)));
+        return (
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="font-display font-bold text-[18px] leading-tight">Produits</h3>
+                <p className="text-[11.5px] opacity-60 mt-0.5">{products.length} article{products.length > 1 ? "s" : ""} · {photoN} avec photo</p>
               </div>
-              <div className="text-xs opacity-50 font-mono mt-0.5">{fmt(p.price)} · {p.stockFrom ? `stock de ${products.find((x) => x.id === p.stockFrom)?.name || "?"}` : `${p.stock} ${p.unit}s`}{(p.variants || []).length ? ` · ${p.variants.length} formule${p.variants.length > 1 ? "s" : ""}` : ""}{(p.options || []).length ? ` · ${p.options.length} supplément${p.options.length > 1 ? "s" : ""}` : ""}{p.bulkQty > 0 && p.bulkPrice > 0 ? ` · lot ${p.bulkQty}=${fmt(p.bulkPrice)}` : ""}</div>
+              <button onClick={() => { setAdding(true); setEditing(null); }} className="gb-focus flex items-center gap-1.5 text-[13px] font-bold px-4 h-10 rounded-full text-white" style={{ background: "var(--glass)", boxShadow: "0 6px 14px -8px rgba(0,0,0,0.5)" }}><PackagePlus size={15} /> Ajouter</button>
             </div>
-            {p.stock <= p.minStock && (
-              <span className="text-[9px] font-bold px-2 py-1 rounded-full shrink-0" style={{ background: "#FCEBEB", color: "#A32D2D" }}>STOCK BAS</span>
-            )}
-            <button onClick={() => { setEditing(p.id); setAdding(false); }} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Pencil size={14} /></button>
-            <button onClick={() => del(p.id, p.name)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Trash2 size={14} color="var(--danger)" /></button>
-          </div>
-        ))}
-      </div>
+            <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px] mb-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              <Search size={16} className="opacity-45 shrink-0" />
+              <input value={pq} onChange={(e) => setPq(e.target.value)} placeholder="Rechercher un produit…" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
+              {pq && <button onClick={() => setPq("")} className="gb-focus opacity-50" aria-label="Effacer"><X size={15} /></button>}
+            </div>
+            <div className="flex gap-1.5 mb-3">
+              {[["all", "Tous", products.length], ["low", "Stock bas", lowN], ["fav", "Favoris", favN]].map(([k, l, n]) => (
+                <button key={k} onClick={() => setPFilter(k)} className="gb-focus h-8 px-3 rounded-full text-[12px] font-bold flex items-center gap-1.5" style={pFilter === k ? { background: k === "low" ? "#B3261E" : "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)", color: k === "low" && n ? "#B3261E" : "var(--ink)" }}>
+                  {l}<span className="text-[10.5px] px-1.5 rounded-full" style={{ background: pFilter === k ? "rgba(255,255,255,0.22)" : "var(--paper-dim)" }}>{n}</span>
+                </button>
+              ))}
+            </div>
+            {adding && <ProductForm categories={categories} products={products} pushToast={pushToast} onSave={upsert} onCancel={() => setAdding(false)} />}
+            <div className="flex flex-col gap-2.5">
+              {shown.map((p) => editing === p.id ? (
+                <div key={p.id} id={`pform-${p.id}`} style={{ scrollMarginTop: 130 }}><ProductForm initial={p} categories={categories} products={products} pushToast={pushToast} onSave={upsert} onCancel={() => setEditing(null)} /></div>
+              ) : (() => {
+                const low = isLow(p);
+                const cat = getCategory(categories, p.category);
+                const tags = [
+                  (p.variants || []).length ? `${p.variants.length} formule${p.variants.length > 1 ? "s" : ""}` : null,
+                  (p.options || []).length ? `${p.options.length} supplément${p.options.length > 1 ? "s" : ""}` : null,
+                  p.bulkQty > 0 && p.bulkPrice > 0 ? `Lot ${p.bulkQty} = ${fmt(p.bulkPrice)}` : null,
+                ].filter(Boolean);
+                return (
+                  <div key={p.id} className="rounded-[18px] p-2.5 pr-3 flex items-center gap-3" style={{ background: "var(--card)", border: `1px solid ${low ? "#F2C4C0" : "var(--line)"}`, boxShadow: "0 2px 10px -6px rgba(15,27,22,0.18)" }}>
+                    <button onClick={() => { setEditing(p.id); setAdding(false); }} className="gb-focus relative w-[64px] h-[64px] rounded-[14px] overflow-hidden flex items-center justify-center shrink-0" style={{ background: `${cat.color || "#8896A8"}1F` }} aria-label={`Modifier ${p.name}`}>
+                      {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={26} />}
+                      {p.favorite && <span className="absolute top-1 left-1 w-[18px] h-[18px] rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.92)" }}><Star size={10} color="#E09A1A" fill="#E09A1A" /></span>}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14.5px] font-bold truncate leading-tight">{p.name}</p>
+                      <p className="font-display font-bold text-[15px] mt-0.5" style={{ color: "var(--glass)" }}>{fmt(p.price)}</p>
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                        <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={low ? { background: "#FCEBEA", color: "#B3261E" } : { background: "var(--paper-dim)", color: "#4A5560" }}>
+                          {p.stockFrom ? `Stock de ${products.find((x) => x.id === p.stockFrom)?.name || "?"}` : `${low ? "Stock bas · " : ""}${p.stock} ${plural(Number(p.stock), p.unit || "unité", `${p.unit || "unité"}s`)}`}
+                        </span>
+                        {tags.map((t) => <span key={t} className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "#EEF1F6", color: "#46546A" }}>{t}</span>)}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <button onClick={() => { setEditing(p.id); setAdding(false); }} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Modifier"><Pencil size={14} /></button>
+                      <button onClick={() => del(p.id, p.name)} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "#FCEBEA" }} aria-label="Supprimer"><Trash2 size={14} color="var(--danger)" /></button>
+                    </div>
+                  </div>
+                );
+              })())}
+              {shown.length === 0 && <p className="text-[13px] text-center py-6 opacity-55">{products.length ? "Aucun produit ne correspond." : "Aucun produit pour l'instant."}</p>}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -10101,26 +10150,13 @@ function CashBreakdown({ r, compact = false }) {
           <Ln l="Crédits encaissés" c={r.creditsCount || 0} v={fmt(n(r.creditsCollected))} />
         )}
         <Tot l="Ventes totales (hors Mobile Money)" v={fmt(salesTotal)} bg="#E8F0FB" fg="#16457A" hint={split ? "espèces + crédits accordés pendant la caisse" : null} />
+        <div className="mt-2">
+          <Ln l="Dépenses de la caisse" c={r.expensesCount || 0} v={`−${fmt(n(r.expensesTotal))}`} color="#B3261E" />
+          <p className="text-[10.5px] opacity-60">Dépenses saisies (hors commandes fournisseurs)</p>
+        </div>
       </div>
       <div className="py-2.5" style={{ borderTop: "1px solid var(--line)" }}>
-        <Kick i="2" t="Espèces attendues en caisse" color="#1E7A46" />
-        <Ln l="Fond de caisse" v={fmt(n(r.fund))} />
-        <Ln l="+ Ventes en espèces" v={`+${fmt(n(r.cashSales))}`} color="#1E7A46" />
-        {split ? (
-          <>
-            {n(r.creditsCollectedOld) > 0 || n(r.creditsCountOld) > 0 ? <Ln l="+ Crédits encaissés · ventes d'avant l'ouverture" c={r.creditsCountOld || 0} v={`+${fmt(n(r.creditsCollectedOld))}`} color="#1E7A46" /> : null}
-            <Ln l="+ Crédits encaissés · ventes de la caisse" c={r.creditsCountNew || 0} v={`+${fmt(n(r.creditsCollectedNew))}`} color="#1E7A46" />
-          </>
-        ) : (
-          <Ln l="+ Crédits encaissés" c={r.creditsCount || 0} v={`+${fmt(n(r.creditsCollected))}`} color="#1E7A46" />
-        )}
-        <Ln l="− Dépenses" c={r.expensesCount || 0} v={`−${fmt(n(r.expensesTotal))}`} color="#B3261E" />
-        {n(r.refundsCash) > 0 && <Ln l="− Remboursements retours" c={r.refundsCashCount || 0} v={`−${fmt(n(r.refundsCash))}`} color="#B3261E" />}
-        <Tot l="Attendu en caisse" v={fmt(n(r.expected))} bg="#E6F4EC" fg="#1E7A46" />
-        {split && n(r.creditsOpen) > 0 && <p className="text-[10.5px] opacity-60 mt-1.5">Les {fmt(n(r.creditsOpen))} de crédits non encaissés ne sont pas dans le tiroir.</p>}
-      </div>
-      <div className="py-2.5" style={{ borderTop: "1px solid var(--line)" }}>
-        <Kick i="3" t="Hors caisse & total général" color="#6B4FB8" />
+        <Kick i="2" t="Hors caisse & total général" color="#6B4FB8" />
         <Ln l="Ventes Mobile Money" c={r.mobileSalesCount || 0} v={fmt(n(r.mobileSales))} color="#1D5FA8" />
         <div className="flex justify-between items-center gap-3 rounded-[16px] px-3.5 py-3 mt-1.5 text-white" style={{ background: "var(--glass)" }}>
           <span className="min-w-0"><span className="block text-[13.5px] font-bold leading-tight">Total général des ventes</span><span className="block text-[10.5px] opacity-70">Ventes totales + Mobile Money</span></span>
@@ -10731,6 +10767,20 @@ function SupplierProductForm({ initial, products, categories, saveCategories, on
   const [customSize, setCustomSize] = useState(!CRATE_SIZES.includes(initial?.crateSize) && !!initial);
   const [cratePrice, setCratePrice] = useState(initial?.cratePrice ?? "");
   const [salePrice, setSalePrice] = useState(initial?.salePrice ?? "");
+  const [image, setImage] = useState(initial?.image || null);
+  const camRef = useRef(null);
+  const galRef = useRef(null);
+  const linked = products.find((p) => p.name.trim().toLowerCase() === name.trim().toLowerCase()) || products.find((p) => p.id === initial?.productId && !name.trim());
+  const shownImage = image || linked?.image || null;
+  const pickImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const url = await new Promise((res, rej) => { const r = new FileReader(); r.onerror = rej; r.onload = () => res(r.result); r.readAsDataURL(file); });
+      setImage(await recompressDataUrl(url, 480, 0.65));
+    } catch { pushToast?.("Impossible de traiter cette photo", "error"); }
+  };
 
   const resolveCategoryId = () => {
     const label = categoryInput.trim();
@@ -10754,6 +10804,7 @@ function SupplierProductForm({ initial, products, categories, saveCategories, on
       crateSize: Number(crateSize) || 1,
       cratePrice: Number(cratePrice) || 0,
       salePrice: Number(salePrice) || 0,
+      image: image || null,
     });
   };
 
@@ -10765,6 +10816,21 @@ function SupplierProductForm({ initial, products, categories, saveCategories, on
           onClose={() => setScannerOpen(false)}
         />
       )}
+      <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={pickImage} />
+      <input ref={galRef} type="file" accept="image/*" className="hidden" onChange={pickImage} />
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-16 h-16 rounded-2xl overflow-hidden shrink-0 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}>
+          {shownImage ? <img src={shownImage} alt="" className="w-full h-full object-cover" /> : <ImagePlus size={22} className="opacity-45" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] font-semibold opacity-60 mb-1.5">{image ? "Photo choisie (appliquée aussi au produit du catalogue)" : linked?.image ? "Photo du produit du catalogue" : "Photo du produit (facultatif)"}</p>
+          <div className="flex gap-2">
+            <button onClick={() => camRef.current?.click()} className="gb-focus flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold border" style={{ borderColor: "var(--line)" }}><Camera size={13} /> Photo</button>
+            <button onClick={() => galRef.current?.click()} className="gb-focus flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold border" style={{ borderColor: "var(--line)" }}><Layers size={13} /> Galerie</button>
+            {image && <button onClick={() => setImage(null)} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#FCEBEB" }} aria-label="Retirer la photo"><Trash2 size={13} color="var(--danger)" /></button>}
+          </div>
+        </div>
+      </div>
       <div className="flex flex-col gap-2.5">
         <input
           className="gb-focus rounded-xl px-3 py-2 text-sm border"
@@ -10833,56 +10899,53 @@ function SupplierProductForm({ initial, products, categories, saveCategories, on
   );
 }
 
-function SupplierProductCard({ sp, gradient, fmt, onEdit, onDelete }) {
+function SupplierProductCard({ sp, gradient, fmt, onEdit, onDelete, image, categories }) {
   const V = useVocab();
   const [open, setOpen] = useState(false);
   const unitCost = sp.crateSize > 0 ? Math.round(sp.cratePrice / sp.crateSize) : 0;
   const benefit = (sp.salePrice || 0) - unitCost;
+  const pct = unitCost > 0 && sp.salePrice > 0 ? Math.round((benefit / unitCost) * 100) : null;
+  const accent = gradient?.[0] || "var(--glass)";
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})` }}>
-      <button onClick={() => setOpen((v) => !v)} className="gb-focus w-full flex items-center justify-between p-3.5 text-left">
-        <div className="min-w-0">
-          <p className="font-semibold text-sm text-white truncate">{sp.productName}</p>
-          {!open && <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.75)" }}>{sp.crateSize} {V.units} · {fmt(sp.cratePrice)} le {V.pack}</p>}
-        </div>
-        <div className="flex items-center gap-2.5 shrink-0 ml-2">
-          {open && (
-            <>
-              <span onClick={(e) => { e.stopPropagation(); onEdit(); }} className="gb-focus" role="button" aria-label="Modifier"><Pencil size={14} color="rgba(255,255,255,0.85)" /></span>
-              <span onClick={(e) => { e.stopPropagation(); onDelete(); }} className="gb-focus" role="button" aria-label="Supprimer"><Trash2 size={14} color="rgba(255,255,255,0.85)" /></span>
-            </>
-          )}
-          {open ? <ChevronDown size={18} color="#fff" style={{ transform: "rotate(180deg)" }} /> : <ChevronDown size={18} color="#fff" />}
-        </div>
+    <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 2px 10px -6px rgba(15,27,22,0.18)" }}>
+      <button onClick={() => setOpen((v) => !v)} className="gb-focus w-full flex items-center gap-3 p-2.5 pr-3 text-left">
+        <span className="relative w-[60px] h-[60px] rounded-[14px] overflow-hidden flex items-center justify-center shrink-0" style={{ background: `${accent}1F` }}>
+          {image ? <img src={image} alt="" className="w-full h-full object-cover" /> : (sp.category && categories ? <CategoryIcon cat={sp.category} categories={categories} size={24} /> : <Package size={22} color={accent} />)}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[14.5px] font-bold truncate leading-tight">{sp.productName}</span>
+          <span className="block text-[12px] opacity-60 mt-0.5">{V.Pack} de {sp.crateSize} {V.units}</span>
+          <span className="flex flex-wrap items-center gap-1 mt-1">
+            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--paper-dim)", color: "#4A5560" }}>{fmt(unitCost)} / {V.unit}</span>
+            {sp.salePrice > 0 && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={benefit >= 0 ? { background: "#E6F4EA", color: "#1E7A46" } : { background: "#FCEBEA", color: "#B3261E" }}>{benefit >= 0 ? "+" : ""}{fmt(benefit)}{pct != null ? ` · ${pct >= 0 ? "+" : ""}${pct} %` : ""}</span>}
+          </span>
+        </span>
+        <span className="text-right shrink-0">
+          <span className="block font-display font-bold text-[15px]" style={{ color: "var(--glass)" }}>{fmt(sp.cratePrice)}</span>
+          <span className="block text-[10.5px] opacity-55">le {V.pack}</span>
+          <ChevronDown size={16} className="inline-block mt-0.5 opacity-50 transition-transform" style={{ transform: open ? "rotate(180deg)" : "none" }} />
+        </span>
       </button>
       {open && (
-        <div className="px-3.5 pb-3.5 gb-slide-up">
-          <div className="flex gap-2 mb-2.5">
-            <div className="flex-1 rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.14)" }}>
-              <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.7)" }}>Quantité par {V.pack}</p>
-              <p className="text-sm font-mono font-semibold mt-0.5 text-white">{sp.crateSize} {V.units}</p>
-            </div>
-            <div className="flex-1 rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.14)" }}>
-              <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.7)" }}>Prix du {V.pack}</p>
-              <p className="text-sm font-mono font-semibold mt-0.5 text-white">{fmt(sp.cratePrice)}</p>
-            </div>
-          </div>
-          <div className="flex items-center justify-between pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.25)" }}>
-            <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.75)" }}>Coût par {V.unit}</span>
-            <span className="font-mono text-xs font-semibold text-white">{fmt(unitCost)}</span>
+        <div className="px-3 pb-3 gb-slide-up">
+          <div className="grid grid-cols-2 gap-2">
+            {[[`Quantité par ${V.pack}`, `${sp.crateSize} ${V.units}`], [`Prix du ${V.pack}`, fmt(sp.cratePrice)], [`Coût par ${V.unit}`, fmt(unitCost)], ["Prix de vente", sp.salePrice > 0 ? fmt(sp.salePrice) : "—"]].map(([l, v]) => (
+              <div key={l} className="rounded-[12px] px-3 py-2" style={{ background: "var(--paper-dim)" }}>
+                <p className="text-[10.5px] opacity-60">{l}</p>
+                <p className="text-[13.5px] font-bold mt-0.5">{v}</p>
+              </div>
+            ))}
           </div>
           {sp.salePrice > 0 && (
-            <>
-              <div className="flex items-center justify-between pt-2 mt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.25)" }}>
-                <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.75)" }}>Prix de vente</span>
-                <span className="font-mono text-xs font-semibold text-white">{fmt(sp.salePrice)}</span>
-              </div>
-              <div className="flex items-center justify-between mt-2.5 rounded-xl px-3 py-2" style={{ background: "rgba(255,255,255,0.16)" }}>
-                <span className="text-[11px] font-semibold text-white">Bénéfice par {V.unit}</span>
-                <span className="font-mono text-sm font-semibold text-white">{benefit >= 0 ? "+" : ""}{fmt(benefit)}</span>
-              </div>
-            </>
+            <div className="flex items-center justify-between mt-2 rounded-[12px] px-3 py-2.5" style={benefit >= 0 ? { background: "#E6F4EA", color: "#1E7A46" } : { background: "#FCEBEA", color: "#B3261E" }}>
+              <span className="text-[12px] font-bold leading-tight">Bénéfice<span className="block text-[11px] font-semibold opacity-80">{fmt(benefit * sp.crateSize)} par {V.pack}</span></span>
+              <span className="font-display font-bold text-[16px] text-right leading-tight">{benefit >= 0 ? "+" : ""}{fmt(benefit)}<span className="block text-[11px] font-semibold opacity-80">par {V.unit}</span></span>
+            </div>
           )}
+          <div className="flex gap-2 mt-2.5">
+            <button onClick={onEdit} className="gb-focus flex-1 h-10 rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "var(--glass)", color: "#fff" }}><Pencil size={14} /> Modifier</button>
+            <button onClick={onDelete} className="gb-focus h-10 px-4 rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#FCEBEA", color: "#B3261E" }}><Trash2 size={14} /> Retirer</button>
+          </div>
         </div>
       )}
     </div>
@@ -10906,10 +10969,16 @@ function SupplierProductsModal({ supplier, products, categories, saveCategories,
       <div className="relative w-full h-full flex flex-col" style={{ background: "var(--card)" }}>
         <div className="shrink-0 px-5 pb-3" style={{ borderBottom: "1px solid var(--line)", paddingTop: "max(20px, env(safe-area-inset-top))" }}>
           <div className="flex items-start justify-between gap-3 mb-1">
-            <h2 className="font-display font-bold text-lg min-w-0">Produits — {supplier.name}</h2>
-            <button onClick={onClose} className="gb-focus p-1 shrink-0"><X size={20} /></button>
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0 text-white font-bold text-[14px]" style={{ background: "var(--glass)" }}>{((supplier.name || "?").replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("") || "?").toUpperCase()}</span>
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] opacity-55">Catalogue fournisseur</p>
+                <h2 className="font-display font-bold text-[18px] leading-tight truncate">{supplier.name}</h2>
+              </div>
+            </div>
+            <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
           </div>
-          <p className="text-xs opacity-50 mb-3">Prix par {V.pack}, tel que vendu par ce fournisseur.</p>
+          <p className="text-[12px] opacity-60 mt-1.5 mb-3">{list.length} produit{list.length > 1 ? "s" : ""} · prix par {V.pack}, tel que vendu par ce fournisseur.</p>
           {showSearch && (
             <div className="relative mb-2.5">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
@@ -10928,7 +10997,7 @@ function SupplierProductsModal({ supplier, products, categories, saveCategories,
             <button onClick={() => { setAdding(false); setShowSearch(true); }} className="gb-focus flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}><Pencil size={14} /> Éditer un produit</button>
           </div>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto gb-scroll p-5 pt-3">
+        <div className="flex-1 min-h-0 overflow-y-auto gb-scroll p-5 pt-3" style={{ paddingBottom: "max(32px, calc(env(safe-area-inset-bottom) + 24px))" }}>
           {adding && <SupplierProductForm products={products} categories={categories} saveCategories={saveCategories} onSave={save} onCancel={() => setAdding(false)} pushToast={pushToast} />}
           <div className="flex flex-col gap-2.5">
             {filtered.map((sp, idx) => editing === sp.id ? (
@@ -10937,6 +11006,8 @@ function SupplierProductsModal({ supplier, products, categories, saveCategories,
               <SupplierProductCard
                 key={sp.id}
                 sp={sp}
+                categories={categories}
+                image={(products.find((x) => x.id === sp.productId) || products.find((x) => x.name.trim().toLowerCase() === (sp.productName || "").trim().toLowerCase()))?.image || sp.image || null}
                 gradient={SUPPLIER_CARD_GRADIENTS[idx % SUPPLIER_CARD_GRADIENTS.length]}
                 fmt={fmt}
                 onEdit={() => { setEditing(sp.id); setAdding(false); }}
@@ -10953,7 +11024,7 @@ function SupplierProductsModal({ supplier, products, categories, saveCategories,
   );
 }
 
-function PurchaseOrderModal({ supplier, supplierProducts, onCreate, onClose }) {
+function PurchaseOrderModal({ supplier, supplierProducts, products = [], categories = [], onCreate, onClose }) {
   const V = useVocab();
   const fmt = useFmt();
   const catalog = supplierProducts.filter((sp) => sp.supplierId === supplier.id);
@@ -10967,17 +11038,18 @@ function PurchaseOrderModal({ supplier, supplierProducts, onCreate, onClose }) {
     return sp ? { productId: sp.productId, productName: sp.productName, barcode: sp.barcode || "", category: sp.category || "", crateSize: sp.crateSize, cratePrice: sp.cratePrice, salePrice: sp.salePrice || 0, crates: n } : null;
   }).filter(Boolean);
   const total = lineItems.reduce((sum, l) => sum + l.crates * l.cratePrice, 0);
+  const totalCrates = lineItems.reduce((sum, l) => sum + l.crates, 0);
+  const productOf = (sp) => products.find((x) => x.id === sp.productId) || products.find((x) => (x.name || "").trim().toLowerCase() === (sp.productName || "").trim().toLowerCase());
   const lines = lineItems.map((l) => `- ${l.productName} : ${l.crates} ${plural(l.crates, V.pack, V.packs)} de ${l.crateSize} (${fmt(l.crates * l.cratePrice)})`);
   const text = `Bon de commande — ${supplier.name}\n${new Date().toLocaleDateString("fr-FR")}\n\n${lines.join("\n")}\n\nTotal : ${fmt(total)}`;
 
   const copyText = async () => {
     try { await navigator.clipboard.writeText(text); } catch { /* presse-papier indisponible */ }
   };
-  const waLink = `https://wa.me/${(supplier.phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(text)}`;
 
-  const create = () => {
+  const create = (send) => {
     if (lineItems.length === 0) return;
-    onCreate({ id: uid(), supplierId: supplier.id, date: new Date().toISOString(), status: "pending", items: lineItems });
+    onCreate({ id: uid(), supplierId: supplier.id, date: new Date().toISOString(), status: "pending", items: lineItems }, { send });
     onClose();
   };
 
@@ -11012,34 +11084,221 @@ function PurchaseOrderModal({ supplier, supplierProducts, onCreate, onClose }) {
           ) : (
             <>
               <div className="flex flex-col gap-2 mb-4">
-                {filteredCatalog.map((sp) => (
-                  <div key={sp.id} className="rounded-xl p-2.5 border flex items-center gap-2.5" style={{ borderColor: crates[sp.id] > 0 ? "var(--glass)" : "var(--line)" }}>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium truncate">{sp.productName}</div>
-                      <div className="text-[10px] opacity-50">{V.Pack} de {sp.crateSize} · {fmt(sp.cratePrice)}{crates[sp.id] > 0 ? ` · ${fmt(sp.cratePrice * crates[sp.id])}` : ""}</div>
+                {filteredCatalog.map((sp) => {
+                  const prod = productOf(sp);
+                  const n = crates[sp.id] || 0;
+                  const stock = prod && !prod.stockFrom ? Number(prod.stock) || 0 : null;
+                  const low = stock != null && stock <= Number(prod.minStock || 0);
+                  const after = stock != null ? stock + n * (Number(sp.crateSize) || 0) : null;
+                  const img = prod?.image || sp.image;
+                  return (
+                    <div key={sp.id} className="rounded-[16px] p-2.5 flex items-center gap-3" style={{ background: "var(--card)", border: `1.5px solid ${n > 0 ? "var(--glass)" : "var(--line)"}` }}>
+                      <span className="w-[52px] h-[52px] rounded-[13px] overflow-hidden flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}>
+                        {img ? <img src={img} alt="" className="w-full h-full object-cover" /> : sp.category ? <CategoryIcon cat={sp.category} categories={categories} size={20} /> : <Package size={20} className="opacity-50" />}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[14px] font-bold truncate">{sp.productName}</div>
+                        <div className="text-[11.5px] opacity-60">{V.Pack} de {sp.crateSize} · {fmt(sp.cratePrice)}</div>
+                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                          {stock == null ? (
+                            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#EEF1F6", color: "#46546A" }}>Pas encore en stock</span>
+                          ) : (
+                            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={low ? { background: "#FCEBEA", color: "#B3261E" } : { background: "#E6F4EA", color: "#1E7A46" }}>
+                              {low ? "Stock bas · " : "En stock · "}{stock} {plural(stock, V.unit, V.units)}
+                            </span>
+                          )}
+                          {n > 0 && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--glass)", color: "#fff" }}>{stock != null ? `→ ${after} après livraison` : `+${n * sp.crateSize} ${V.units}`}</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => setQty(sp.id, n - 1)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Moins"><Minus size={14} /></button>
+                          <span className="w-6 text-center text-[15px] font-bold">{n}</span>
+                          <button onClick={() => setQty(sp.id, n + 1)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center" style={{ background: n > 0 ? "var(--glass)" : "var(--paper-dim)", color: n > 0 ? "#fff" : "inherit" }} aria-label="Plus"><Plus size={14} /></button>
+                        </div>
+                        {n > 0 && <span className="text-[11px] font-bold" style={{ color: "var(--glass)" }}>{fmt(sp.cratePrice * n)}</span>}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button onClick={() => setQty(sp.id, (crates[sp.id] || 0) - 1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Minus size={13} /></button>
-                      <span className="w-6 text-center text-sm font-mono">{crates[sp.id] || 0}</span>
-                      <button onClick={() => setQty(sp.id, (crates[sp.id] || 0) + 1)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Plus size={13} /></button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {filteredCatalog.length === 0 && <p className="text-xs opacity-50 text-center py-6">Aucun produit ne correspond à la recherche.</p>}
               </div>
-              <div className="flex justify-between items-center mb-3 px-1">
-                <span className="text-sm opacity-60">Total</span>
-                <span className="font-mono font-bold text-lg" style={{ color: "var(--glass)" }}>{fmt(total)}</span>
+              <div className="rounded-[18px] p-3.5 mb-3 flex items-center justify-between" style={{ background: "var(--glass)", color: "#fff" }}>
+                <div>
+                  <p className="text-[11.5px] opacity-75">Total de la commande</p>
+                  <p className="text-[12px] opacity-75">{lineItems.length} produit{lineItems.length > 1 ? "s" : ""} · {totalCrates} {plural(totalCrates, V.pack, V.packs)}</p>
+                </div>
+                <span className="font-display font-bold text-[22px]">{fmt(total)}</span>
               </div>
-              <div className="rounded-xl p-3 mb-4 font-mono text-[11px] whitespace-pre-wrap" style={{ background: "var(--paper-dim)" }}>{text}</div>
-              <button onClick={create} disabled={lineItems.length === 0} className="gb-focus w-full rounded-xl py-3 text-sm font-semibold text-white mb-2 disabled:opacity-40" style={{ background: "var(--glass)" }}>Enregistrer la commande</button>
+              <button onClick={() => create(true)} disabled={lineItems.length === 0} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white mb-2 flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: "#25D366" }}><MessageCircle size={18} /> Enregistrer et envoyer la facture</button>
               <div className="flex gap-2">
-                <button onClick={copyText} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Copier le texte</button>
-                <a href={waLink} target="_blank" rel="noopener noreferrer" className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold text-white text-center" style={{ background: "#25D366" }}>Envoyer par WhatsApp</a>
+                <button onClick={() => create(false)} disabled={lineItems.length === 0} className="gb-focus flex-1 min-h-[46px] rounded-xl text-[13.5px] font-bold disabled:opacity-40" style={{ background: "var(--paper-dim)" }}>Enregistrer seulement</button>
+                <button onClick={copyText} disabled={lineItems.length === 0} className="gb-focus flex-1 min-h-[46px] rounded-xl text-[13.5px] font-bold disabled:opacity-40" style={{ background: "var(--paper-dim)" }}>Copier le texte</button>
               </div>
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Facture / bon de commande fournisseur (image PNG) ----------
+// Dessinée sur un canvas pour être envoyée comme image sur WhatsApp (aperçu
+// direct dans la conversation, pas besoin d'ouvrir un PDF).
+function renderOrderInvoice({ shop, supplier, order, items, fmt, V }) {
+  const lines = (items || order.items || []).filter((i) => Number(i.crates) > 0);
+  const W = 1240, PAD = 72, ROW = 74;
+  const H = 980 + lines.length * ROW + 300;
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  const c = cv.getContext("2d");
+  const INK = "#16202A", MUTED = "#5B6470", ACC = "#12352A", LINE = "#E4E2DB";
+  const font = (w, sz) => `${w} ${sz}px "Inter", "Segoe UI", Roboto, Arial, sans-serif`;
+  const rr = (x, y, w, h, r, fill, stroke) => { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); if (fill) { c.fillStyle = fill; c.fill(); } if (stroke) { c.strokeStyle = stroke; c.lineWidth = 2; c.stroke(); } };
+  const txt = (t, x, y, f, col, align = "left", maxW) => { c.font = f; c.fillStyle = col; c.textAlign = align; let s = String(t ?? ""); if (maxW) { while (s.length > 1 && c.measureText(s).width > maxW) s = s.slice(0, -2) + "…"; } c.fillText(s, x, y); };
+  const money = (v) => String(fmt(v)).replace(/ | /g, " ");
+  c.fillStyle = "#FFFFFF"; c.fillRect(0, 0, W, H);
+  c.fillStyle = ACC; c.fillRect(0, 0, W, 16);
+  // En-tête : entreprise / titre
+  let y = 110;
+  txt(shop?.name || "Mon entreprise", PAD, y, font(800, 50), INK, "left", 640);
+  const typeLabel = ESTABLISHMENT_TYPES.find((x) => x.id === shop?.type)?.label || "";
+  const info = [typeLabel, shop?.invoiceAddress, shop?.invoicePhone ? `Tél. ${shop.invoicePhone}` : "", shop?.invoiceEmail, shop?.rccm ? `RCCM ${shop.rccm}` : ""].filter(Boolean);
+  info.forEach((l, i) => txt(l, PAD, y + 46 + i * 34, font(500, 25), MUTED, "left", 600));
+  const isRecv = order.status === "received";
+  txt(isRecv ? "FACTURE DE COMMANDE" : "BON DE COMMANDE", W - PAD, y - 8, font(800, isRecv ? 40 : 44), ACC, "right");
+  txt(`N° ${String(order.id || "").slice(0, 6).toUpperCase()}`, W - PAD, y + 40, font(700, 28), INK, "right");
+  txt(`Date : ${new Date(order.date || Date.now()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}`, W - PAD, y + 78, font(500, 25), MUTED, "right");
+  const received = order.status === "received";
+  const pill = received ? `Reçue${order.receivedDate ? ` le ${new Date(order.receivedDate).toLocaleDateString("fr-FR")}` : ""} · payée` : "En attente de livraison";
+  c.font = font(700, 23); const pw = c.measureText(pill).width + 44;
+  rr(W - PAD - pw, y + 100, pw, 44, 22, received ? "#E6F4EA" : "#FFF1D6");
+  txt(pill, W - PAD - pw / 2, y + 130, font(700, 23), received ? "#1E7A46" : "#8A5A00", "center");
+  y = Math.max(y + 46 + info.length * 34, y + 150) + 46;
+  // Cadres fournisseur / livraison
+  const boxW = (W - PAD * 2 - 28) / 2, boxH = 190;
+  rr(PAD, y, boxW, boxH, 18, "#F5F4F0");
+  txt("FOURNISSEUR", PAD + 28, y + 46, font(800, 21), MUTED);
+  txt(supplier?.name || "Fournisseur", PAD + 28, y + 92, font(800, 32), INK, "left", boxW - 56);
+  [supplier?.phone ? `Tél. ${supplier.phone}` : "", supplier?.note].filter(Boolean).forEach((l, i) => txt(l, PAD + 28, y + 132 + i * 34, font(500, 24), MUTED, "left", boxW - 56));
+  const bx = PAD + boxW + 28;
+  rr(bx, y, boxW, boxH, 18, "#F5F4F0");
+  txt("À LIVRER À", bx + 28, y + 46, font(800, 21), MUTED);
+  txt(shop?.name || "", bx + 28, y + 92, font(800, 32), INK, "left", boxW - 56);
+  [shop?.invoicePhone ? `Tél. ${shop.invoicePhone}` : "", shop?.invoiceAddress].filter(Boolean).forEach((l, i) => txt(l, bx + 28, y + 132 + i * 34, font(500, 24), MUTED, "left", boxW - 56));
+  y += boxH + 48;
+  // Tableau
+  const X = { n: PAD + 24, name: PAD + 80, pack: PAD + 470, qty: PAD + 720, pu: PAD + 900, tot: W - PAD - 24 };
+  rr(PAD, y, W - PAD * 2, 66, 14, "#1F2A33");
+  [["#", X.n, "left"], ["Désignation", X.name, "left"], ["Format", X.pack, "left"], [`${V.Pack}s`, X.qty, "right"], ["Prix unitaire", X.pu, "right"], ["Montant", X.tot, "right"]].forEach(([l, x, a]) => txt(l, x, y + 42, font(700, 23), "#FFFFFF", a));
+  y += 66;
+  let total = 0, crates = 0, units = 0;
+  lines.forEach((i, k) => {
+    const amt = (Number(i.crates) || 0) * (Number(i.cratePrice) || 0);
+    total += amt; crates += Number(i.crates) || 0; units += (Number(i.crates) || 0) * (Number(i.crateSize) || 0);
+    if (k % 2 === 1) { c.fillStyle = "#FAF9F6"; c.fillRect(PAD, y, W - PAD * 2, ROW); }
+    txt(String(k + 1), X.n, y + 47, font(600, 25), MUTED);
+    txt(i.productName, X.name, y + 47, font(700, 27), INK, "left", 370);
+    txt(`${V.Pack} de ${i.crateSize}`, X.pack, y + 47, font(500, 24), MUTED, "left", 170);
+    txt(String(i.crates), X.qty, y + 47, font(800, 27), INK, "right");
+    txt(money(i.cratePrice), X.pu, y + 47, font(500, 25), INK, "right");
+    txt(money(amt), X.tot, y + 47, font(800, 26), INK, "right");
+    c.fillStyle = LINE; c.fillRect(PAD, y + ROW - 1, W - PAD * 2, 1);
+    y += ROW;
+  });
+  y += 36;
+  // Totaux
+  const TX = W - PAD - 520;
+  [[`Nombre de ${V.packs}`, String(crates)], [`Total ${V.units}`, String(units)], ["Sous-total", money(total)]].forEach(([l, v]) => { txt(l, TX, y + 26, font(500, 25), MUTED); txt(v, W - PAD, y + 26, font(700, 25), INK, "right"); y += 44; });
+  y += 8;
+  rr(TX - 24, y, 520 + 24, 84, 18, ACC);
+  txt(isRecv ? "TOTAL PAYÉ" : "TOTAL À PAYER", TX, y + 53, font(800, 27), "#FFFFFF");
+  txt(money(total), W - PAD - 22, y + 55, font(800, 34), "#FFFFFF", "right");
+  y += 130;
+  try { const w = `${frenchNumberWords(Math.round(total))} francs CFA`; c.font = font(500, 23); txt(`Arrêté${isRecv ? "e la présente facture" : " le présent bon de commande"} à la somme de ${w}.`, PAD, y, font(500, 23), MUTED, "left", W - PAD * 2); } catch { /* sans montant en lettres */ }
+  y += 90;
+  c.fillStyle = "#B9BDC2"; c.fillRect(PAD, y, 380, 2); c.fillRect(W - PAD - 380, y, 380, 2);
+  txt(`Pour ${shop?.name || "l'entreprise"}`, PAD, y + 36, font(500, 22), MUTED, "left", 380);
+  txt("Le fournisseur (cachet)", W - PAD, y + 36, font(500, 22), MUTED, "right");
+  txt("Merci pour votre collaboration.", W / 2, H - 70, font(600, 23), INK, "center");
+  txt(`Document généré le ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} · GestiOne`, W / 2, H - 36, font(500, 19), "#9AA0A6", "center");
+  return { dataUrl: cv.toDataURL("image/png"), jpeg: cv.toDataURL("image/jpeg", 0.9), w: W, h: H, total, crates };
+}
+
+// Facture du bon de commande en PDF (A4, même mise en page que l'aperçu).
+async function buildOrderInvoicePdf(img) {
+  const { jsPDF } = await import("jspdf");
+  const pw = 595.28, ph = 841.89;
+  const ratio = pw / img.w;
+  const fullH = img.h * ratio;
+  const doc = new jsPDF({ unit: "pt", format: fullH > ph ? [pw, fullH] : "a4" });
+  doc.addImage(img.jpeg, "JPEG", 0, 0, pw, fullH);
+  return doc;
+}
+
+// Aperçu de la facture + envoi WhatsApp au fournisseur.
+function OrderInvoiceSheet({ order, items, supplier, shop, onClose, title = "Facture du bon de commande" }) {
+  const V = useVocab();
+  const fmt = useFmt();
+  const [img, setImg] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    try { setImg(renderOrderInvoice({ shop, supplier, order, items, fmt, V })); } catch { setImg({ error: true }); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const num = String(order.id || "").slice(0, 6).toUpperCase();
+  const caption = `Bonjour ${supplier?.name || ""}, voici ${order.status === "received" ? "la facture de la commande reçue" : "notre bon de commande"} N° ${num} (${img?.crates || 0} ${plural(img?.crates || 0, V.pack, V.packs)} · ${String(fmt(img?.total || 0)).replace(/ | /g, " ")}).${order.status === "received" ? "" : " Merci de confirmer la livraison."} — ${shop?.name || ""}`;
+  const fileName = `${order.status === "received" ? "Facture_commande" : "Bon_de_commande"}_${num}.pdf`;
+  const send = async () => {
+    if (!img?.dataUrl) return;
+    setBusy("send");
+    try {
+      const doc = await buildOrderInvoicePdf(img);
+      const r = await sharePdfDoc(fileName, doc, caption, supplier?.phone || "");
+      setNote(r === "downloaded" ? "PDF enregistré : joignez-le dans la conversation WhatsApp qui vient de s'ouvrir." : "");
+    } catch { setNote("Envoi annulé ou impossible. Réessayez."); }
+    setBusy("");
+  };
+  const savePdf = async () => {
+    if (!img?.dataUrl) return;
+    setBusy("pdf");
+    try { await exportPdfDoc(fileName, await buildOrderInvoicePdf(img)); } catch { setNote("Impossible de générer le PDF."); }
+    setBusy("");
+  };
+  const print = async () => {
+    setBusy("print");
+    try {
+      if (isPrinterFeatureAvailable()) await printOrder({ ...order, items: items || order.items }, supplier, shop, fmt, V);
+      else await exportPdfDoc(fileName, await buildOrderInvoicePdf(img));
+    } catch (e) { setNote(e?.message || "Impression impossible."); }
+    setBusy("");
+  };
+  return (
+    <div className="fixed inset-0 z-[120] flex flex-col no-print" style={{ background: "#10171D" }}>
+      <div className="shrink-0 px-4 pb-3 flex items-center gap-3 text-white" style={{ paddingTop: "max(20px, env(safe-area-inset-top))" }}>
+        <button onClick={onClose} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Fermer"><X size={19} color="#fff" /></button>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11.5px] font-bold uppercase tracking-[0.08em] opacity-70">{title}</p>
+          <p className="font-display font-bold text-[17px] truncate">N° {num} · {supplier?.name || "Fournisseur"}</p>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-4 pb-2">
+        {!img && <p className="text-center text-white/70 py-10 text-[14px]">Préparation de la facture…</p>}
+        {img?.error && <p className="text-center text-white/80 py-10 text-[14px]">Impossible de générer la facture.</p>}
+        {img?.dataUrl && <img src={img.dataUrl} alt="Facture du bon de commande" className="w-full rounded-[14px]" style={{ boxShadow: "0 18px 40px -18px rgba(0,0,0,0.8)" }} />}
+      </div>
+      <div className="shrink-0 px-4 pt-3 flex flex-col gap-2" style={{ paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+        {note && <p className="text-[12.5px] text-center text-white/85">{note}</p>}
+        <button onClick={send} disabled={!img?.dataUrl || !!busy} className="gb-focus min-h-[54px] rounded-2xl text-[15.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#25D366", boxShadow: "0 10px 22px -10px rgba(37,211,102,0.7)" }}>
+          <MessageCircle size={19} /> {busy === "send" ? "Préparation du PDF…" : "Envoyer le PDF par WhatsApp"}
+        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={print} disabled={!img?.dataUrl || !!busy} className="gb-focus min-h-[48px] rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.18)" }}><Printer size={17} /> {busy === "print" ? "…" : "Imprimer"}</button>
+          <button onClick={savePdf} disabled={!img?.dataUrl || !!busy} className="gb-focus min-h-[48px] rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.18)" }}><Download size={17} /> {busy === "pdf" ? "…" : "Enregistrer le PDF"}</button>
+        </div>
+        <p className="text-[11px] text-center text-white/55">Envoi : choisissez WhatsApp puis {supplier?.phone ? `le contact ${supplier.phone}` : "le fournisseur"} dans le menu de partage.</p>
       </div>
     </div>
   );
@@ -11051,7 +11310,7 @@ function orderTotalOf(o) {
   return (o.items || []).reduce((sum, i) => sum + (Number(i.crates) || 0) * (Number(i.cratePrice) || 0), 0);
 }
 
-function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, onValidate, onDelete, onClose, pushToast }) {
+function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, onValidate, onDelete, onClose, pushToast, onSendInvoice }) {
   const V = useVocab();
   const fmt = useFmt();
   const [items, setItems] = useState(order.items.map((i) => ({ ...i })));
@@ -11078,7 +11337,15 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
 
   const save = () => {
     if (items.length === 0) { pushToast("La commande est vide : ajoute un produit ou supprime la commande", "error"); return; }
-    onUpdate({ ...order, items }); onClose();
+    const next = { ...order, items };
+    onUpdate(next); onClose();
+    // Bon de commande modifié : on propose tout de suite la nouvelle facture.
+    onSendInvoice?.(next, "Bon de commande modifié");
+  };
+  const sendInvoice = () => {
+    if (items.length === 0) { pushToast("La commande est vide", "error"); return; }
+    if (dirty) { save(); return; }
+    onSendInvoice?.({ ...order, items });
   };
   const validate = () => {
     if (items.length === 0) { pushToast("Ajoute au moins un produit disponible avant de valider", "error"); return; }
@@ -11151,6 +11418,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
           <button onClick={() => setConfirmDelete(true)} className="gb-focus min-h-[50px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ border: "1px solid #E3B3AC", color: "#9B2C1F", background: "#fff" }}><Trash2 size={17} /> Supprimer</button>
           <button onClick={save} disabled={!dirty || items.length === 0} className="gb-focus min-h-[50px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: dirty && items.length ? "#1F2A33" : "#D9DCDF", color: dirty && items.length ? "#fff" : "#4A525C" }}><Check size={17} /> Enregistrer</button>
         </div>
+        {onSendInvoice && <button onClick={sendInvoice} disabled={items.length === 0} className="gb-focus min-h-[50px] rounded-2xl text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#25D366" }}><MessageCircle size={18} /> {dirty ? "Enregistrer et envoyer la facture" : "Envoyer la facture par WhatsApp"}</button>}
         <button onClick={validate} className="gb-focus min-h-[46px] rounded-xl text-[14px] font-bold" style={{ background: "#E6F2D9", color: "#3A6410" }}>Valider — payée et reçue (entrée en stock)</button>
       </div>
 
@@ -11203,37 +11471,71 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
   );
 }
 
-function ReceivedOrderModal({ order, supplier, onClose }) {
+function ReceivedOrderModal({ order, supplier, onClose, onSendInvoice, shop }) {
   const V = useVocab();
   const fmt = useFmt();
+  const [printing, setPrinting] = useState(false);
   const total = order.items.reduce((sum, i) => sum + i.crates * i.cratePrice, 0);
+  const crates = order.items.reduce((sum, i) => sum + (Number(i.crates) || 0), 0);
+  const units = order.items.reduce((sum, i) => sum + (Number(i.crates) || 0) * (Number(i.crateSize) || 0), 0);
+  const num = order.id.slice(0, 6).toUpperCase();
+  const d = (x) => new Date(x).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  const print = async () => {
+    if (!isPrinterFeatureAvailable()) { onSendInvoice?.(order); return; }
+    setPrinting(true);
+    try { await printOrder(order, supplier, shop || {}, fmt, V); } catch { onSendInvoice?.(order); }
+    setPrinting(false);
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-end no-print">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
-        <div className="flex items-center justify-between mb-1 shrink-0">
-          <h2 className="font-display font-bold text-lg">Commande reçue</h2>
-          <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
+      <div className="relative w-full rounded-t-3xl gb-slide-up max-h-[90vh] flex flex-col" style={{ background: "#F4F3EF", color: "#16202A" }}>
+        <div className="shrink-0 px-5 pt-3 pb-3">
+          <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "#D5D2C8" }} />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: "#5B6470" }}>Commande N° {num}</p>
+              <p className="font-display font-bold text-[19px] leading-tight break-words">{supplier?.name || "Fournisseur"}</p>
+            </div>
+            <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff", border: "1px solid #E2E0D9" }} aria-label="Fermer"><X size={18} /></button>
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto gb-scroll -mx-1 px-1">
-          <p className="text-xs opacity-50 mb-4">{supplier?.name} · N° {order.id.slice(0, 6).toUpperCase()} · commandée le {new Date(order.date).toLocaleDateString("fr-FR")}{order.receivedDate ? ` · reçue le ${new Date(order.receivedDate).toLocaleDateString("fr-FR")}` : ""}</p>
-          <div className="flex flex-col gap-2 mb-4">
+        <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5 flex flex-col gap-3">
+          <section className="rounded-[20px] p-4 flex flex-col gap-3 text-white" style={{ background: "#1F2A33" }}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[13px]" style={{ color: "#C9D1D8" }}>Total payé</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-bold" style={{ background: "#E6F4EA", color: "#1E7A46" }}><Check size={13} /> Reçue</span>
+            </div>
+            <span className="font-display font-bold text-[30px] leading-none">{fmt(total)}</span>
+            <div className="grid grid-cols-3 gap-2 text-[12px]" style={{ color: "#C9D1D8" }}>
+              <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.07)" }}><p>Commandée</p><p className="font-bold text-white mt-0.5">{d(order.date)}</p></div>
+              <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.07)" }}><p>Reçue</p><p className="font-bold text-white mt-0.5">{order.receivedDate ? d(order.receivedDate) : "—"}</p></div>
+              <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.07)" }}><p>{V.Pack}s</p><p className="font-bold text-white mt-0.5">{crates} · {units} {V.units}</p></div>
+            </div>
+          </section>
+          <section className="rounded-[20px] px-4 py-1.5" style={{ background: "#fff", border: "1px solid #E6E4DD" }}>
+            <p className="text-[12px] font-bold uppercase tracking-wide pt-2.5 pb-1.5" style={{ color: "#5B6470" }}>Produits ({order.items.length})</p>
             {order.items.map((i, idx) => (
-              <div key={idx} className="rounded-xl p-2.5 border flex items-center justify-between" style={{ borderColor: "var(--line)" }}>
+              <div key={idx} className="flex items-center justify-between gap-3 py-3 border-t" style={{ borderColor: "#EFEDE7" }}>
                 <div className="min-w-0">
-                  <div className="text-xs font-medium truncate">{i.productName}</div>
-                  <div className="text-[10px] opacity-50">{i.crates} {plural(i.crates, V.pack, V.packs)} de {i.crateSize}</div>
+                  <p className="text-[14.5px] font-semibold break-words">{i.productName}</p>
+                  <p className="text-[12.5px]" style={{ color: "#5B6470" }}>{i.crates} {plural(i.crates, V.pack, V.packs)} de {i.crateSize} · {fmt(i.cratePrice)} / {V.pack}</p>
                 </div>
-                <span className="font-mono text-xs font-semibold shrink-0">{fmt(i.crates * i.cratePrice)}</span>
+                <span className="font-display font-bold text-[15px] whitespace-nowrap">{fmt(i.crates * i.cratePrice)}</span>
               </div>
             ))}
-          </div>
-          <div className="flex justify-between items-center px-1">
-            <span className="text-sm opacity-60">Total payé</span>
-            <span className="font-mono font-bold text-lg" style={{ color: "var(--glass)" }}>{fmt(total)}</span>
-          </div>
-          <ReceiptCodes id={order.id} label={`N° ${order.id.slice(0, 6).toUpperCase()}`} />
+          </section>
+          <div className="pb-2"><ReceiptCodes id={order.id} label={`N° ${num}`} /></div>
         </div>
+        {onSendInvoice && (
+          <div className="shrink-0 px-5 pt-3 flex flex-col gap-2" style={{ background: "#fff", borderTop: "1px solid #E6E4DD", paddingBottom: "max(40px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+            <button onClick={() => onSendInvoice(order)} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white flex items-center justify-center gap-2" style={{ background: "#25D366" }}><MessageCircle size={18} /> Renvoyer la facture PDF par WhatsApp</button>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={print} disabled={printing} className="gb-focus min-h-[48px] rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#1F2A33", color: "#fff" }}><Printer size={17} /> {printing ? "…" : "Imprimer la facture"}</button>
+              <button onClick={() => onSendInvoice(order)} className="gb-focus min-h-[48px] rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: "#F1EFEA", border: "1px solid #DAD8D0" }}><FileText size={17} /> Voir la facture</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -11357,6 +11659,262 @@ function SupplierOrdersModal({ supplier, ordersForSupplier, onNewOrder, onOpenOr
   );
 }
 
+// ---------- Toutes les commandes fournisseurs (inventaire des commandes) ----------
+const SUP_PALETTE = [["#DDF3EC", "#0B5745", "#14A37F"], ["#E3EDFB", "#173F70", "#3B7DD8"], ["#FDEFD9", "#6E3C00", "#E09A1A"], ["#FBE3E0", "#8A2419", "#E0513F"], ["#EEE7FB", "#4A2E85", "#8B63D6"]];
+function supInitials(name) {
+  const words = (name || "?").replace(/\(.*?\)/g, "").trim().split(/\s+/).filter(Boolean);
+  return ((words[0] || "?")[0] + ((words[1] || words[0] || "")[words[1] ? 0 : 1] || "")).toUpperCase();
+}
+function AllOrdersPanel({ orders = [], suppliers = [], shop, onOpenOrder, onNewOrder, pushToast }) {
+  const V = useVocab();
+  const fmt = useFmt();
+  const todayKey = cashDayKeyOf(new Date());
+  const shiftKey = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return cashDayKeyOf(d); };
+  const [preset, setPreset] = useState("mois");
+  const [from, setFrom] = useState(() => { const n = new Date(); return cashDayKeyOf(new Date(n.getFullYear(), n.getMonth(), 1)); });
+  const [to, setTo] = useState(todayKey);
+  const [status, setStatus] = useState("all");
+  const [supFilter, setSupFilter] = useState(null);
+  const [limit, setLimit] = useState(40);
+  const applyPreset = (k) => {
+    setPreset(k);
+    const now = new Date();
+    if (k === "today") { setFrom(todayKey); setTo(todayKey); }
+    if (k === "7j") { setFrom(shiftKey(6)); setTo(todayKey); }
+    if (k === "30j") { setFrom(shiftKey(29)); setTo(todayKey); }
+    if (k === "mois") { setFrom(cashDayKeyOf(new Date(now.getFullYear(), now.getMonth(), 1))); setTo(todayKey); }
+    if (k === "mprec") { setFrom(cashDayKeyOf(new Date(now.getFullYear(), now.getMonth() - 1, 1))); setTo(cashDayKeyOf(new Date(now.getFullYear(), now.getMonth(), 0))); }
+    if (k === "annee") { setFrom(`${now.getFullYear()}-01-01`); setTo(todayKey); }
+    if (k === "tout") { setFrom("2000-01-01"); setTo(todayKey); }
+  };
+  const supIdx = (id) => Math.max(0, suppliers.findIndex((s) => s.id === id));
+  const supOf = (id) => suppliers.find((s) => s.id === id);
+  const colorOf = (id) => SUP_PALETTE[supIdx(id) % SUP_PALETTE.length];
+  const inRange = orders.filter((o) => { const k = cashDayKeyOf(o.date); return k >= from && k <= to; }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  const scoped = inRange.filter((o) => !supFilter || o.supplierId === supFilter);
+  const shown = scoped.filter((o) => status === "all" || (status === "received" ? o.status === "received" : o.status !== "received"));
+  const cratesOf = (o) => (o.items || []).reduce((t, i) => t + (Number(i.crates) || 0), 0);
+  const total = scoped.reduce((t, o) => t + orderTotalOf(o), 0);
+  const recv = scoped.filter((o) => o.status === "received");
+  const pend = scoped.filter((o) => o.status !== "received");
+  const recvTotal = recv.reduce((t, o) => t + orderTotalOf(o), 0);
+  const pendTotal = pend.reduce((t, o) => t + orderTotalOf(o), 0);
+  const crates = scoped.reduce((t, o) => t + cratesOf(o), 0);
+  const avg = scoped.length ? Math.round(total / scoped.length) : 0;
+  const shortDate = (k) => new Date(k + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: k.slice(0, 4) !== todayKey.slice(0, 4) ? "numeric" : undefined });
+  const periodLabel = from === "2000-01-01" ? "Depuis le début" : from === to ? shortDate(from) : `${shortDate(from)} → ${shortDate(to)}`;
+  // Évolution : par jour (≤ 31 jours) sinon par mois
+  const firstKey = from === "2000-01-01" ? (inRange.length ? cashDayKeyOf(inRange[inRange.length - 1].date) : todayKey) : from;
+  const spanDays = Math.round((new Date(to + "T12:00:00") - new Date(firstKey + "T12:00:00")) / 864e5) + 1;
+  const byMonth = spanDays > 31;
+  const buckets = [];
+  if (byMonth) {
+    const s = new Date(firstKey + "T12:00:00"); const e = new Date(to + "T12:00:00");
+    for (let d = new Date(s.getFullYear(), s.getMonth(), 1); d <= e; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) buckets.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, label: d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", ""), v: 0, n: 0 });
+  } else {
+    for (let i = 0; i < spanDays; i++) { const d = new Date(firstKey + "T12:00:00"); d.setDate(d.getDate() + i); const k = cashDayKeyOf(d); buckets.push({ key: k, label: String(d.getDate()), v: 0, n: 0 }); }
+  }
+  scoped.forEach((o) => { const k = byMonth ? cashDayKeyOf(o.date).slice(0, 7) : cashDayKeyOf(o.date); const b = buckets.find((x) => x.key === k); if (b) { b.v += orderTotalOf(o); b.n += 1; } });
+  const shownBuckets = buckets.slice(-31);
+  const maxB = Math.max(1, ...shownBuckets.map((b) => b.v));
+  // Par fournisseur
+  const bySup = suppliers.map((s) => { const os = inRange.filter((o) => o.supplierId === s.id); return { s, n: os.length, v: os.reduce((t, o) => t + orderTotalOf(o), 0) }; }).filter((x) => x.n > 0).sort((a, b) => b.v - a.v);
+  const allTotal = inRange.reduce((t, o) => t + orderTotalOf(o), 0) || 1;
+  // Produits les plus commandés
+  const prodMap = {};
+  scoped.forEach((o) => (o.items || []).forEach((i) => { const k = i.productName; if (!prodMap[k]) prodMap[k] = { name: k, crates: 0, v: 0 }; prodMap[k].crates += Number(i.crates) || 0; prodMap[k].v += (Number(i.crates) || 0) * (Number(i.cratePrice) || 0); }));
+  const topProducts = Object.values(prodMap).sort((a, b) => b.v - a.v).slice(0, 5);
+  // Liste groupée par jour
+  const groups = [];
+  shown.slice(0, limit).forEach((o) => { const k = cashDayKeyOf(o.date); let g = groups[groups.length - 1]; if (!g || g.k !== k) { g = { k, items: [], v: 0 }; groups.push(g); } g.items.push(o); });
+  groups.forEach((g) => { g.v = shown.filter((o) => cashDayKeyOf(o.date) === g.k).reduce((t, o) => t + orderTotalOf(o), 0); });
+  const dayTitle = (k) => { const s = new Date(k + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }); return k === todayKey ? `Aujourd'hui · ${s}` : s.charAt(0).toUpperCase() + s.slice(1); };
+  const chip = (on) => (on ? { background: "var(--glass)", color: "#fff", border: "1px solid var(--glass)" } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" });
+  const dateInput = "gb-focus w-full rounded-xl px-2.5 text-[14px] border min-h-[44px]";
+  const plain = (v) => String(v ?? "").replace(/[  ]/g, " ").replace(/→/g, "->");
+
+  const exportPdf = async () => {
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const W = 595, L = 40, R = 555;
+      doc.setFillColor(18, 53, 42); doc.rect(0, 0, W, 86, "F");
+      doc.setTextColor(255); doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text(plain(shop?.name || "GestiOne"), L, 38);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.text(plain(`Inventaire des commandes fournisseurs · ${periodLabel}${supFilter ? ` · ${supOf(supFilter)?.name || ""}` : ""}`), L, 60);
+      let y = 116;
+      doc.setTextColor(22, 32, 42);
+      [["Total commandé", fmt(total)], ["Commandes", String(scoped.length)], ["Reçues", `${recv.length} · ${fmt(recvTotal)}`], ["En attente", `${pend.length} · ${fmt(pendTotal)}`], [`${V.Pack}s`, String(crates)]].forEach(([l, v], i) => {
+        const x = L + (i % 3) * 172, yy = y + Math.floor(i / 3) * 44;
+        doc.setFontSize(9); doc.setTextColor(91, 100, 112); doc.text(plain(l), x, yy);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(22, 32, 42); doc.text(plain(v), x, yy + 17); doc.setFont("helvetica", "normal");
+      });
+      y += 108;
+      doc.setFillColor(31, 42, 51); doc.rect(L, y, R - L, 22, "F");
+      doc.setTextColor(255); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      [["Date", L + 8, "left"], ["N°", L + 78, "left"], ["Fournisseur", L + 130, "left"], [V.Pack + "s", L + 360, "right"], ["Statut", L + 380, "left"], ["Montant", R - 8, "right"]].forEach(([t, x, a]) => doc.text(plain(t), x, y + 15, { align: a }));
+      y += 22; doc.setFont("helvetica", "normal"); doc.setTextColor(22, 32, 42);
+      shown.forEach((o, i) => {
+        if (y > 790) { doc.addPage(); y = 50; }
+        if (i % 2) { doc.setFillColor(246, 245, 241); doc.rect(L, y, R - L, 20, "F"); }
+        doc.text(new Date(o.date).toLocaleDateString("fr-FR"), L + 8, y + 14);
+        doc.text(String(o.id).slice(0, 6).toUpperCase(), L + 78, y + 14);
+        doc.text(doc.splitTextToSize(plain(supOf(o.supplierId)?.name || "—"), 200)[0], L + 130, y + 14);
+        doc.text(String(cratesOf(o)), L + 360, y + 14, { align: "right" });
+        doc.text(o.status === "received" ? "Reçue" : "En attente", L + 380, y + 14);
+        doc.text(plain(fmt(orderTotalOf(o))), R - 8, y + 14, { align: "right" });
+        y += 20;
+      });
+      y += 12; doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("Total", L + 8, y); doc.text(plain(fmt(shown.reduce((t, o) => t + orderTotalOf(o), 0))), R - 8, y, { align: "right" });
+      await exportPdfDoc(`commandes_${from === "2000-01-01" ? "tout" : from}_${to}.pdf`, doc);
+    } catch { pushToast?.("Impossible de générer le PDF", "error"); }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <section className="relative overflow-hidden rounded-[22px] p-4 text-white" style={{ background: "linear-gradient(135deg, #12352A 0%, #1E5A45 100%)", boxShadow: "0 12px 26px -14px rgba(18,53,42,0.7)" }}>
+        <span className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11.5px] font-bold uppercase tracking-[0.08em] opacity-75">Total des commandes</p>
+            <p className="font-display font-bold text-[32px] leading-none mt-1.5 break-words">{fmt(total)}</p>
+            <p className="text-[12px] opacity-75 mt-1.5">{periodLabel}{supFilter ? ` · ${supOf(supFilter)?.name || ""}` : ""}</p>
+          </div>
+          <button onClick={exportPdf} disabled={shown.length === 0} className="gb-focus shrink-0 h-9 px-3 rounded-full text-[12.5px] font-bold flex items-center gap-1.5 disabled:opacity-40" style={{ background: "rgba(255,255,255,0.14)" }}><Download size={14} /> PDF</button>
+        </div>
+        <div className="relative grid grid-cols-2 gap-2 mt-3.5">
+          {[
+            ["Commandes", String(scoped.length), avg ? `moy. ${fmt(avg)}` : "", "#fff"],
+            [`${V.Pack}s commandés`, String(crates), `${scoped.reduce((t, o) => t + (o.items || []).length, 0)} lignes`, "#F6C453"],
+            ["Reçues", fmt(recvTotal), `${recv.length} commande${recv.length > 1 ? "s" : ""}`, "#A6E07A"],
+            ["En attente", fmt(pendTotal), `${pend.length} commande${pend.length > 1 ? "s" : ""}`, "#FFC266"],
+          ].map(([l, v, sub, c]) => (
+            <div key={l} className="rounded-[14px] px-3 py-2.5 min-w-0" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <p className="text-[11px] opacity-75">{l}</p>
+              <p className="font-display font-bold text-[17px] leading-tight mt-0.5 truncate" style={{ color: c }}>{v}</p>
+              {sub && <p className="text-[10.5px] opacity-60 truncate">{sub}</p>}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-[20px] p-3.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <div className="flex gap-1.5 overflow-x-auto gb-scroll -mx-1 px-1 pb-1">
+          {[["today", "Aujourd'hui"], ["7j", "7 jours"], ["30j", "30 jours"], ["mois", "Ce mois"], ["mprec", "Mois dernier"], ["annee", "Cette année"], ["tout", "Tout"]].map(([k, l]) => (
+            <button key={k} onClick={() => applyPreset(k)} className="gb-focus shrink-0 h-9 px-3.5 rounded-full text-[12.5px] font-bold" style={chip(preset === k)}>{l}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+          <label className="flex flex-col gap-1 text-[11.5px] font-semibold opacity-80">Du
+            <input type="date" value={from === "2000-01-01" ? "" : from} max={to} onChange={(e) => { if (e.target.value) { setFrom(e.target.value); setPreset("perso"); } }} className={dateInput} style={{ borderColor: "var(--line)", background: "var(--paper)" }} />
+          </label>
+          <label className="flex flex-col gap-1 text-[11.5px] font-semibold opacity-80">Au
+            <input type="date" value={to} min={from === "2000-01-01" ? undefined : from} onChange={(e) => { if (e.target.value) { setTo(e.target.value); setPreset("perso"); } }} className={dateInput} style={{ borderColor: "var(--line)", background: "var(--paper)" }} />
+          </label>
+        </div>
+      </section>
+
+      {scoped.length > 0 && (
+        <section className="rounded-[20px] p-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[13.5px] font-bold">Évolution {byMonth ? "par mois" : "par jour"}</p>
+            <p className="text-[11.5px] opacity-55">{scoped.length} commande{scoped.length > 1 ? "s" : ""}</p>
+          </div>
+          <div className="flex items-end gap-[3px] h-[110px]">
+            {shownBuckets.map((b) => (
+              <div key={b.key} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full" title={`${b.label} : ${fmt(b.v)}`}>
+                <div className="w-full rounded-t-[5px]" style={{ height: `${Math.max(b.v ? 6 : 2, (b.v / maxB) * 100)}%`, background: b.v ? "linear-gradient(180deg, #2E8B6A, #12352A)" : "var(--paper-dim)" }} />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-[3px] mt-1">
+            {shownBuckets.map((b, i) => <span key={b.key} className="flex-1 min-w-0 text-center text-[9.5px] opacity-50">{shownBuckets.length <= 12 || i % Math.ceil(shownBuckets.length / 8) === 0 ? b.label : ""}</span>)}
+          </div>
+        </section>
+      )}
+
+      {bySup.length > 0 && (
+        <section className="rounded-[20px] p-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[13.5px] font-bold">Par fournisseur</p>
+            {supFilter && <button onClick={() => setSupFilter(null)} className="gb-focus text-[12px] font-bold flex items-center gap-1" style={{ color: "var(--glass)" }}><X size={13} /> Tous</button>}
+          </div>
+          <div className="flex flex-col gap-1">
+            {bySup.map(({ s, n, v }) => {
+              const c = colorOf(s.id); const on = supFilter === s.id;
+              return (
+                <button key={s.id} onClick={() => setSupFilter(on ? null : s.id)} className="gb-focus w-full flex items-center gap-3 rounded-[14px] px-2 py-2 text-left" style={{ background: on ? c[0] : "transparent" }}>
+                  <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0 font-display font-bold text-[14px]" style={{ background: c[0], color: c[1], border: on ? `1.5px solid ${c[2]}` : "none" }}>{supInitials(s.name)}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-baseline justify-between gap-2"><span className="text-[13.5px] font-bold truncate">{s.name}</span><span className="text-[13.5px] font-bold whitespace-nowrap">{fmt(v)}</span></span>
+                    <span className="flex items-center gap-2 mt-1"><span className="flex-1 h-[6px] rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}><span className="block h-full rounded-full" style={{ width: `${Math.max(3, Math.round((v / allTotal) * 100))}%`, background: c[2] }} /></span><span className="text-[11px] opacity-60 whitespace-nowrap">{n} cmd · {Math.round((v / allTotal) * 100)} %</span></span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {topProducts.length > 0 && (
+        <section className="rounded-[20px] p-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <p className="text-[13.5px] font-bold mb-2">Produits les plus commandés</p>
+          {topProducts.map((p, i) => (
+            <div key={p.name} className="flex items-center gap-3 py-2" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+              <span className="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0" style={{ background: i === 0 ? "#F6C453" : "var(--paper-dim)", color: i === 0 ? "#5A3B00" : "var(--ink)" }}>{i + 1}</span>
+              <span className="flex-1 min-w-0 text-[13.5px] font-semibold truncate">{p.name}</span>
+              <span className="text-[12px] opacity-60 whitespace-nowrap">{p.crates} {plural(p.crates, V.pack, V.packs)}</span>
+              <span className="text-[13px] font-bold whitespace-nowrap">{fmt(p.v)}</span>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <div className="flex items-center justify-between gap-2 mt-1">
+        <p className="font-display font-bold text-[17px]">Liste des commandes</p>
+        {onNewOrder && <button onClick={onNewOrder} className="gb-focus h-9 px-3.5 rounded-full text-[12.5px] font-bold text-white flex items-center gap-1.5" style={{ background: "var(--glass)" }}><Plus size={14} /> Nouvelle</button>}
+      </div>
+      <div className="flex p-1 gap-1 rounded-[14px]" style={{ background: "var(--paper-dim)" }}>
+        {[["all", "Toutes", scoped.length], ["received", "Reçues", recv.length], ["pending", "En attente", pend.length]].map(([k, l, n]) => (
+          <button key={k} onClick={() => setStatus(k)} className="gb-focus flex-1 min-w-0 min-h-[38px] rounded-[10px] text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={status === k ? { background: "var(--card)", boxShadow: "0 1px 3px rgba(22,32,42,0.12)" } : { opacity: 0.7 }}>{l} <span className="text-[11px] opacity-70">{n}</span></button>
+        ))}
+      </div>
+      {shown.length === 0 && (
+        <div className="rounded-[18px] py-8 px-4 text-center" style={{ border: "1.5px dashed var(--line)" }}>
+          <ClipboardList size={26} className="mx-auto opacity-40" />
+          <p className="text-[13.5px] font-semibold mt-2 opacity-70">Aucune commande sur cette période.</p>
+        </div>
+      )}
+      {groups.map((g) => (
+        <div key={g.k}>
+          <div className="flex items-baseline justify-between px-1 mb-1.5">
+            <p className="text-[11.5px] font-bold uppercase tracking-wider opacity-55">{dayTitle(g.k)}</p>
+            <p className="text-[11.5px] font-bold opacity-60">{fmt(g.v)}</p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {g.items.map((o) => {
+              const s = supOf(o.supplierId); const c = colorOf(o.supplierId); const r = o.status === "received";
+              return (
+                <button key={o.id} onClick={() => onOpenOrder?.(o)} className="gb-focus w-full rounded-[18px] p-3 flex items-center gap-3 text-left" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 2px 10px -6px rgba(15,27,22,0.18)" }}>
+                  <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0 font-display font-bold text-[14px]" style={{ background: c[0], color: c[1] }}>{supInitials(s?.name)}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[14px] font-bold truncate">{s?.name || "Fournisseur supprimé"}</span>
+                    <span className="block text-[11.5px] opacity-60 truncate">N° {String(o.id).slice(0, 6).toUpperCase()} · {new Date(o.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {cratesOf(o)} {plural(cratesOf(o), V.pack, V.packs)} · {(o.items || []).length} produit{(o.items || []).length > 1 ? "s" : ""}</span>
+                  </span>
+                  <span className="text-right shrink-0">
+                    <span className="block font-display font-bold text-[15px]">{fmt(orderTotalOf(o))}</span>
+                    <span className="inline-flex items-center gap-1 mt-0.5 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={r ? { background: "#E6F4EA", color: "#1E7A46" } : { background: "#FFF1D6", color: "#8A5A00" }}>{r ? <Check size={10} /> : <Clock size={10} />}{r ? "Reçue" : "En attente"}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      {shown.length > limit && <button onClick={() => setLimit(limit + 40)} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Afficher plus ({shown.length - limit})</button>}
+    </div>
+  );
+}
+
 function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, products, saveProducts, categories, saveCategories, movements, saveMovements, orders, saveOrders, supplierProducts, saveSupplierProducts, pushToast, pushNotification, shop }) {
   const V = useVocab();
   const fmt = useFmt();
@@ -11372,10 +11930,14 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
   const allOrders = orders || [];
   const allSupplierProducts = supplierProducts || [];
 
-  const createOrder = (order) => { saveOrders([order, ...allOrders]); pushToast("Commande enregistrée", "ok"); };
+  const [invoiceFor, setInvoiceFor] = useState(null);
+  const sendOrderInvoice = (order, title) => setInvoiceFor({ order, supplier: suppliers.find((s) => s.id === order.supplierId), title });
+  const createOrder = (order, opts) => { saveOrders([order, ...allOrders]); pushToast("Commande enregistrée", "ok"); if (opts?.send) sendOrderInvoice(order, "Nouveau bon de commande"); };
   const updateOrder = (updated) => { saveOrders(allOrders.map((o) => (o.id === updated.id ? updated : o))); pushToast("Commande mise à jour", "ok"); };
   const deleteOrder = (order) => { saveOrders(allOrders.filter((o) => o.id !== order.id)); pushToast("Commande supprimée", "ok"); };
   const [menuFor, setMenuFor] = useState(null);
+  const [supTab, setSupTab] = useState("fournisseurs");
+  const [openSup, setOpenSup] = useState({});
   const [confirmDeleteSupplier, setConfirmDeleteSupplier] = useState(null);
   const [supplierQuery, setSupplierQuery] = useState("");
   const saveSupplierProduct = (entry) => {
@@ -11387,7 +11949,9 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
       const unitCost = entry.crateSize > 0 ? Math.round(entry.cratePrice / entry.crateSize) : 0;
       const matched = products.find((p) => p.id === entry.productId);
       if (matched) {
-        const nextProducts = products.map((p) => (p.id === entry.productId ? { ...p, costPrice: unitCost, price: entry.salePrice > 0 ? entry.salePrice : p.price } : p));
+        const prevSp = allSupplierProducts.find((x) => x.id === entry.id);
+        const newPhoto = entry.image && entry.image !== prevSp?.image ? entry.image : null;
+        const nextProducts = products.map((p) => (p.id === entry.productId ? { ...p, costPrice: unitCost, price: entry.salePrice > 0 ? entry.salePrice : p.price, ...(newPhoto || (entry.image && !p.image) ? { image: entry.image } : {}) } : p));
         saveProducts(nextProducts);
       }
     }
@@ -11419,6 +11983,7 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
           id: uid(), name: i.productName, barcode: i.barcode || "", category: i.category || categories[0]?.id || "",
           price: i.salePrice > 0 ? i.salePrice : unitCost, costPrice: unitCost, stock: unitsReceived, openingStock: unitsReceived, openingStockDate: new Date().toISOString(),
           minStock: Math.max(i.crateSize, 5), unit: V.unit, favorite: false,
+          image: allSupplierProducts.find((x) => x.supplierId === order.supplierId && (x.productName || "").trim().toLowerCase() === i.productName.trim().toLowerCase())?.image || null,
         };
         nextProducts = [...nextProducts, newProduct];
         createdNames.push(i.productName);
@@ -11443,10 +12008,26 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
 
   return (
     <div>
+      <div className="flex p-1 gap-1 rounded-[16px] mb-3.5" style={{ background: "var(--paper-dim)" }}>
+        {[["fournisseurs", "Fournisseurs", suppliers.length, Truck], ["commandes", "Commandes", allOrders.length, ClipboardList]].map(([k, l, n, Ic]) => {
+          const on = supTab === k;
+          const pend = k === "commandes" ? allOrders.filter((o) => o.status === "pending").length : 0;
+          return (
+            <button key={k} onClick={() => setSupTab(k)} className="gb-focus relative flex-1 min-h-[46px] rounded-[12px] text-[14px] font-bold flex items-center justify-center gap-2" style={on ? { background: "var(--glass)", color: "#fff", boxShadow: "0 6px 14px -8px rgba(0,0,0,0.5)" } : { color: "var(--ink)", opacity: 0.75 }}>
+              <Ic size={17} /> {l} <span className="text-[11.5px] px-1.5 rounded-full" style={{ background: on ? "rgba(255,255,255,0.2)" : "var(--card)" }}>{n}</span>
+              {pend > 0 && <span className="absolute -top-1 right-2 min-w-[18px] h-[18px] px-1 rounded-full text-[10.5px] font-bold flex items-center justify-center text-white" style={{ background: "#C2410C" }}>{pend}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {supTab === "commandes" ? (
+        <AllOrdersPanel orders={allOrders} suppliers={suppliers} shop={shop} pushToast={pushToast} onOpenOrder={(o) => { if (o.status === "pending") setOpenOrder(o); else setOpenReceivedOrder(o); }} />
+      ) : (<>
       {(() => {
         const pendingTotal = allOrders.filter((o) => o.status === "pending").length;
         const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
         const activeThisMonth = suppliers.filter((s) => allOrders.some((o) => o.supplierId === s.id && new Date(o.date) >= monthStart)).length;
+        const monthBought = allOrders.filter((o) => new Date(o.date) >= monthStart).reduce((t, o) => t + orderTotalOf(o), 0);
         return (
           <section className="rounded-[22px] p-4 mb-3.5 flex flex-col gap-3.5 text-white" style={{ background: "#1F2A33" }}>
             <div className="flex justify-between items-start gap-3">
@@ -11466,6 +12047,10 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
                 <span className="flex flex-col min-w-0"><span className="font-display font-bold text-[17px]">{activeThisMonth}</span><span className="text-[12px] leading-tight" style={{ color: "#C9D1D8" }}>Actifs ce mois</span></span>
               </div>
             </div>
+            <button onClick={() => setSupTab("commandes")} className="gb-focus rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 text-left" style={{ background: "rgba(246,196,83,0.14)" }}>
+              <span className="min-w-0"><span className="block text-[12px]" style={{ color: "#C9D1D8" }}>Achats ce mois</span><span className="block font-display font-bold text-[18px]" style={{ color: "#F6C453" }}>{fmt(monthBought)}</span></span>
+              <span className="text-[12px] font-bold flex items-center gap-1 shrink-0" style={{ color: "#F6C453" }}>Voir les commandes <ChevronRight size={14} /></span>
+            </button>
           </section>
         );
       })()}
@@ -11490,18 +12075,31 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
           const initialsTxt = ((words[0] || "?")[0] + ((words[1] || words[0] || "")[words[1] ? 0 : 1] || "")).toUpperCase();
           const digits = (s.phone || "").replace(/[^\d+]/g, "");
           const phoneDisplay = digits.startsWith("+225") ? `+225 ${digits.slice(4).replace(/(\d{2})(?=\d)/g, "$1 ")}` : (s.phone || "");
+          const isOpen = !!openSup[s.id];
+          const toggleOpen = () => setOpenSup((m) => ({ ...m, [s.id]: !m[s.id] }));
           return editing === s.id ? (
             <SupplierForm key={s.id} initial={s} onSave={upsert} onCancel={() => setEditing(null)} />
           ) : (
-            <article key={s.id} className="rounded-[20px] p-4 flex flex-col gap-3.5" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(22,32,42,0.04)" }}>
-              <div className="flex gap-3 items-start min-w-0">
-                <div className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 font-display font-bold text-[17px]" style={{ background: c[0], color: c[1] }}>{initialsTxt}</div>
-                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                  <span className="font-display font-bold text-[16px] leading-tight break-words">{s.name}</span>
-                  {s.note && <span className="self-start max-w-full inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-bold leading-tight break-words" style={{ background: c[0], color: c[1], border: `1px solid ${c[2]}` }}><span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: c[2] }} />{s.note}</span>}
-                </div>
-                <button onClick={() => setMenuFor(s)} aria-label={`Plus d'actions pour ${s.name}`} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ border: "1px solid var(--line)", background: "var(--card)" }}><MoreVertical size={18} /></button>
+            <article key={s.id} className="rounded-[20px] p-4 flex flex-col gap-3.5" style={{ background: "var(--card)", border: `1px solid ${isOpen ? c[2] : "var(--line)"}`, boxShadow: isOpen ? "0 10px 24px -14px rgba(22,32,42,0.35)" : "0 1px 2px rgba(22,32,42,0.04)" }}>
+              <div className="flex gap-3 items-center min-w-0">
+                <button onClick={toggleOpen} aria-expanded={isOpen} className="gb-focus flex-1 min-w-0 flex gap-3 items-center text-left">
+                  <span className="relative w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 font-display font-bold text-[17px]" style={{ background: c[0], color: c[1] }}>
+                    {initialsTxt}
+                    {pendingCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center text-white" style={{ background: "#C2410C", border: "2px solid var(--card)" }}>{pendingCount}</span>}
+                  </span>
+                  <span className="flex-1 min-w-0 flex flex-col gap-1">
+                    <span className="font-display font-bold text-[16px] leading-tight break-words">{s.name}</span>
+                    {isOpen ? (
+                      s.note && <span className="self-start max-w-full inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-bold leading-tight break-words" style={{ background: c[0], color: c[1], border: `1px solid ${c[2]}` }}><span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: c[2] }} />{s.note}</span>
+                    ) : (
+                      <span className="text-[12px] opacity-60 truncate">{[s.note, productCount ? `${productCount} produit${productCount > 1 ? "s" : ""}` : null, supplierOrders[0] ? `dernière cmd ${new Date(supplierOrders[0].date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : "aucune commande"].filter(Boolean).join(" · ")}</span>
+                    )}
+                  </span>
+                </button>
+                {isOpen && <button onClick={() => setMenuFor(s)} aria-label={`Plus d'actions pour ${s.name}`} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ border: "1px solid var(--line)", background: "var(--card)" }}><MoreVertical size={17} /></button>}
+                <button onClick={toggleOpen} aria-label={isOpen ? `Replier ${s.name}` : `Déplier ${s.name}`} aria-expanded={isOpen} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors" style={{ background: isOpen ? c[0] : "var(--paper-dim)", color: isOpen ? c[1] : "var(--ink)" }}><ChevronDown size={19} className="transition-transform duration-200" style={{ transform: isOpen ? "rotate(180deg)" : "none" }} /></button>
               </div>
+              {isOpen && (<div className="flex flex-col gap-3.5 gb-slide-up">
 
               {digits ? (
                 <a href={`tel:${digits}`} aria-label={`Appeler ${s.name} au ${phoneDisplay}`} className="gb-focus flex items-center gap-2.5 min-h-[56px] p-2 rounded-2xl" style={{ background: "#EAF6EF", border: "1px solid #C6E6D2" }}>
@@ -11537,11 +12135,13 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
                   {pendingCount > 0 && <span className="absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1.5 rounded-full text-[11.5px] font-bold flex items-center justify-center text-white" style={{ background: "#C2410C" }} aria-label={`${pendingCount} en attente`}>{pendingCount}</span>}
                 </button>
               </div>
+              </div>)}
             </article>
           );
         })}
         {suppliers.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun fournisseur enregistré.</p>}
       </div>
+      </>)}
       {menuFor && (
         <div className="fixed inset-0 z-[90] flex flex-col justify-end no-print" style={{ background: "rgba(22,32,42,0.45)" }}>
           <button className="flex-1" onClick={() => setMenuFor(null)} aria-label="Fermer" />
@@ -11578,7 +12178,8 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
           pushToast={pushToast}
         />
       )}
-      {orderFor && <PurchaseOrderModal supplier={orderFor} supplierProducts={allSupplierProducts} onCreate={(order) => { createOrder(order); setOrderFor(null); }} onClose={() => setOrderFor(null)} />}
+      {orderFor && <PurchaseOrderModal supplier={orderFor} supplierProducts={allSupplierProducts} products={products} categories={categories} onCreate={(order, opts) => { createOrder(order, opts); setOrderFor(null); }} onClose={() => setOrderFor(null)} />}
+      {invoiceFor && <OrderInvoiceSheet key={invoiceFor.order.id + ":" + JSON.stringify(invoiceFor.order.items).length} order={invoiceFor.order} supplier={invoiceFor.supplier} shop={shop} title={invoiceFor.title} onClose={() => setInvoiceFor(null)} />}
       {ordersFor && (
         <SupplierOrdersModal
           supplier={ordersFor}
@@ -11591,6 +12192,8 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
       {openReceivedOrder && (
         <ReceivedOrderModal
           order={openReceivedOrder}
+          onSendInvoice={(o) => sendOrderInvoice(o, "Facture de la commande reçue")}
+          shop={shop}
           supplier={suppliers.find((s) => s.id === openReceivedOrder.supplierId)}
           onClose={() => setOpenReceivedOrder(null)}
         />
@@ -11604,6 +12207,7 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
           onValidate={validateOrder}
           onDelete={deleteOrder}
           onClose={() => setOpenOrder(null)}
+          onSendInvoice={sendOrderInvoice}
           pushToast={pushToast}
         />
       )}
@@ -12092,6 +12696,7 @@ function ActivityLogSection({ shop, auditLog = [], pushToast }) {
   const [period, setPeriod] = useState("7j");
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(150);
+  const [person, setPerson] = useState("all");
   const now = Date.now();
   const since = period === "today" ? new Date(new Date().toDateString()).getTime() : period === "7j" ? now - 7 * 864e5 : period === "30j" ? now - 30 * 864e5 : 0;
   const q = query.trim().toLowerCase();
@@ -12099,8 +12704,13 @@ function ActivityLogSection({ shop, auditLog = [], pushToast }) {
     .filter((e) => (type === "all" || e.type === type) && new Date(e.date).getTime() >= since)
     .filter((e) => !q || `${e.text} ${e.by || ""}`.toLowerCase().includes(q))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  // Personnes présentes sur la période (administrateur et chaque vendeur)
+  const people = [];
+  list.forEach((e) => { const k = e.by || "—"; const p = people.find((x) => x.name === k); if (p) p.n += 1; else people.push({ name: k, n: 1, admin: e.role === "admin" }); });
+  people.sort((a, b) => (b.admin - a.admin) || b.n - a.n);
+  const shown = person === "all" ? list : list.filter((e) => (e.by || "—") === person);
   const groups = [];
-  list.slice(0, limit).forEach((e) => {
+  shown.slice(0, limit).forEach((e) => {
     const key = new Date(e.date).toDateString();
     let g = groups[groups.length - 1];
     if (!g || g.key !== key) { g = { key, date: e.date, items: [] }; groups.push(g); }
@@ -12123,11 +12733,11 @@ function ActivityLogSection({ shop, auditLog = [], pushToast }) {
       doc.setFillColor(31, 42, 51); doc.rect(0, 0, W, 80, "F");
       doc.setTextColor(255); doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text(plain(shop?.name || "GestiOne"), L, 38);
       doc.setFontSize(11); doc.setFont("helvetica", "normal"); doc.text("Journal d'activité", L, 58);
-      doc.setFontSize(9); doc.text(plain(`${list.length} action(s) · exporté le ${new Date().toLocaleString("fr-FR")}`), R, 58, { align: "right" });
+      doc.setFontSize(9); doc.text(plain(`${shown.length} action(s)${person !== "all" ? ` · ${person}` : ""} · exporté le ${new Date().toLocaleString("fr-FR")}`), R, 58, { align: "right" });
       let y = 110;
       doc.setTextColor(22, 32, 42);
       let lastDay = "";
-      list.forEach((e) => {
+      shown.forEach((e) => {
         const day = new Date(e.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
         const lines = doc.splitTextToSize(plain(e.text), 330);
         const h = Math.max(1, lines.length) * 12 + 10;
@@ -12164,11 +12774,22 @@ function ActivityLogSection({ shop, auditLog = [], pushToast }) {
       <div className="flex flex-wrap gap-2 mb-3">
         {[["today", "Aujourd'hui"], ["7j", "7 jours"], ["30j", "30 jours"], ["all", "Tout"]].map(([id, l]) => chip(id, l, period, setPeriod))}
       </div>
+      {people.length > 0 && (
+        <div className="flex gap-2 mb-3 overflow-x-auto gb-scroll -mx-1 px-1 pb-0.5">
+          <button onClick={() => setPerson("all")} className="gb-focus shrink-0 h-9 px-3 rounded-full text-[12.5px] font-bold flex items-center gap-1.5" style={person === "all" ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}><Users size={14} /> Tout le monde <span className="text-[11px] opacity-75">{list.length}</span></button>
+          {people.map((p) => (
+            <button key={p.name} onClick={() => setPerson(p.name)} className="gb-focus shrink-0 h-9 pl-1 pr-3 rounded-full text-[12.5px] font-bold flex items-center gap-1.5" style={person === p.name ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>
+              <span className="w-7 h-7 rounded-full flex items-center justify-center text-[10.5px] font-bold text-white" style={{ background: p.admin ? "#534AB7" : "#1E8E50" }}>{(p.name || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}</span>
+              {p.name.length > 16 ? p.name.slice(0, 16) + "…" : p.name} <span className="text-[11px] opacity-75">{p.n}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex items-center gap-2 rounded-xl px-3 mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
         <Search size={15} className="opacity-50 shrink-0" />
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher (produit, vendeur, N° de vente…)" className="gb-focus flex-1 min-w-0 bg-transparent py-2.5 text-[14px] outline-none" />
       </div>
-      {list.length === 0 && <p className="text-sm opacity-50 text-center py-8">Aucune action sur cette période.</p>}
+      {shown.length === 0 && <p className="text-sm opacity-50 text-center py-8">Aucune action sur cette période.</p>}
       <div className="flex flex-col gap-3">
         {groups.map((g) => (
           <div key={g.key} className="rounded-2xl px-4 pt-3 pb-1" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
@@ -12181,7 +12802,7 @@ function ActivityLogSection({ shop, auditLog = [], pushToast }) {
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: m.bg }}><m.Icon size={16} color={m.fg} /></div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13.5px] font-semibold leading-snug break-words">{e.text}</p>
-                    <p className="text-[12px] opacity-55 mt-0.5">{e.by || "—"} · {new Date(e.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                    <p className="text-[12px] mt-0.5 flex items-center gap-1.5 flex-wrap"><span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={e.role === "admin" ? { background: "#EEEDFE", color: "#534AB7" } : { background: "#E6F4EA", color: "#1E7A46" }}>{e.role === "admin" ? "Admin" : "Vendeur"}</span><span className="opacity-60">{e.by || "—"} · {new Date(e.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span></p>
                   </div>
                   {Number.isFinite(amt) && amt !== 0 && e.amount !== undefined && <span className="font-mono font-bold text-[13px] whitespace-nowrap" style={{ color: amt < 0 ? "#B3261E" : "#1E8E50" }}>{amt > 0 ? "+" : "−"}{fmt(Math.abs(amt))}</span>}
                 </div>
@@ -12190,7 +12811,7 @@ function ActivityLogSection({ shop, auditLog = [], pushToast }) {
           </div>
         ))}
       </div>
-      {list.length > limit && <button onClick={() => setLimit(limit + 150)} className="gb-focus w-full mt-3 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Afficher plus ({list.length - limit})</button>}
+      {shown.length > limit && <button onClick={() => setLimit(limit + 150)} className="gb-focus w-full mt-3 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Afficher plus ({shown.length - limit})</button>}
     </div>
   );
 }
@@ -16951,6 +17572,13 @@ function AppInner() {
     }
     saveProducts(nextProducts);
     saveSales([...sales, sale]);
+    try {
+      const its = sale.items || [];
+      const nArt = its.reduce((t, i) => t + (Number(i.qty) || 0), 0);
+      const detail = its.slice(0, 4).map((i) => `${i.qty} × ${i.variantName ? `${i.product?.name} ${i.variantName}` : i.product?.name || "?"}`).join(", ") + (its.length > 4 ? "…" : "");
+      const pay = sale.avoirPaid >= sale.total ? "Avoir" : sale.mobilePaid > 0 ? "Espèces + Mobile" : PAYMENT_LABELS[sale.paymentMethod] || sale.paymentMethod;
+      logAudit("vente", `Vente N° ${receiptNumber(sale.id)} · ${formatMoney(sale.total, shop?.currency)} · ${pay}${sale.clientName ? ` · client ${sale.clientName}` : ""} — ${nArt} article${nArt > 1 ? "s" : ""} : ${detail}`, { amount: sale.total, saleId: sale.id });
+    } catch { /* le journal ne bloque jamais une vente */ }
     const saleMovements = Object.entries(qtyByStock).map(([pid, q]) => {
       const tp = products.find((p) => p.id === pid);
       const before = Number(tp?.stock) || 0;

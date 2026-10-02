@@ -571,3 +571,53 @@ export async function printReturnReceipt(ret, sale, shop, fmt) {
   const data = buildReturnReceiptEscPos(ret, sale, shop, fmt);
   await sendToRawBt(data, `retour-${String(ret.id).slice(0, 6)}.prn`);
 }
+
+// Bon de commande fournisseur (ticket 58 mm) : en attente ou reçu.
+export function buildOrderEscPos(order, supplier, shop, fmt, vocab = {}) {
+  const bytes = [];
+  const push = (...arr) => bytes.push(...arr);
+  const line = (text = "") => push(...encodeLine(text));
+  const pack = vocab.pack || "casier", packs = vocab.packs || "casiers";
+  const items = (order.items || []).filter((i) => Number(i.crates) > 0);
+  const total = items.reduce((t, i) => t + (Number(i.crates) || 0) * (Number(i.cratePrice) || 0), 0);
+  const crates = items.reduce((t, i) => t + (Number(i.crates) || 0), 0);
+  push(ESC, 0x40);
+  push(ESC, 0x61, 0x01);
+  push(ESC, 0x45, 0x01);
+  line(shopHeaderLine(shop));
+  push(ESC, 0x45, 0x00);
+  if (shop.invoicePhone) line(`Tel. ${shop.invoicePhone}`);
+  line("");
+  push(ESC, 0x45, 0x01);
+  line(order.status === "received" ? "COMMANDE RECUE" : "BON DE COMMANDE");
+  push(ESC, 0x45, 0x00);
+  line(`N ${String(order.id || "").slice(0, 6).toUpperCase()}`);
+  push(ESC, 0x61, 0x00);
+  line(`Commandee le ${new Date(order.date).toLocaleDateString("fr-FR")}`);
+  if (order.receivedDate) line(`Recue le ${new Date(order.receivedDate).toLocaleDateString("fr-FR")}`);
+  line(twoCol("Fournisseur", supplier?.name || ""));
+  if (supplier?.phone) line(twoCol("Tel.", supplier.phone));
+  line("--------------------------------");
+  items.forEach((i) => {
+    line(i.productName);
+    line(twoCol(`  ${i.crates} ${i.crates > 1 ? packs : pack} de ${i.crateSize} x ${fmt(i.cratePrice)}`, fmt(i.crates * i.cratePrice)));
+  });
+  line("--------------------------------");
+  line(twoCol(`Nombre de ${packs}`, String(crates)));
+  push(ESC, 0x45, 0x01);
+  line(twoCol(order.status === "received" ? "TOTAL PAYE" : "TOTAL A PAYER", fmt(total)));
+  push(ESC, 0x45, 0x00);
+  line("");
+  push(ESC, 0x61, 0x01);
+  line("Signature / cachet");
+  line("");
+  line("");
+  line("");
+  push(GS, 0x56, 0x42, 0x00);
+  return new Uint8Array(bytes);
+}
+
+export async function printOrder(order, supplier, shop, fmt, vocab) {
+  const data = buildOrderEscPos(order, supplier, shop, fmt, vocab);
+  await sendToRawBt(data, `commande-${String(order.id || "").slice(0, 6)}.prn`);
+}

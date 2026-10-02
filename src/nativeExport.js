@@ -110,3 +110,68 @@ export async function exportBinaryFile(fileName, bytes, mime = "application/octe
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// Partage une image (ex : facture / bon de commande en PNG) avec une légende.
+// App native : fichier écrit dans le cache puis menu de partage (WhatsApp,
+// e-mail…). Navigateur : Web Share API avec fichier si disponible, sinon
+// téléchargement de l'image puis ouverture de WhatsApp avec la légende.
+// Retourne "shared" | "downloaded".
+export async function shareImage(fileName, dataUrl, text = "", phone = "") {
+  const base64 = String(dataUrl).split(",")[1] || "";
+  if (await isNative()) {
+    const { Filesystem, Directory } = await import("@capacitor/filesystem");
+    const { Share } = await import("@capacitor/share");
+    await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
+    const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
+    await Share.share({ title: fileName, text, url: uri, dialogTitle: "Envoyer la facture" });
+    return "shared";
+  }
+  try {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const file = new File([bytes], fileName, { type: "image/png" });
+    if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: fileName, text });
+      return "shared";
+    }
+  } catch (e) {
+    if (e && e.name === "AbortError") return "shared";
+  }
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  const digits = String(phone || "").replace(/\D/g, "");
+  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`, "_blank");
+  return "downloaded";
+}
+
+// Partage un PDF (jsPDF) avec une légende : menu de partage natif dans l'app
+// (choisir WhatsApp puis le contact), Web Share API dans le navigateur, sinon
+// téléchargement du PDF puis ouverture de WhatsApp avec la légende.
+export async function sharePdfDoc(fileName, doc, text = "", phone = "") {
+  if (await isNative()) {
+    const { Filesystem, Directory } = await import("@capacitor/filesystem");
+    const { Share } = await import("@capacitor/share");
+    await Filesystem.writeFile({ path: fileName, data: arrayBufferToBase64(doc.output("arraybuffer")), directory: Directory.Cache });
+    const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
+    await Share.share({ title: fileName, text, url: uri, dialogTitle: "Envoyer la facture" });
+    return "shared";
+  }
+  try {
+    const file = new File([doc.output("blob")], fileName, { type: "application/pdf" });
+    if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: fileName, text });
+      return "shared";
+    }
+  } catch (e) {
+    if (e && e.name === "AbortError") return "shared";
+  }
+  doc.save(fileName);
+  const digits = String(phone || "").replace(/\D/g, "");
+  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`, "_blank");
+  return "downloaded";
+}

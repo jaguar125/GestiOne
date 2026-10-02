@@ -25,10 +25,10 @@ function getDeviceId() {
 
 const REQUEST_TIMEOUT_MS = 20000;
 
-async function callFunction(name, body) {
+async function callFunction(name, body, timeoutMs = REQUEST_TIMEOUT_MS) {
   let res;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     res = await fetch(`${API_BASE}/${name}`, {
       method: "POST",
@@ -455,23 +455,34 @@ export function verifyPin(pin, hash) {
 
 /* ---------- Assistance (chat) ---------- */
 
+// Lecture (sans effet de bord) : délai court + une nouvelle tentative automatique,
+// pour absorber un démarrage à froid du serveur ou une coupure réseau brève.
+async function callRead(name, body) {
+  try {
+    return await callFunction(name, body, 12000);
+  } catch (e) {
+    if (!isNetworkError(e) || (typeof navigator !== "undefined" && navigator.onLine === false)) throw e;
+    await new Promise((r) => setTimeout(r, 800));
+    return callFunction(name, body, 15000);
+  }
+}
 export async function supportSend({ name, phone, email, shopName, message }) {
-  return callFunction("support-client", { action: "send", device_id: getDeviceId(), name, phone, email, shop_name: shopName, message });
+  return callFunction("support-client", { action: "send", device_id: getDeviceId(), name, phone, email, shop_name: shopName, message }, 30000);
 }
 export async function supportPoll() {
-  return callFunction("support-client", { action: "poll", device_id: getDeviceId() });
+  return callRead("support-client", { action: "poll", device_id: getDeviceId() });
 }
 export async function supportHeartbeat({ name, phone, email, shopName } = {}) {
-  return callFunction("support-client", { action: "heartbeat", device_id: getDeviceId(), name, phone, email, shop_name: shopName });
+  return callFunction("support-client", { action: "heartbeat", device_id: getDeviceId(), name, phone, email, shop_name: shopName }, 15000);
 }
 export async function ownerSupportList({ email, secret }) {
-  return callFunction("support-owner", { action: "list", email, secret });
+  return callRead("support-owner", { action: "list", email, secret });
 }
 export async function ownerSupportMessages({ email, secret, deviceId }) {
-  return callFunction("support-owner", { action: "messages", email, secret, device_id: deviceId });
+  return callRead("support-owner", { action: "messages", email, secret, device_id: deviceId });
 }
 export async function ownerSupportReply({ email, secret, deviceId, message }) {
-  return callFunction("support-owner", { action: "reply", email, secret, device_id: deviceId, message });
+  return callFunction("support-owner", { action: "reply", email, secret, device_id: deviceId, message }, 30000);
 }
 export async function ownerSupportDelete({ email, secret, deviceId }) {
   return callFunction("support-owner", { action: "delete", email, secret, device_id: deviceId });
