@@ -4153,7 +4153,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
         <BoutiqueProductSheet product={boutiqueFor} inCartFor={(k) => cart.filter((l) => l.id === boutiqueFor.id && l.bv && bvKey(l.bv.color, l.bv.size) === k).reduce((t, l) => t + l.qty, 0)} onAdd={(bv, n) => { addToCart(boutiqueFor, false, { bv }, n); setBoutiqueFor(null); }} onClose={() => setBoutiqueFor(null)} />
       )}
       {optionsFor && (
-        <ProductOptionsSheet product={optionsFor} left={optionsFor.stock - usedStock(stockTargetId(optionsFor))} unitLabel={(productsRaw.find((x) => x.id === stockTargetId(optionsFor)) || optionsFor).name} onAdd={(opts, n) => { addToCart(optionsFor, false, opts, n); setOptionsFor(null); }} onClose={() => setOptionsFor(null)} />
+        <ProductOptionsSheet product={optionsFor} left={optionsFor.stock - usedStock(stockTargetId(optionsFor))} unitLabel={(productsRaw.find((x) => x.id === stockTargetId(optionsFor)) || optionsFor).name} onAdd={(list) => { list.forEach(({ sel, n }) => addToCart(optionsFor, true, sel, n)); pushToast(list.map((x) => x.label).join(" · ") + " ajouté" + (list.length > 1 || list[0].n > 1 ? "s" : ""), "ok"); setOptionsFor(null); }} onClose={() => setOptionsFor(null)} />
       )}
       {avoirPickerOpen && (
         <AvoirPickerSheet avoirs={openMoneyAvoirs} total={total} onPick={(a) => { setPayAvoirId(a.id); setAvoirPickerOpen(false); if (!clientName && !clientId) setClientName(""); }} onClose={() => setAvoirPickerOpen(false)} />
@@ -4179,73 +4179,89 @@ function fitCartToBudget(cartItems, budget) {
   return { lines, kept, total: kept.reduce((t, l) => t + l.cost, 0), count: kept.reduce((t, l) => t + l.keptQty, 0) };
 }
 
-// Choix des suppléments d'un produit (ex : Pain fourré + œuf) avant l'ajout
-// au panier. Le prix s'ajuste en direct ; une seule unité de stock est
-// retirée par article, quels que soient les suppléments.
+// Choix des formules d'un produit (ex : Pain simple, Pain fourré, Pain fourré
+// + œuf) avant l'ajout au panier. PLUSIEURS formules peuvent être prises en
+// même temps, chacune avec sa quantité et ses suppléments ; chaque article
+// retire 1 unité du stock de base (pain), quelle que soit la formule.
 function ProductOptionsSheet({ product, left, unitLabel, onAdd, onClose }) {
   const fmt = useFmt();
-  const [sel, setSel] = useState([]);
-  const [variant, setVariant] = useState(null);
-  const [n, setN] = useState(1);
   const opts = product.options || [];
   const variants = product.variants || [];
-  const baseUnit = variant ? Number(variants.find((v) => v.id === variant)?.price) || 0 : Number(product.price) || 0;
-  const unit = baseUnit + opts.filter((o) => sel.includes(o.id)).reduce((t, o) => t + (Number(o.price) || 0), 0);
-  const toggle = (id) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const formulas = [{ id: null, name: product.name, price: Number(product.price) || 0 }, ...variants.map((v) => ({ id: v.id, name: v.name, price: Number(v.price) || 0 }))];
+  const keyOf = (id) => id || "base";
+  const [lines, setLines] = useState(() => (formulas.length === 1 ? { base: { qty: 1, opts: [] } } : {}));
+  const totalQty = Object.values(lines).reduce((t, l) => t + (l.qty || 0), 0);
+  const unitOf = (f, l) => f.price + opts.filter((o) => (l?.opts || []).includes(o.id)).reduce((t, o) => t + (Number(o.price) || 0), 0);
+  const total = formulas.reduce((t, f) => { const l = lines[keyOf(f.id)]; return t + (l?.qty ? unitOf(f, l) * l.qty : 0); }, 0);
+  const setQty = (f, d) => setLines((m) => {
+    const k = keyOf(f.id); const cur = m[k] || { qty: 0, opts: [] };
+    const used = Object.values(m).reduce((t, l) => t + (l.qty || 0), 0);
+    const q = Math.max(0, cur.qty + d);
+    if (d > 0 && used + d > left) return m;
+    return { ...m, [k]: { ...cur, qty: q } };
+  });
+  const toggleOpt = (f, oid) => setLines((m) => {
+    const k = keyOf(f.id); const cur = m[k] || { qty: 0, opts: [] };
+    return { ...m, [k]: { ...cur, opts: cur.opts.includes(oid) ? cur.opts.filter((x) => x !== oid) : [...cur.opts, oid] } };
+  });
+  const after = left - totalQty;
+  const add = () => {
+    const out = formulas.map((f) => ({ f, l: lines[keyOf(f.id)] })).filter(({ l }) => l?.qty > 0).map(({ f, l }) => ({ sel: { opts: l.opts, variant: f.id }, n: l.qty, label: `${l.qty} × ${f.name}${l.opts.length ? ` + ${opts.filter((o) => l.opts.includes(o.id)).map((o) => o.name).join(", ")}` : ""}` }));
+    if (out.length) onAdd(out);
+  };
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.45)" }} onClick={onClose}>
-      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[88vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[90vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
         <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-center gap-3 mb-2.5">
           <div className="w-12 h-12 rounded-[14px] overflow-hidden flex items-center justify-center shrink-0" style={{ background: "#FBEFD9" }}>{product.image ? <img src={product.image} alt="" className="w-full h-full object-cover" /> : <Croissant size={22} color="#8A5A12" />}</div>
           <div className="flex-1 min-w-0">
             <p className="font-display font-bold text-[19px] truncate">{product.name}</p>
-            <p className="text-[12px] opacity-60">1 {unitLabel.toLowerCase()} retiré du stock par article</p>
+            <p className="text-[12px] opacity-60">{formulas.length > 1 ? "Choisissez une ou plusieurs formules" : `1 ${unitLabel.toLowerCase()} retiré du stock par article`}</p>
           </div>
-          <p className="font-display font-bold text-[18px] shrink-0" style={{ color: "var(--glass)" }}>{fmt(baseUnit)}</p>
+          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
         </div>
-        <p className="text-[12px] font-bold rounded-[10px] px-3 py-1.5 mb-3" style={left <= 3 ? { background: "#FFF1D6", color: "#9A5B00" } : { background: "#E6F4EC", color: "#1E7A46" }}>Stock {unitLabel.toLowerCase()} : {left} restant{left > 1 ? "s" : ""}</p>
-        {variants.length > 0 && (
-          <>
-            <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Formule</p>
-            <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-              {[{ id: null, name: product.name, price: product.price }, ...variants].map((v, i) => {
-                const on = variant === v.id;
-                return (
-                  <button key={v.id || "base"} onClick={() => setVariant(v.id)} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none", background: on ? "#FFF6EC" : "transparent" }}>
-                    <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={on ? { background: "var(--glass)" } : { border: "2px solid #C9C5BB" }}>{on && <span className="w-2.5 h-2.5 rounded-full bg-white" />}</span>
-                    <span className="flex-1 min-w-0 text-[14.5px] font-bold">{v.name}</span>
-                    <span className="font-mono text-[14px] font-bold">{fmt(v.price)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
-        {opts.length > 0 && <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Suppléments</p>}
-        {opts.length > 0 && <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-          {opts.map((o, i) => {
-            const on = sel.includes(o.id);
+        <div className="flex items-center justify-between gap-2 rounded-[12px] px-3 py-2 mb-3 text-[12px] font-bold" style={after <= 3 ? { background: "#FFF1D6", color: "#9A5B00" } : { background: "#E6F4EC", color: "#1E7A46" }}>
+          <span className="whitespace-nowrap">Stock {unitLabel.toLowerCase()} : {left}</span>
+          <span className="whitespace-nowrap">{totalQty > 0 ? `−${totalQty} → reste ${after}` : "aucun retiré"}</span>
+        </div>
+        {formulas.length > 1 && <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-60 mb-1.5">Formules</p>}
+        <div className="flex flex-col gap-2 mb-3">
+          {formulas.map((f) => {
+            const l = lines[keyOf(f.id)] || { qty: 0, opts: [] };
+            const on = l.qty > 0;
             return (
-              <button key={o.id} onClick={() => toggle(o.id)} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? "1px solid var(--line)" : "none", background: on ? "#FFF6EC" : "transparent" }}>
-                <span className="flex-1 min-w-0 text-[14.5px] font-bold">{o.name}</span>
-                <span className="font-mono text-[13.5px] font-bold">{Number(o.price) > 0 ? `+ ${fmt(o.price)}` : "Offert"}</span>
-                <span className="w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0" style={on ? { background: "var(--glass)" } : { border: "2px solid #C9C5BB" }}>{on && <Check size={16} color="#fff" strokeWidth={3} />}</span>
-              </button>
+              <div key={keyOf(f.id)} className="rounded-[16px] px-3.5 py-3 transition-colors" style={{ background: on ? "#FFF6EC" : "var(--card)", border: `1.5px solid ${on ? "#E8B36A" : "var(--line)"}` }}>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14.5px] font-bold leading-tight">{f.name}</p>
+                    <p className="text-[12.5px] font-bold mt-0.5" style={{ color: "var(--glass)" }}>{fmt(unitOf(f, l))}{on && l.qty > 1 ? <span className="opacity-60 font-semibold"> · {fmt(unitOf(f, l) * l.qty)}</span> : null}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => setQty(f, -1)} disabled={!on} className="gb-focus w-10 h-10 rounded-[12px] flex items-center justify-center disabled:opacity-30" style={{ background: "var(--paper-dim)" }} aria-label={`Moins ${f.name}`}><Minus size={16} /></button>
+                    <span className="w-8 text-center font-display font-bold text-[18px]">{l.qty}</span>
+                    <button onClick={() => setQty(f, 1)} disabled={after <= 0} className="gb-focus w-10 h-10 rounded-[12px] flex items-center justify-center disabled:opacity-30" style={{ background: on ? "var(--glass)" : "var(--paper-dim)", color: on ? "#fff" : "var(--ink)" }} aria-label={`Plus ${f.name}`}><Plus size={16} /></button>
+                  </div>
+                </div>
+                {on && opts.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2.5 gb-slide-up" style={{ borderTop: "1px dashed #E8D2AE" }}>
+                    {opts.map((o) => {
+                      const sel = l.opts.includes(o.id);
+                      return (
+                        <button key={o.id} onClick={() => toggleOpt(f, o.id)} className="gb-focus h-8 px-2.5 rounded-full text-[12px] font-bold flex items-center gap-1 whitespace-nowrap" style={sel ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>
+                          {sel ? <Check size={13} /> : <Plus size={13} />}{o.name} {Number(o.price) > 0 ? `+${fmt(o.price)}` : "offert"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
-        </div>}
-        <div className="flex items-center gap-3 mb-3">
-          <span className="flex-1 text-[13.5px] font-semibold opacity-70">Quantité</span>
-          <div className="flex items-center rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
-            <button onClick={() => setN((v) => Math.max(1, v - 1))} className="gb-focus w-11 h-11 flex items-center justify-center" aria-label="Moins"><Minus size={16} /></button>
-            <span className="font-display font-bold text-[17px] min-w-[28px] text-center">{n}</span>
-            <button onClick={() => setN((v) => Math.min(Math.max(1, left), v + 1))} className="gb-focus w-11 h-11 flex items-center justify-center" aria-label="Plus"><Plus size={16} /></button>
-          </div>
         </div>
-        <button onClick={() => onAdd({ opts: sel, variant }, n)} disabled={left < n} className="gb-focus w-full min-h-[54px] rounded-[15px] px-4 text-white flex items-center justify-between font-bold text-[15.5px] disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}>
-          <span className="flex items-center gap-2"><ShoppingCart size={18} /> Ajouter au panier</span>
-          <span className="font-display">{fmt(unit * n)}</span>
+        <button onClick={add} disabled={totalQty < 1 || totalQty > left} className="gb-focus w-full min-h-[56px] rounded-[16px] px-4 text-white flex items-center justify-between gap-3 font-bold text-[15px] disabled:opacity-45 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 10px 20px -8px rgba(12,94,73,0.6)" }}>
+          <span className="flex items-center gap-2 min-w-0"><ShoppingCart size={18} className="shrink-0" /><span className="truncate">{totalQty > 0 ? `Ajouter ${totalQty} article${totalQty > 1 ? "s" : ""}` : "Choisissez une formule"}</span></span>
+          <span className="font-display whitespace-nowrap">{fmt(total)}</span>
         </button>
       </div>
     </div>
@@ -11302,7 +11318,7 @@ function OrderInvoiceSheet({ order, items, supplier, shop, onClose, title = "Fac
     try {
       const doc = await buildOrderInvoicePdf(img);
       const r = await sharePdfDoc(fileName, doc, caption, supplier?.phone || "");
-      setNote(r === "downloaded" ? "PDF enregistré : joignez-le dans la conversation WhatsApp qui vient de s'ouvrir." : "");
+      setNote(r === "downloaded" ? "PDF enregistré : joignez-le dans la conversation WhatsApp qui vient de s'ouvrir." : r === "cancelled" ? "Envoi annulé." : r === "direct" ? "PDF envoyé dans la discussion WhatsApp du fournisseur : appuyez sur Envoyer dans WhatsApp." : "");
     } catch { setNote("Envoi annulé ou impossible. Réessayez."); }
     setBusy("");
   };
@@ -11343,7 +11359,7 @@ function OrderInvoiceSheet({ order, items, supplier, shop, onClose, title = "Fac
           <button onClick={print} disabled={!img?.dataUrl || !!busy} className="gb-focus min-h-[48px] rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.18)" }}><Printer size={17} /> {busy === "print" ? "…" : "Imprimer"}</button>
           <button onClick={savePdf} disabled={!img?.dataUrl || !!busy} className="gb-focus min-h-[48px] rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.18)" }}><Download size={17} /> {busy === "pdf" ? "…" : "Enregistrer le PDF"}</button>
         </div>
-        <p className="text-[11px] text-center text-white/55">Envoi : choisissez WhatsApp puis {supplier?.phone ? `le contact ${supplier.phone}` : "le fournisseur"} dans le menu de partage.</p>
+        <p className="text-[11px] text-center text-white/55">{supplier?.phone ? `Le PDF s'ouvre directement dans la discussion WhatsApp de ${supplier.name || "votre fournisseur"} (${supplier.phone}).` : "Aucun numéro pour ce fournisseur : choisissez le contact dans le menu de partage."}</p>
       </div>
     </div>
   );
@@ -16807,46 +16823,65 @@ function AppInner() {
   // l'appliquer : ce qui diffère vient forcément d'un autre appareil (les
   // changements locaux sont envoyés avant chaque récupération).
   const remoteSeededRef = useRef(null);
+  // Copie précédente du SERVEUR, clé par clé : une suppression ou une
+  // modification n'est annoncée que si le serveur lui-même a changé entre
+  // deux synchronisations. Avant, on comparait au contenu LOCAL : une vente
+  // faite à l'instant sur cet appareil, pas encore arrivée sur le serveur,
+  // était annoncée « Vente supprimée » alors qu'elle venait d'être faite.
+  const remoteServerRef = useRef({});
   const announceRemoteChanges = (fresh) => {
     const firstPass = remoteSeededRef.current !== activeShopId;
     remoteSeededRef.current = activeShopId;
+    const prevServer = firstPass ? {} : remoteServerRef.current;
+    const nextServer = {};
+    Object.entries(fresh).forEach(([k, list]) => { nextServer[k] = Array.isArray(list) ? new Map(list.map((x) => [x.id, x])) : prevServer[k]; });
+    remoteServerRef.current = nextServer;
     if (firstPass) return;
     const money = (n) => spokenAmount(formatMoney(Number(n) || 0, shop?.currency));
     const isOther = (name) => !!name && name !== selfName && !(role === "admin" && name === "Administrateur");
     const lines = [];
     const byId = (list) => new Map((list || []).map((x) => [x.id, x]));
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const diff = (key, list, fn) => {
       if (!Array.isArray(list)) return;
       const local = getLocalValueRef.current(key);
       if (!Array.isArray(local) || local.length === 0) return;
-      if (JSON.stringify(local) === JSON.stringify(list)) return;
-      fn(byId(local), byId(list));
+      if (same(local, list)) return;
+      const srv = prevServer[key] || null;
+      const prev = byId(local), next = byId(list);
+      // Supprimé AILLEURS : présent sur le serveur la fois précédente, encore
+      // présent ici, et disparu du serveur maintenant.
+      const deletedRemotely = (id) => !!srv && srv.has(id) && prev.has(id) && !next.has(id);
+      // Modifié AILLEURS : le serveur a changé depuis la dernière fois, et ce
+      // n'est pas notre propre modification déjà envoyée (sinon local = serveur).
+      const changedRemotely = (id) => !!srv && srv.has(id) && next.has(id) && !same(srv.get(id), next.get(id)) && !same(prev.get(id), next.get(id));
+      fn(prev, next, { deletedRemotely, changedRemotely, srv });
     };
-    diff("sales", fresh.sales, (prev, next) => {
+    diff("sales", fresh.sales, (prev, next, { deletedRemotely, changedRemotely, srv }) => {
       next.forEach((s, id) => {
-        const before = prev.get(id);
+        const before = srv?.get(id) || prev.get(id);
         if (!before) { if (isOther(s.vendor)) lines.push(["sale", `Nouvelle vente de ${money(s.total)} par ${s.vendor}.`]); return; }
         const rb = saleReturnsOf(before), ra = saleReturnsOf(s);
         if (ra.length > rb.length) {
           const r = ra[ra.length - 1];
           if (isOther(r?.by)) lines.push(["cancel", `Retour client sur la vente ${receiptNumber(id)}, ${money(r.amount)}${Number(r.refund) > 0 ? `, ${money(r.refund)} remboursés` : ""}.`]);
-        } else if (before.total !== s.total || before.paymentMethod !== s.paymentMethod) lines.push(["cancel", `Vente numéro ${receiptNumber(id)} modifiée, nouveau total ${money(s.total)}.`]);
+        } else if (changedRemotely(id) && (before.total !== s.total || before.paymentMethod !== s.paymentMethod)) lines.push(["cancel", `Vente numéro ${receiptNumber(id)} modifiée, nouveau total ${money(s.total)}.`]);
         const pb = creditPaymentsOf(before), pa = creditPaymentsOf(s);
         if (pa.length > pb.length) {
           const last = pa[pa.length - 1];
           if (isOther(last?.by)) lines.push(["credit", `Crédit encaissé${s.clientName ? ` pour ${s.clientName}` : ""} : ${money(last.amount)}.`]);
         }
       });
-      prev.forEach((s, id) => { if (!next.has(id)) lines.push(["cancel", `Vente de ${money(s.total)} supprimée.`]); });
+      prev.forEach((s, id) => { if (deletedRemotely(id)) lines.push(["cancel", `Vente de ${money(s.total)} supprimée.`]); });
     });
     diff("expenses", fresh.expenses, (prev, next) => {
       next.forEach((e, id) => { if (!prev.has(id) && (isOther(e.author) || !e.author)) lines.push(["expense", `Nouvelle dépense : ${e.label || "sans libellé"}, ${money(e.amount)}.`]); });
     });
-    diff("avoirs", fresh.avoirs, (prev, next) => {
+    diff("avoirs", fresh.avoirs, (prev, next, { changedRemotely }) => {
       next.forEach((a, id) => {
         const before = prev.get(id);
         if (!before) { if (isOther(a.vendor)) lines.push(["credit", `Avoir ${a.type === "produit" ? "produit" : "monnaie"} créé pour ${a.clientName || "un client"}.`]); return; }
-        if ((a.redemptions || []).length > (before.redemptions || []).length) lines.push(["credit", `Avoir rendu à ${a.clientName || "un client"}.`]);
+        if (changedRemotely(id) && (a.redemptions || []).length > (before.redemptions || []).length) lines.push(["credit", `Avoir rendu à ${a.clientName || "un client"}.`]);
       });
     });
     diff("movements", fresh.movements, (prev, next) => {
@@ -16854,20 +16889,21 @@ function AppInner() {
       if (added.length === 1) { const m = added[0]; lines.push(["movement", `Stock modifié : ${m.productName}, ${m.delta > 0 ? "plus" : "moins"} ${Math.abs(m.delta)}.`]); }
       else if (added.length > 1) lines.push(["movement", `${added.length} mouvements de stock enregistrés.`]);
     });
-    diff("orders", fresh.orders, (prev, next) => {
+    diff("orders", fresh.orders, (prev, next, { deletedRemotely, changedRemotely }) => {
       next.forEach((o, id) => {
         const before = prev.get(id);
         if (!before) lines.push(["order", "Nouvelle commande fournisseur créée."]);
+        else if (!changedRemotely(id)) return;
         else if (before.status !== "received" && o.status === "received") lines.push(["order", `Commande fournisseur reçue${o.total ? `, ${money(o.total)}` : ""}.`]);
         else if (JSON.stringify(before.items) !== JSON.stringify(o.items)) lines.push(["order", "Commande fournisseur modifiée."]);
       });
-      prev.forEach((o, id) => { if (!next.has(id)) lines.push(["order", "Commande fournisseur supprimée."]); });
+      prev.forEach((o, id) => { if (deletedRemotely(id)) lines.push(["order", "Commande fournisseur supprimée."]); });
     });
-    diff("cashRegisterEntries", fresh.cashRegisterEntries, (prev, next) => {
+    diff("cashRegisterEntries", fresh.cashRegisterEntries, (prev, next, { changedRemotely }) => {
       next.forEach((c, id) => {
         const before = prev.get(id);
         if (!before) { if (isOther(c.setBy)) lines.push(["cash", `Fond de caisse de ${money(c.amount)} saisi par ${c.setBy}.`]); }
-        else if (Number(before.amount) !== Number(c.amount)) lines.push(["cash", `Montant de caisse modifié : ${money(c.amount)}.`]);
+        else if (changedRemotely(id) && Number(before.amount) !== Number(c.amount)) lines.push(["cash", `Montant de caisse modifié : ${money(c.amount)}.`]);
       });
     });
     diff("versements", fresh.versements, (prev, next) => {
