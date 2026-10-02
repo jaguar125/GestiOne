@@ -2262,7 +2262,7 @@ function AdminCodeModal({ label, onSubmit, onCancel }) {
   );
 }
 
-function LoginScreen({ shop, shops, activeShopId, onSwitchShop, vendors, onLogin, pushToast, onGoHome }) {
+function LoginScreen({ shop, shops, activeShopId, onSwitchShop, vendors, onLogin, pushToast, onGoHome, notice }) {
   const [mode, setMode] = useState(null);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const typeLabel = ESTABLISHMENT_TYPES.find((t) => t.id === shop.type)?.label || shop.type || "";
@@ -2294,6 +2294,12 @@ function LoginScreen({ shop, shops, activeShopId, onSwitchShop, vendors, onLogin
               ))}
             </div>
           )}
+        </div>
+      )}
+      {notice && (
+        <div className="w-full max-w-xs mb-6 rounded-2xl px-4 py-3 flex items-start gap-3 gb-slide-up" style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.16)" }}>
+          <Clock size={18} color="var(--cap)" className="shrink-0 mt-0.5" />
+          <p className="text-[13px] text-white leading-snug"><b>Session fermée</b> après 30 min sans activité{notice !== "l'utilisateur" ? ` (${notice})` : ""}. Saisissez votre code PIN pour continuer.</p>
         </div>
       )}
       <div className="mb-10 text-center">
@@ -4904,7 +4910,7 @@ function StockScreen({ products, categories, sales = [], movements = [], invento
     { id: "ok", title: "En stock", items: list.filter((p) => statusOf(p) === "ok"), tone: TONE.ok },
   ].filter((g) => g.items.length);
   return (
-    <div className="px-4 pt-4 pb-36">
+    <div className="px-4 pt-4" style={{ paddingBottom: "calc(170px + env(safe-area-inset-bottom))" }}>
       <div role="tablist" className="grid grid-cols-4 gap-1 p-1 rounded-2xl mb-4" style={{ background: "var(--paper-dim)" }}>
         {(shopProfile(shop) === "boutique" ? [["etat", "État"], ["variantes", "Variantes"], ["forecast", "Prévisions"], ["pertes", "Pertes"]] : [["etat", "État"], ["forecast", "Prévisions"], ["expiry", "Péremption"], ["pertes", "Pertes"]]).map(([id, label]) => (
           <button key={id} role="tab" aria-selected={mode === id} onClick={() => setMode(id)} className="gb-focus min-h-[42px] rounded-xl text-[13px] font-bold relative" style={{ background: mode === id ? "var(--card)" : "transparent", boxShadow: mode === id ? "0 1px 3px rgba(22,32,42,0.12)" : "none" }}>
@@ -5326,9 +5332,9 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
           <button onClick={() => exportSalesCSV(sorted, pushToast)} className={iconBtn} aria-label="Exporter en Excel"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Download size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>Excel</span></button>
           <button onClick={() => setPdfPreview(true)} className={iconBtn} aria-label="PDF"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Printer size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>PDF</span></button>
         </div>
-        <div className="grid grid-cols-5 gap-1 p-1 rounded-[14px] mt-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <div className="flex gap-1 p-1 rounded-[14px] mt-2.5 overflow-x-auto gb-scroll" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
           {[["today", "Aujourd'hui"], ["7j", "7 jours"], ["30j", "30 jours"], ["all", "Tout"], ["custom", "Dates"]].map(([id, l]) => (
-            <button key={id} onClick={() => setPeriodFilter(id)} className="gb-focus min-h-[34px] rounded-[10px] text-[11.5px] font-bold" style={periodFilter === id ? { background: "var(--glass)", color: "#fff" } : { color: H.mut }}>{l}</button>
+            <button key={id} onClick={() => setPeriodFilter(id)} className="gb-focus flex-auto shrink-0 h-[36px] px-2 rounded-[10px] text-[12px] font-bold whitespace-nowrap flex items-center justify-center" style={periodFilter === id ? { background: "var(--glass)", color: "#fff", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.5)" } : { color: H.mut }}>{l}</button>
           ))}
         </div>
         {periodFilter === "custom" && (
@@ -5368,7 +5374,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
             <p className="text-[12px] opacity-80">Recette {periodLabel}</p>
             <p className="font-display font-bold text-[28px] leading-tight truncate">{fmt(revenueInPeriod)}</p>
           </div>
-          <div className="text-right text-[12px] leading-relaxed shrink-0">
+          <div className="text-right text-[12px] leading-relaxed shrink-0 whitespace-nowrap">
             <p><span className="opacity-75">Ventes </span><b style={{ color: "#A6E07A" }}>{fmt(salesTotal)}</b></p>
             <p><span className="opacity-75">Crédit </span><b style={{ color: "#FFB4AB" }}>{fmt(creditGivenUnpaidInPeriod)}</b></p>
           </div>
@@ -5376,10 +5382,13 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
         <div className="relative flex h-2 rounded-full overflow-hidden gap-[2px] mt-2.5" style={{ background: "rgba(255,255,255,0.12)" }}>
           {revenueInPeriod > 0 && [[cashOnly, "#2FA565"], [mobileOnly, "#3B7DD8"], [creditCollectedInPeriod, "#E0A030"]].filter(([v]) => v > 0).map(([v, c]) => <div key={c} style={{ width: `${(v / revenueInPeriod) * 100}%`, background: c }} />)}
         </div>
-        <div className="relative flex flex-wrap gap-x-3 gap-y-0.5 text-[10.5px] mt-1.5 opacity-90">
-          <span><span style={{ color: "#6FD39A" }}>●</span> Espèces {fmt(cashOnly)}</span>
-          <span><span style={{ color: "#7EAAF0" }}>●</span> Mobile {fmt(mobileOnly)}</span>
-          <span><span style={{ color: "#F0C060" }}>●</span> Crédits reçus {fmt(creditCollectedInPeriod)}</span>
+        <div className="relative grid grid-cols-3 gap-1.5 mt-2.5">
+          {[["Espèces", cashOnly, "#6FD39A"], ["Mobile", mobileOnly, "#7EAAF0"], ["Crédits reçus", creditCollectedInPeriod, "#F0C060"]].map(([l, v, c]) => (
+            <div key={l} className="rounded-[10px] px-2 py-1.5 min-w-0" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <p className="text-[10.5px] opacity-80 whitespace-nowrap flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c }} />{l}</p>
+              <p className="text-[12.5px] font-bold whitespace-nowrap truncate">{fmt(v)}</p>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -5393,9 +5402,9 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
       <div className="flex flex-col gap-3">
         {listGroups.map((g) => (
         <div key={g.key} className="rounded-[18px]" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
-          <div className="sticky z-[9] flex items-center justify-between gap-2 px-3.5 py-2 rounded-t-[18px] no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top}px)`, background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
-            <span className="text-[11px] font-bold uppercase tracking-[0.05em] truncate" style={{ color: H.mut }}>{dayLabel(g)}</span>
-            <span className="text-[11px] font-bold shrink-0" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <span style={{ color: "var(--ink)" }}>{fmt(g.total)}</span>{!q && g.credit > 0 ? <span style={{ color: "#B3261E" }}> · crédit {fmt(g.credit)}</span> : null}</span>
+          <div className="sticky z-[9] flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-3.5 py-2 rounded-t-[18px] no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top}px)`, background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+            <span className="text-[11px] font-bold uppercase tracking-[0.05em] whitespace-nowrap" style={{ color: H.mut }}>{dayLabel(g)}</span>
+            <span className="text-[11px] font-bold shrink-0 whitespace-nowrap" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <span style={{ color: "var(--ink)" }}>{fmt(g.total)}</span>{!q && g.credit > 0 ? <span style={{ color: "#B3261E" }}> · crédit {fmt(g.credit)}</span> : null}</span>
           </div>
         {g.items.map((s, idx) => {
           const unpaid = s.paymentMethod === "credit" && !s.paid;
@@ -5420,23 +5429,25 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
             rets.length ? [fullyReturned ? "Retournée" : "Retour partiel", "#EFEAFB", "#5B3FB0"] : null,
             (s.invoices || []).length ? ["Facturée", "#E8F0FB", "#1D5FA8"] : null,
           ].filter(Boolean);
-          const itemsLabel = fullyReturned ? "Articles retournés" : s.items.length ? s.items.map((i) => `${i.qty}× ${i.product?.name}`).join(", ") : `Vente N° ${receiptNumber(s.id)}`;
+          const itemsLabel = fullyReturned ? "Articles retournés" : s.items.length ? s.items.slice(0, 2).map((i) => `${i.qty}×\u00A0${i.product?.name}`).join(" · ") : `Vente N° ${receiptNumber(s.id)}`;
+          const moreItems = !fullyReturned && s.items.length > 2 ? s.items.length - 2 : 0;
           const isOpen = open === s.id;
           return (
           <div key={s.id} style={{ borderTop: idx ? "1px solid var(--line)" : "none", background: isOpen ? "var(--paper)" : unpaid ? "#FFFAF9" : "transparent" }} className={idx === g.items.length - 1 ? "rounded-b-[18px]" : ""}>
-            <button onClick={() => setOpen(isOpen ? null : s.id)} aria-expanded={isOpen} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
+            <button onClick={() => setOpen(isOpen ? null : s.id)} aria-expanded={isOpen} className="gb-focus w-full flex items-start gap-2.5 px-3.5 py-3 text-left">
               <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: payTint.bg }}><PayIcon size={16} color={payTint.fg} /></span>
               <span className="flex-1 min-w-0">
-                <span className="block text-[13.5px] font-bold truncate">{itemsLabel}</span>
-                <span className="block text-[11.5px] truncate" style={{ color: H.mut }}>{new Date(s.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {firstName(s.vendor)}{s.clientName ? ` · ${s.clientName}` : ""}</span>
+                <span className="block text-[13.5px] font-bold leading-snug" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", wordBreak: "normal", overflowWrap: "normal", hyphens: "none" }}>{itemsLabel}{moreItems > 0 && <span className="ml-1 text-[11px] font-bold px-1.5 py-0.5 rounded-full align-middle whitespace-nowrap" style={{ background: "var(--paper-dim)", color: H.mut }}>+{moreItems}</span>}</span>
+                <span className="block text-[11.5px] leading-snug mt-0.5" style={{ color: H.mut }}>{new Date(s.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {firstName(s.vendor)}{s.clientName ? ` · ${s.clientName}` : ""}</span>
                 {tags.length > 0 && (
                   <span className="flex flex-wrap gap-1 mt-1">{tags.map(([t, bg, fg]) => <span key={t} className="px-1.5 py-0.5 rounded-full text-[9.5px] font-bold" style={{ background: bg, color: fg }}>{t}</span>)}</span>
                 )}
               </span>
-              <span className="text-right shrink-0 max-w-[45%]">
-                {rets.length > 0 && <span className="block font-mono text-[10.5px] line-through opacity-45">{fmt(s.originalTotal ?? (s.total + returnedAmountOf(s)))}</span>}
-                <span className="block font-display font-bold text-[14px]" style={{ color: unpaid ? "#B3261E" : "var(--ink)" }}>{fmt(s.total)}</span>
-                <span className="block text-[10px] font-bold truncate" style={{ color: payTint.fg }}>{payLabel}</span>
+              <span className="text-right shrink-0 max-w-[42%] self-start pt-0.5">
+                {rets.length > 0 && <span className="block font-mono text-[10.5px] line-through opacity-45 whitespace-nowrap">{fmt(s.originalTotal ?? (s.total + returnedAmountOf(s)))}</span>}
+                <span className="block font-display font-bold text-[14.5px] whitespace-nowrap" style={{ color: unpaid ? "#B3261E" : "var(--ink)" }}>{fmt(s.total)}</span>
+                <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md whitespace-nowrap align-top" style={{ color: payTint.fg, background: payTint.bg }}>{unpaid && !(s.avoirPaid > 0) ? "Crédit" : payLabel}</span>
+                {unpaid && !(s.avoirPaid > 0) && <span className="block text-[10.5px] font-bold mt-0.5 whitespace-nowrap" style={{ color: "#B3261E" }}>reste {fmt(rest)}</span>}
               </span>
             </button>
             {isOpen && (
@@ -6818,7 +6829,7 @@ function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast,
   }, 0);
 
   return (
-    <div className="px-4 pt-4 pb-28">
+    <div className="px-4 pt-4" style={{ paddingBottom: "calc(170px + env(safe-area-inset-bottom))" }}>
       <h2 className="font-display font-bold text-lg mb-3">Avoirs</h2>
 
       <PeriodFilterBar value={periodFilter} onChange={setPeriodFilter} customFrom={customFrom} customTo={customTo} onCustomFrom={setCustomFrom} onCustomTo={setCustomTo} />
@@ -11030,6 +11041,19 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
   const catalog = supplierProducts.filter((sp) => sp.supplierId === supplier.id);
   const [crates, setCrates] = useState({});
   const [query, setQuery] = useState("");
+  // Date de la commande : aujourd'hui par défaut, ou une date passée (commande oubliée).
+  const todayK = cashDayKeyOf(new Date());
+  const yesterdayK = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return cashDayKeyOf(d); })();
+  const [orderDay, setOrderDay] = useState(todayK);
+  const [pickOpen, setPickOpen] = useState(false);
+  const backdated = orderDay !== todayK;
+  const orderDateIso = () => {
+    if (!backdated) return new Date().toISOString();
+    const now = new Date();
+    const [y, m, d] = orderDay.split("-").map(Number);
+    return new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
+  };
+  const dayLabel = (k) => new Date(k + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const setQty = (id, n) => setCrates((s) => { const next = { ...s, [id]: Math.max(0, Number(n) || 0) }; if (next[id] === 0) delete next[id]; return next; });
   const filteredCatalog = query.trim() ? catalog.filter((sp) => sp.productName.toLowerCase().includes(query.trim().toLowerCase())) : catalog;
 
@@ -11049,7 +11073,7 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
 
   const create = (send) => {
     if (lineItems.length === 0) return;
-    onCreate({ id: uid(), supplierId: supplier.id, date: new Date().toISOString(), status: "pending", items: lineItems }, { send });
+    onCreate({ id: uid(), supplierId: supplier.id, date: orderDateIso(), status: "pending", items: lineItems, ...(backdated ? { backdated: true, enteredAt: new Date().toISOString() } : {}) }, { send });
     onClose();
   };
 
@@ -11064,6 +11088,27 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
           </div>
           {catalog.length > 0 && (
             <>
+              <div className="rounded-[16px] p-2.5 mb-3" style={{ background: backdated ? "#FFF4E0" : "var(--paper-dim)", border: backdated ? "1px solid #F3D199" : "1px solid transparent" }}>
+                <div className="flex items-center gap-2.5">
+                  <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: backdated ? "#F6C453" : "var(--card)" }}><CalendarCheck size={17} color={backdated ? "#5A3B00" : "var(--glass)"} /></span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.06em] opacity-60">Date de la commande</p>
+                    <p className="text-[13.5px] font-bold truncate first-letter:uppercase" style={{ color: backdated ? "#8A5A00" : "var(--ink)" }}>{dayLabel(orderDay)}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 mt-2.5">
+                  {[["today", "Aujourd'hui"], ["yesterday", "Hier"], ["other", "Autre date"]].map(([k, l]) => {
+                    const on = k === "today" ? orderDay === todayK && !pickOpen : k === "yesterday" ? orderDay === yesterdayK && !pickOpen : pickOpen || (orderDay !== todayK && orderDay !== yesterdayK);
+                    return (
+                      <button key={k} onClick={() => { if (k === "today") { setOrderDay(todayK); setPickOpen(false); } else if (k === "yesterday") { setOrderDay(yesterdayK); setPickOpen(false); } else setPickOpen(true); }} className="gb-focus h-9 rounded-[10px] text-[12.5px] font-bold whitespace-nowrap" style={on ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>{l}</button>
+                    );
+                  })}
+                </div>
+                {pickOpen && (
+                  <input type="date" value={orderDay} max={todayK} onChange={(e) => { if (e.target.value && e.target.value <= todayK) setOrderDay(e.target.value); }} className="gb-focus w-full mt-2 rounded-[10px] px-3 min-h-[42px] text-[14px] border" style={{ borderColor: "var(--line)", background: "var(--card)" }} aria-label="Choisir la date de la commande" />
+                )}
+                {backdated && <p className="text-[11.5px] mt-2 leading-snug" style={{ color: "#8A5A00" }}>Commande antidatée : elle sera enregistrée à cette date (saisie aujourd'hui, notée dans le journal).</p>}
+              </div>
               <p className="text-xs opacity-50 mb-3">Indique le nombre de {V.packs} à commander pour chaque produit.</p>
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
@@ -11130,7 +11175,7 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
                 </div>
                 <span className="font-display font-bold text-[22px]">{fmt(total)}</span>
               </div>
-              <button onClick={() => create(true)} disabled={lineItems.length === 0} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white mb-2 flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: "#25D366" }}><MessageCircle size={18} /> Enregistrer et envoyer la facture</button>
+              <button onClick={() => create(true)} disabled={lineItems.length === 0} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white mb-2 flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: "#25D366" }}><MessageCircle size={18} /> {backdated ? `Enregistrer au ${new Date(orderDay + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} et envoyer` : "Enregistrer et envoyer la facture"}</button>
               <div className="flex gap-2">
                 <button onClick={() => create(false)} disabled={lineItems.length === 0} className="gb-focus flex-1 min-h-[46px] rounded-xl text-[13.5px] font-bold disabled:opacity-40" style={{ background: "var(--paper-dim)" }}>Enregistrer seulement</button>
                 <button onClick={copyText} disabled={lineItems.length === 0} className="gb-focus flex-1 min-h-[46px] rounded-xl text-[13.5px] font-bold disabled:opacity-40" style={{ background: "var(--paper-dim)" }}>Copier le texte</button>
@@ -11358,7 +11403,7 @@ function PendingOrderModal({ order, supplier, supplierProducts = [], onUpdate, o
       <div className="shrink-0 px-5 pb-3 flex items-center gap-3" style={{ paddingTop: "max(22px, env(safe-area-inset-top))" }}>
         <button onClick={onClose} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff", border: "1px solid #E2E0D9" }} aria-label="Retour"><ChevronLeft size={19} /></button>
         <div className="flex-1 min-w-0">
-          <p className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: "#5B6470" }}>Commande N° {order.id.slice(0, 6).toUpperCase()}</p>
+          <p className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: "#5B6470" }}>Commande N° {order.id.slice(0, 6).toUpperCase()}{order.backdated ? " · antidatée" : ""}</p>
           <p className="font-display font-bold text-[19px] leading-tight break-words">{supplier?.name || "Fournisseur"}</p>
         </div>
         <button onClick={() => setConfirmDelete(true)} className="gb-focus w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff", border: "1px solid #F1C9C3" }} aria-label="Supprimer la commande"><Trash2 size={18} color="#B3261E" /></button>
@@ -11510,7 +11555,7 @@ function ReceivedOrderModal({ order, supplier, onClose, onSendInvoice, shop }) {
             <div className="grid grid-cols-3 gap-2 text-[12px]" style={{ color: "#C9D1D8" }}>
               <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.07)" }}><p>Commandée</p><p className="font-bold text-white mt-0.5">{d(order.date)}</p></div>
               <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.07)" }}><p>Reçue</p><p className="font-bold text-white mt-0.5">{order.receivedDate ? d(order.receivedDate) : "—"}</p></div>
-              <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.07)" }}><p>{V.Pack}s</p><p className="font-bold text-white mt-0.5">{crates} · {units} {V.units}</p></div>
+              <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.07)" }}><p>Quantité</p><p className="font-bold text-white mt-0.5 whitespace-nowrap">{crates} {plural(crates, V.pack, V.packs)}</p><p className="text-[11px] whitespace-nowrap">{units} {V.units}</p></div>
             </div>
           </section>
           <section className="rounded-[20px] px-4 py-1.5" style={{ background: "#fff", border: "1px solid #E6E4DD" }}>
@@ -11528,11 +11573,15 @@ function ReceivedOrderModal({ order, supplier, onClose, onSendInvoice, shop }) {
           <div className="pb-2"><ReceiptCodes id={order.id} label={`N° ${num}`} /></div>
         </div>
         {onSendInvoice && (
-          <div className="shrink-0 px-5 pt-3 flex flex-col gap-2" style={{ background: "#fff", borderTop: "1px solid #E6E4DD", paddingBottom: "max(40px, calc(env(safe-area-inset-bottom) + 16px))" }}>
-            <button onClick={() => onSendInvoice(order)} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white flex items-center justify-center gap-2" style={{ background: "#25D366" }}><MessageCircle size={18} /> Renvoyer la facture PDF par WhatsApp</button>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={print} disabled={printing} className="gb-focus min-h-[48px] rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#1F2A33", color: "#fff" }}><Printer size={17} /> {printing ? "…" : "Imprimer la facture"}</button>
-              <button onClick={() => onSendInvoice(order)} className="gb-focus min-h-[48px] rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: "#F1EFEA", border: "1px solid #DAD8D0" }}><FileText size={17} /> Voir la facture</button>
+          <div className="shrink-0 px-5 pt-3 flex flex-col gap-2.5" style={{ background: "#fff", borderTop: "1px solid #E6E4DD", paddingBottom: "max(40px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+            <button onClick={() => onSendInvoice(order)} className="gb-focus w-full h-[54px] rounded-[16px] px-4 text-white flex items-center gap-3 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #2BD46F, #1EB25A)", boxShadow: "0 10px 20px -10px rgba(30,178,90,0.7)" }}>
+              <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.2)" }}><MessageCircle size={19} /></span>
+              <span className="flex-1 min-w-0 text-left text-[15px] font-bold truncate">Renvoyer par WhatsApp</span>
+              <span className="shrink-0 text-[11px] font-bold px-2 py-1 rounded-md" style={{ background: "rgba(255,255,255,0.22)" }}>PDF</span>
+            </button>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button onClick={print} disabled={printing} className="gb-focus h-[50px] rounded-[16px] px-3 flex items-center justify-center gap-2 text-[14px] font-bold text-white whitespace-nowrap disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "#1F2A33" }}><Printer size={17} className="shrink-0" /><span className="truncate">{printing ? "Impression…" : "Imprimer"}</span></button>
+              <button onClick={() => onSendInvoice(order)} className="gb-focus h-[50px] rounded-[16px] px-3 flex items-center justify-center gap-2 text-[14px] font-bold whitespace-nowrap active:scale-[0.98] transition-transform" style={{ background: "#F1EFEA", border: "1px solid #DAD8D0", color: "#16202A" }}><FileText size={17} className="shrink-0" /><span className="truncate">Voir la facture</span></button>
             </div>
           </div>
         )}
@@ -11897,7 +11946,7 @@ function AllOrdersPanel({ orders = [], suppliers = [], shop, onOpenOrder, onNewO
                 <button key={o.id} onClick={() => onOpenOrder?.(o)} className="gb-focus w-full rounded-[18px] p-3 flex items-center gap-3 text-left" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 2px 10px -6px rgba(15,27,22,0.18)" }}>
                   <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0 font-display font-bold text-[14px]" style={{ background: c[0], color: c[1] }}>{supInitials(s?.name)}</span>
                   <span className="flex-1 min-w-0">
-                    <span className="block text-[14px] font-bold truncate">{s?.name || "Fournisseur supprimé"}</span>
+                    <span className="flex items-center gap-1.5 min-w-0"><span className="text-[14px] font-bold truncate">{s?.name || "Fournisseur supprimé"}</span>{o.backdated && <span className="shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: "#FFF1D6", color: "#8A5A00" }}>ANTIDATÉE</span>}</span>
                     <span className="block text-[11.5px] opacity-60 truncate">N° {String(o.id).slice(0, 6).toUpperCase()} · {new Date(o.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {cratesOf(o)} {plural(cratesOf(o), V.pack, V.packs)} · {(o.items || []).length} produit{(o.items || []).length > 1 ? "s" : ""}</span>
                   </span>
                   <span className="text-right shrink-0">
@@ -11932,7 +11981,7 @@ function SuppliersSection({ suppliers, saveSuppliers, expenses, saveExpenses, pr
 
   const [invoiceFor, setInvoiceFor] = useState(null);
   const sendOrderInvoice = (order, title) => setInvoiceFor({ order, supplier: suppliers.find((s) => s.id === order.supplierId), title });
-  const createOrder = (order, opts) => { saveOrders([order, ...allOrders]); pushToast("Commande enregistrée", "ok"); if (opts?.send) sendOrderInvoice(order, "Nouveau bon de commande"); };
+  const createOrder = (order, opts) => { saveOrders([order, ...allOrders]); pushToast(order.backdated ? `Commande enregistrée au ${new Date(order.date).toLocaleDateString("fr-FR")}` : "Commande enregistrée", "ok"); if (opts?.send) sendOrderInvoice(order, "Nouveau bon de commande"); };
   const updateOrder = (updated) => { saveOrders(allOrders.map((o) => (o.id === updated.id ? updated : o))); pushToast("Commande mise à jour", "ok"); };
   const deleteOrder = (order) => { saveOrders(allOrders.filter((o) => o.id !== order.id)); pushToast("Commande supprimée", "ok"); };
   const [menuFor, setMenuFor] = useState(null);
@@ -12225,7 +12274,7 @@ function VendorExpensesScreen({ expenses, saveExpenses, suppliers, vendorName })
   const sorted = [...todayMine].sort((a, b) => new Date(b.date) - new Date(a.date));
   const add = (e) => { saveExpenses([...expenses, e]); setAdding(false); };
   return (
-    <div className="px-4 pt-4 pb-28">
+    <div className="px-4 pt-4" style={{ paddingBottom: "calc(170px + env(safe-area-inset-bottom))" }}>
       <div className="flex items-center justify-between mb-1">
         <h2 className="font-display font-bold text-lg">Dépenses du jour</h2>
         <button onClick={() => setAdding(true)} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: "var(--glass)" }}><Plus size={14} /> Ajouter</button>
@@ -13130,6 +13179,13 @@ function SecuritySection({ shop, saveShopMeta, pushToast }) {
   return (
     <div>
       <h3 className="font-display font-bold text-base mb-3">Sécurité</h3>
+      <div className="rounded-2xl p-4 mb-3 flex items-start gap-3" style={{ background: "#E8F0FB", color: "#16457A" }}>
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#fff" }}><LogOut size={16} color="#1D5FA8" /></span>
+        <div className="min-w-0">
+          <p className="text-[14.5px] font-bold">Déconnexion automatique</p>
+          <p className="text-[12.5px] mt-0.5" style={{ color: "#3B5B7A" }}>Après <b>30 minutes sans activité</b>, la personne connectée (vendeur ou administrateur) est déconnectée et doit se reconnecter avec son code. Un avertissement apparaît 1 minute avant.</p>
+        </div>
+      </div>
       <div className="rounded-2xl border p-4 mb-3" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
         <p className="text-[14.5px] font-bold flex items-center gap-2"><Lock size={15} /> Verrouillage automatique</p>
         <p className="text-[12.5px] opacity-60 mt-0.5 mb-3">Sans activité, l'écran se bloque et redemande le code de la personne connectée.</p>
@@ -14603,7 +14659,7 @@ function AdminScreen({
   const [legalDoc, setLegalDoc] = useState(null);
   const activeSection = ADMIN_SECTIONS.find((s) => s.id === section);
   return (
-    <div className="px-4 pt-4 pb-28">
+    <div className="px-4 pt-4" style={{ paddingBottom: "calc(170px + env(safe-area-inset-bottom))" }}>
       {/* En-tête fixe : reste visible pendant le défilement, juste sous la barre du haut. */}
       <div className="h-[58px] -mt-1 mb-2" aria-hidden="true" />
       <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[12] px-4 pt-2 pb-2.5 flex items-center gap-3 no-print" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 44px)", background: "var(--paper)", boxShadow: "0 8px 12px -12px rgba(0,0,0,0.35)" }}>
@@ -16120,7 +16176,9 @@ function AppInner() {
   const [currentVendorName, setCurrentVendorName] = useState("");
   const [locked, setLocked] = useState(() => { try { return localStorage.getItem("sessionLocked") === "1"; } catch { return false; } });
   const [adminGuard, setAdminGuard] = useState(null);
-  const lastActivityRef = useRef(Date.now());
+  // Dernière activité connue (conservée entre deux ouvertures de l'app) :
+  // sert au verrouillage et à la déconnexion automatique après 30 min.
+  const lastActivityRef = useRef((() => { try { return Number(localStorage.getItem("lastActivityAt")) || Date.now(); } catch { return Date.now(); } })());
   const unlockFailsRef = useRef(0);
   const [view, setView] = useState("sell");
 
@@ -16600,7 +16658,7 @@ function AppInner() {
   }, [license?.planId]);
 
 
-  const pushToast = (message, type = "ok") => { setToast({ message, type }); setTimeout(() => setToast(null), 2200); };
+  const pushToast = (message, type = "ok") => { setToast({ message, type }); setTimeout(() => setToast(null), type === "info" ? 6000 : 2200); };
 
   // Journal d'activité propre à chaque entreprise, chargé depuis l'appareil
   // puis complété par le serveur lors de la synchronisation.
@@ -16628,6 +16686,45 @@ function AppInner() {
     evs.forEach((ev) => window.addEventListener(ev, mark, { passive: true }));
     return () => evs.forEach((ev) => window.removeEventListener(ev, mark));
   }, []);
+  // ---------- Déconnexion automatique après 30 min sans activité ----------
+  // Vaut pour tout le monde (vendeur, administrateur, propriétaire) et pour
+  // toutes les boutiques : la personne devra se reconnecter avec son code.
+  const IDLE_LOGOUT_MS = 30 * 60000;
+  const idleWarnedRef = useRef(false);
+  const autoLogoutRef = useRef(null);
+  const autoLoggedOutRef = useRef((() => { try { return localStorage.getItem("autoLoggedOut") || ""; } catch { return ""; } })());
+  autoLogoutRef.current = () => {
+    const who = actorName() || "l'utilisateur";
+    try { logAudit("connexion", `Déconnexion automatique de ${who} (30 min sans activité)`, { by: who, role: role || "" }); } catch { /* ignore */ }
+    autoLoggedOutRef.current = who;
+    try { localStorage.setItem("autoLoggedOut", who); } catch { /* ignore */ }
+    clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false);
+    window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {});
+    // On reste sur la boutique : l'écran de connexion demande directement le code PIN.
+    setHomeScreenActive(false);
+    pushToast("Déconnecté après 30 min sans activité. Saisissez votre code pour vous reconnecter.", "info");
+  };
+  useEffect(() => {
+    if (!role) return undefined;
+    idleWarnedRef.current = false;
+    const lastSeen = () => Math.max(lastActivityRef.current, Number((() => { try { return localStorage.getItem("lastActivityAt"); } catch { return 0; } })()) || 0);
+    const check = () => {
+      const idle = Date.now() - lastSeen();
+      if (idle >= IDLE_LOGOUT_MS) { autoLogoutRef.current?.(); return; }
+      if (idle >= IDLE_LOGOUT_MS - 60000 && !idleWarnedRef.current) {
+        idleWarnedRef.current = true;
+        pushToast("Aucune activité : déconnexion automatique dans 1 minute.", "info");
+      } else if (idle < IDLE_LOGOUT_MS - 60000) idleWarnedRef.current = false;
+    };
+    check();
+    const timer = setInterval(check, 15000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", onVis); window.removeEventListener("focus", onVis); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
+
   const lockMinutes = Number(shop?.autoLockMinutes) || 0;
   useEffect(() => {
     if (!role || !lockMinutes) return undefined;
@@ -16906,7 +17003,17 @@ function AppInner() {
     } catch { /* le journal ne bloque jamais */ }
     setExpenses(next); window.storage.set(`expenses:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("expenses"); setPendingSync(api.getPendingCount()); api.syncKeyNow("expenses", next).then(() => setPendingSync(api.getPendingCount())); }
   };
-  const saveOrders = (next) => { setOrders(next); window.storage.set(`orders:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("orders"); setPendingSync(api.getPendingCount()); api.syncKeyNow("orders", next).then(() => setPendingSync(api.getPendingCount())); } };
+  const saveOrders = (next) => {
+    // Journal : nouvelles commandes fournisseurs (avec mention si antidatée).
+    try {
+      const known = new Set((orders || []).map((o) => o.id));
+      (next || []).filter((o) => !known.has(o.id)).forEach((o) => {
+        const sup = (suppliers || []).find((x) => x.id === o.supplierId)?.name || "fournisseur";
+        const tot = (o.items || []).reduce((t, i) => t + (Number(i.crates) || 0) * (Number(i.cratePrice) || 0), 0);
+        logAudit("stock", `Bon de commande N° ${String(o.id).slice(0, 6).toUpperCase()} · ${sup} · ${formatMoney(tot, shop?.currency)}${o.backdated ? ` · antidaté au ${new Date(o.date).toLocaleDateString("fr-FR")}` : ""}`, { amount: -tot });
+      });
+    } catch { /* le journal ne bloque jamais l'enregistrement */ }
+    setOrders(next); window.storage.set(`orders:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("orders"); setPendingSync(api.getPendingCount()); api.syncKeyNow("orders", next).then(() => setPendingSync(api.getPendingCount())); } };
   const saveSupplierProducts = (next) => { setSupplierProducts(next); window.storage.set(`supplierProducts:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("supplierProducts"); setPendingSync(api.getPendingCount()); api.syncKeyNow("supplierProducts", next).then(() => setPendingSync(api.getPendingCount())); } };
   // Avoirs : sommes ou produits que LA BOUTIQUE doit à un client (monnaie non
   // rendue, ou produits vendus mais pas encore remis). Enregistrés comme les
@@ -18174,7 +18281,7 @@ function AppInner() {
           <CurrencyContext.Provider value={shop.currency}><VocabContext.Provider value={{ ...(VOCAB[shopProfile(shop)] || VOCAB.boissons), painFourre: isPainShop(shop) }}>
           <LanguageContext.Provider value={shop.language || "fr"}>
             {!role ? (
-              <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); logAudit("connexion", `Connexion de ${name}`, { by: name, role: r }); setRole(r); setCurrentVendorName(name); setView(isNuit(shop) ? "home" : "sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} />
+              <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); lastActivityRef.current = Date.now(); try { localStorage.setItem("lastActivityAt", String(Date.now())); } catch { /* ignore */ } logAudit("connexion", autoLoggedOutRef.current ? `Reconnexion de ${name} après déconnexion automatique${autoLoggedOutRef.current !== name ? ` (session précédente : ${autoLoggedOutRef.current})` : ""}` : `Connexion de ${name}`, { by: name, role: r }); autoLoggedOutRef.current = ""; try { localStorage.removeItem("autoLoggedOut"); } catch { /* ignore */ } setRole(r); setCurrentVendorName(name); setView(isNuit(shop) ? "home" : "sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} notice={autoLoggedOutRef.current} />
             ) : (
               <>
                 <div className={`fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-4 pb-2 flex items-center justify-between z-20 no-print${nuit ? " gb-nuit-bar" : ""}`} style={{ background: nuit ? "var(--glass)" : "var(--paper)", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.18)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
@@ -18286,6 +18393,10 @@ function AppInner() {
                         auditLog={auditLog} requireAdmin={requireAdmin} onRestoreServerBackup={handleRestoreServerBackup} snackLots={snackLots} saveSnackLots={saveSnackLots}
                       />
                     )}
+                    {/* Marge de sécurité commune en bas de toutes les pages : le
+                        dernier élément reste visible au-dessus de la barre de
+                        navigation, de la bulle d'assistance et de la zone système. */}
+                    {view !== "sell" && view !== "admin" && <div aria-hidden="true" className="gb-safe-bottom" style={{ height: "calc(120px + env(safe-area-inset-bottom))" }} />}
                   </>
                 )}
 
