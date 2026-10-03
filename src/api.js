@@ -504,3 +504,15 @@ export async function getBackup(backupId, shopId) {
   const data = await callFunction("store", { ...shopAuthFields(resolveShop(shopId)), action: "get_backup", backup_id: backupId });
   return data?.backup || null;
 }
+
+// ---------- Messages de l'assistance : alertes propriétaire ----------
+// Jeton propre à cet appareil, délivré après le déverrouillage de l'espace
+// propriétaire. Il permet UNIQUEMENT de connaître le nombre de nouveaux
+// messages (ni noms, ni contenu), pour prévenir même quand l'espace est
+// verrouillé.
+export async function ownerSupportIssueToken({ email, secret }) {
+  return callFunction("support-owner", { action: "issue-token", email, secret });
+}
+export async function ownerSupportCount({ token, since }) {
+  return callRead("support-owner", { action: "count", token, since });
+}

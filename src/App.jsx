@@ -13,6 +13,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import * as Tone from "tone";
 import * as api from "./api.js";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
+import { phoneNotify, preparePhoneNotifications } from "./phoneNotify.js";
 import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
 import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder } from "./printer.js";
@@ -14703,7 +14704,7 @@ function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm
   );
 }
 
-function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast }) {
+function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast, ownerUnread = 0, onMessagesView }) {
   const [email, setEmail] = useState("");
   const [secret, setSecret] = useState("");
   const [loading, setLoading] = useState(false);
@@ -14715,6 +14716,8 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
   const [sortBy, setSortBy] = useState("recent");
   const [ownerTab, setOwnerTab] = useState("shops");
   const [msgStats, setMsgStats] = useState({ total: 0, unread: 0 });
+  useEffect(() => { onMessagesView?.(!!ownerAccess && ownerTab === "messages"); }, [ownerAccess, ownerTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onMessagesView?.(false), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [openIds, setOpenIds] = useState(() => new Set());
   const toggleShop = (id) => setOpenIds((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   // Page verrouillée : on efface aussi les données des entreprises de la mémoire.
@@ -14844,7 +14847,7 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
             <button key={id} role="tab" aria-selected={on} onClick={() => setOwnerTab(id)} className="gb-focus relative min-h-[50px] rounded-[14px] flex items-center justify-center gap-2 text-[14px] font-bold" style={on ? { background: "var(--card)", boxShadow: "0 2px 8px rgba(15,27,22,0.12)" } : { opacity: 0.7 }}>
               <Ic size={17} />{l}
               <span className="text-[11.5px] px-1.5 py-0.5 rounded-full" style={{ background: on ? "var(--paper-dim)" : "rgba(0,0,0,0.06)" }}>{n}</span>
-              {id === "messages" && msgStats.unread > 0 && <span className="absolute top-1.5 right-2 min-w-[20px] h-5 px-1 rounded-full text-[10.5px] font-bold text-white flex items-center justify-center" style={{ background: "#22A35A", boxShadow: "0 0 0 2px var(--paper-dim)" }}>{msgStats.unread}</span>}
+              {id === "messages" && Math.max(msgStats.unread, ownerUnread) > 0 && <span className="absolute top-1.5 right-2 min-w-[20px] h-5 px-1 rounded-full text-[10.5px] font-bold text-white flex items-center justify-center" style={{ background: "#22A35A", boxShadow: "0 0 0 2px var(--paper-dim)" }}>{Math.max(msgStats.unread, ownerUnread)}</span>}
             </button>
           );
         })}
@@ -15124,6 +15127,7 @@ function notifMeta(n, fmtM) {
       : T(Coins, "#9A5B00", "#FFF1D6", "argent", `Avoir monnaie · ${n.clientName}`, `${fmtM(n.amount)} à rendre`);
     case "trial": return T(Gift, "#9A5B00", "#FFF1D6", "compte", `Essai gratuit : ${n.daysLeft} jour${n.daysLeft > 1 ? "s" : ""} restant${n.daysLeft > 1 ? "s" : ""}`, "Activez une licence pour continuer sans interruption.");
     case "support_reply": return T(Headphones, "#14684A", "#E3F1EA", "compte", n.count > 1 ? `${n.count} nouveaux messages de l'Assistance GestiOne` : "Nouveau message de l'Assistance GestiOne", "Le contenu est visible uniquement dans Admin › Assistance.");
+    case "support_inbox": return T(MessageCircle, "#1D4F91", "#E6EEFA", "compte", n.count > 1 ? `${n.count} nouveaux messages des boutiques` : "Nouveau message d'une boutique", "Espace propriétaire › Messages (déverrouillage requis).");
     case "vendor_blocked": return T(Lock, "#B3261E", "#FCEBEA", "compte", "Vendeur bloqué", n.vendorName);
     case "vendor_unblocked": return T(Unlock, "#1E7A46", "#E6F4EC", "compte", "Vendeur débloqué", n.vendorName);
     default: return T(Bell, "#3B5B7A", "#EDF2F7", "compte", "Notification", n.text || "");
@@ -15659,7 +15663,7 @@ function IngredientSheet({ state, onAdd, onRefill, onEdit, onClose }) {
   );
 }
 
-function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, onPick, onLegal, onClose }) {
+function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, supportUnread = 0, ownerUnread = 0, onPick, onLegal, onClose }) {
   const [q, setQ] = useState("");
   const query = q.trim().toLowerCase();
   const items = ADMIN_SECTIONS.filter((s) => !s.profile || s.profile === shopProfile(shop)).filter((s) => !query || s.label.toLowerCase().includes(query) || (s.desc || "").toLowerCase().includes(query) || (s.group || "").toLowerCase().includes(query));
@@ -15670,7 +15674,7 @@ function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, onPic
     : licenseStatus === "expired" || licenseStatus === "none" ? { t: "Licence expirée", c: "#B3261E", b: "#FCEBEA" }
     : licenseStatus === "expiring" ? { t: `Expire dans ${daysLeft} j`, c: "#9A5B00", b: "#FFF1D6" }
     : { t: `${license?.planId === "trial" ? "Essai" : "Licence active"}${daysLeft !== null ? ` · ${daysLeft} j restants` : ""}`, c: "#1E7A46", b: "#E6F4EC" };
-  const badge = (id) => id === "produits" && lowStockCount > 0 ? { t: String(lowStockCount), c: "#fff", b: "#D9483B" } : id === "licence" && (licenseStatus === "expiring" || licenseStatus === "expired") ? { t: "!", c: "#fff", b: "#D9483B" } : null;
+  const badge = (id) => id === "assistance" && supportUnread > 0 ? { t: String(supportUnread), c: "#fff", b: "#D93B30" } : id === "abonnement" && ownerUnread > 0 ? { t: String(ownerUnread), c: "#fff", b: "#1D4F91" } : id === "produits" && lowStockCount > 0 ? { t: String(lowStockCount), c: "#fff", b: "#D9483B" } : id === "licence" && (licenseStatus === "expiring" || licenseStatus === "expired") ? { t: "!", c: "#fff", b: "#D9483B" } : null;
   return (
     <div className="fixed inset-0 z-[15] flex no-print">
       <div className="absolute inset-0 bg-black/45" onClick={onClose} />
@@ -15739,6 +15743,7 @@ function AdminScreen({
   shop, saveShopMeta, shops, activeShopId, onSwitchShop, onCreateShop, onDeleteShop,
   products, saveProducts, categories, saveCategories, movements, saveMovements, inventories, saveInventories, sales, saveSales, suppliers, saveSuppliers, expenses, saveExpenses, vendors, saveVendors, clients, saveClients,
   license, licenseStatus, onActivateLicense, onRestoreBackup, ownerAccess, onVerifyOwner, onLockOwner, ownerLockReason, pushToast,
+  supportUnread = 0, ownerUnread = 0, onOwnerMessagesView,
   orders, saveOrders, supplierProducts, saveSupplierProducts, avoirs,
   menuOpen, setMenuOpen, pushNotification, onSectionChange,
   auditLog, requireAdmin, onRestoreServerBackup,
@@ -15786,6 +15791,7 @@ function AdminScreen({
           license={license}
           licenseStatus={licenseStatus}
           lowStockCount={products.filter((p) => !p.stockFrom && p.stock <= p.minStock).length}
+          supportUnread={supportUnread} ownerUnread={ownerUnread}
           onPick={(id) => { setSection(id); onSectionChange?.(id); setMenuOpen(false); }}
           onLegal={(doc) => { setLegalDoc(doc); setMenuOpen(false); }}
           onClose={() => setMenuOpen(false)}
@@ -15796,7 +15802,7 @@ function AdminScreen({
       {section === "etablissement" && <EstablishmentSection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
       {section === "securite" && <SecuritySection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
       {section === "journal" && <ActivityLogSection shop={shop} auditLog={auditLog} pushToast={pushToast} />}
-      {section === "abonnement" && <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} />}
+      {section === "abonnement" && <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} ownerUnread={ownerUnread} onMessagesView={onOwnerMessagesView} />}
       {section === "assistance" && <ShopSupportPage shop={shop} />}
       {section === "licence" && <LicenseSection license={license} licenseStatus={licenseStatus} onActivate={onActivateLicense} pushToast={pushToast} shopName={shop.name} />}
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
@@ -17592,8 +17598,14 @@ function AppInner() {
         const owner = (d?.messages || []).filter((m) => m.sender === "owner").map((m) => m.created_at).sort();
         if (!owner.length || stop) return;
         const latest = owner[owner.length - 1];
-        const seen = localStorage.getItem("support_owner_seen");
-        if (!seen) { localStorage.setItem("support_owner_seen", latest); return; }
+        // Référence : dernier passage dans la discussion ; à défaut, le dernier
+        // message envoyé par l'administrateur (toute réponse après est nouvelle).
+        let seen = localStorage.getItem("support_owner_seen");
+        if (!seen) {
+          const mine = (d?.messages || []).filter((m) => m.sender === "user").map((m) => m.created_at).sort();
+          seen = mine.length ? mine[mine.length - 1] : "";
+          if (seen) localStorage.setItem("support_owner_seen", seen);
+        }
         const fresh = owner.filter((t) => t > seen);
         setSupportUnread(fresh.length);
         if (!fresh.length) return;
@@ -17602,13 +17614,68 @@ function AppInner() {
         if (localStorage.getItem("support_owner_notified") === latest) return;
         localStorage.setItem("support_owner_notified", latest);
         pushNotification({ type: "support_reply", count: fresh.length });
-        speak(`Vous avez reçu ${fresh.length > 1 ? `${fresh.length} nouveaux messages` : "un nouveau message"} de l'assistance GestiOne. Pour le lire, ouvrez Assistance dans le menu Administration.`, voiceOn(shop, "support"));
+        // Annonce vocale toujours faite, sauf si ce type est désactivé à la main.
+        speak(`Vous avez reçu ${fresh.length > 1 ? `${fresh.length} nouveaux messages` : "un nouveau message"} de l'assistance GestiOne. Pour le lire, ouvrez Assistance dans le menu Administration.`, readVoicePrefs(shop).types.support !== false);
       } catch { /* hors ligne : nouvel essai à la prochaine vérification */ }
     };
     const first = setTimeout(check, 4000);
-    const t = setInterval(check, 15000);
-    return () => { stop = true; clearTimeout(first); clearInterval(t); };
+    const t = setInterval(check, 10000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; clearTimeout(first); clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, [role, shop?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Côté propriétaire de GestiOne : nouveaux messages des boutiques ----
+  // Fonctionne même quand l'espace propriétaire est verrouillé, grâce au
+  // jeton de cet appareil (il ne donne accès qu'au NOMBRE de messages).
+  const [ownerUnread, setOwnerUnread] = useState(0);
+  const ownerSeenNow = () => { try { localStorage.setItem("owner_support_seen", new Date().toISOString()); } catch { /* stockage indisponible */ } setOwnerUnread(0); };
+  const ownerOnMessagesRef = useRef(false);
+  useEffect(() => {
+    let stop = false;
+    const check = async () => {
+      const token = localStorage.getItem("owner_support_token");
+      if (!token || stop) return;
+      const since = localStorage.getItem("owner_support_seen") || new Date(Date.now() - 864e5).toISOString();
+      try {
+        const r = await api.ownerSupportCount({ token, since });
+        if (stop || !r) return;
+        if (r.invalid) { localStorage.removeItem("owner_support_token"); setOwnerUnread(0); return; }
+        const n = Number(r.count) || 0;
+        const onMsgs = ownerOnMessagesRef.current;
+        setOwnerUnread(onMsgs ? 0 : n);
+        if (n > 0 && r.latest && localStorage.getItem("owner_support_notified") !== r.latest) {
+          localStorage.setItem("owner_support_notified", r.latest);
+          if (onMsgs) ownerSeenNow();
+          pushNotification({ type: "support_inbox", count: n });
+          speak(`Assistance GestiOne : ${n > 1 ? `${n} nouveaux messages` : "un nouveau message"} des boutiques. Ouvrez Abonnement, onglet Messages.`, readVoicePrefs(shop).types.support !== false);
+        }
+      } catch { /* hors ligne : nouvel essai au prochain tour */ }
+    };
+    const first = setTimeout(check, 3000);
+    const t = setInterval(check, 10000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; clearTimeout(first); clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+  }, [shop?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Jeton délivré à chaque déverrouillage de l'espace propriétaire.
+  useEffect(() => {
+    if (!ownerAccess) return;
+    api.ownerSupportIssueToken({ email: ownerAccess.email, secret: ownerAccess.secret }).then((r) => { if (r?.token) localStorage.setItem("owner_support_token", r.token); }).catch(() => {});
+  }, [ownerAccess]);
+
+  // ---- Notifications du téléphone : chaque nouvelle notification de la
+  // cloche (vente, stock, dépense, message…) part aussi dans la barre du téléphone.
+  const phoneSeenRef = useRef(null);
+  useEffect(() => { preparePhoneNotifications(); }, []);
+  useEffect(() => {
+    const ids = new Set((notifications || []).map((n) => n.id));
+    if (phoneSeenRef.current === null) { phoneSeenRef.current = ids; return; }
+    const fresh = (notifications || []).filter((n) => !phoneSeenRef.current.has(n.id));
+    phoneSeenRef.current = ids;
+    const fmtM = (v) => formatMoney(Number(v) || 0, shop?.currency);
+    fresh.slice(0, 3).forEach((n) => { const m = notifMeta(n, fmtM); phoneNotify(m.title, m.text || shop?.name || "GestiOne", { type: n.type || "sale" }); });
+  }, [notifications]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-réparation silencieuse : si une entreprise connectée n'a pas (ou plus) son
   // code d'invitation en local (ex: séquelle d'une ancienne reconnexion), on va le
@@ -18114,6 +18181,7 @@ function AppInner() {
         else if (p.stock <= min && before.stock > min) lines.push(["stock", `Stock bas : ${p.name}, il en reste ${p.stock}.`]);
       });
     });
+    lines.slice(0, 3).forEach(([, txt]) => phoneNotify(shop?.name || "GestiOne", txt));
     const wanted = lines.filter(([type]) => voiceOn(shop, type));
     if (wanted.length === 0) return;
     const text = wanted.length > 4 ? `${wanted.length} nouvelles actions. ${wanted.slice(0, 3).map((l) => l[1]).join(" ")}` : wanted.map((l) => l[1]).join(" ");
@@ -19619,7 +19687,8 @@ function AppInner() {
                         onSwitchShop={handleSwitchShop} onCreateShop={handleCreateShop} onDeleteShop={handleDeleteShop}
                         products={products} saveProducts={saveProducts} categories={categories} saveCategories={saveCategories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} sales={sales} saveSales={saveSales}
                         suppliers={suppliers} saveSuppliers={saveSuppliers} expenses={expenses} saveExpenses={saveExpenses}
-                        vendors={vendors} saveVendors={saveVendors} clients={clients} saveClients={saveClients} license={license} licenseStatus={licenseStatus} onActivateLicense={handleActivateLicense} onRestoreBackup={handleRestoreBackup} ownerAccess={ownerAccess} onVerifyOwner={handleVerifyOwner} onLockOwner={handleLockOwner} ownerLockReason={ownerLockReason} pushToast={pushToast}
+                        vendors={vendors} saveVendors={saveVendors} clients={clients} saveClients={saveClients} license={license} licenseStatus={licenseStatus} onActivateLicense={handleActivateLicense} onRestoreBackup={handleRestoreBackup} ownerAccess={ownerAccess} onVerifyOwner={handleVerifyOwner} onLockOwner={handleLockOwner} ownerLockReason={ownerLockReason}
+                        supportUnread={supportUnread} ownerUnread={ownerUnread} onOwnerMessagesView={(on) => { ownerOnMessagesRef.current = on; if (on) ownerSeenNow(); }} pushToast={pushToast}
                         orders={orders} saveOrders={saveOrders} supplierProducts={supplierProducts} saveSupplierProducts={saveSupplierProducts}
                         avoirs={avoirs}
                         menuOpen={adminMenuOpen} setMenuOpen={setAdminMenuOpen} pushNotification={pushNotification} onSectionChange={setActiveAdminSection}
@@ -19663,6 +19732,9 @@ function AppInner() {
                           <t.Icon size={17} color={view === t.id ? "var(--cap)" : "#ffffff90"} />
                           {t.id === "stock" && lowStockCount > 0 && (
                             <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-[3px] rounded-full text-[8px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{lowStockCount}</span>
+                          )}
+                          {t.id === "admin" && (supportUnread + ownerUnread) > 0 && (
+                            <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-[16px] px-[3px] rounded-full text-[9px] font-bold flex items-center justify-center text-white" style={{ background: "#D93B30", boxShadow: "0 0 0 2px var(--glass)" }}>{supportUnread + ownerUnread}</span>
                           )}
                           {t.id === "credits" && creditCount > 0 && (
                             <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-[3px] rounded-full text-[8px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{creditCount}</span>
