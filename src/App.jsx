@@ -2855,38 +2855,56 @@ function BoutiqueBanners({ shop, products, onPick }) {
   );
 }
 
-function BoutiqueCard({ p, inCart, onOpen, onView, categories }) {
+function BoutiqueCard({ p, inCart, onOpen, onView, categories, sold = 0 }) {
   const fmt = useFmt();
   const out = p.stock <= 0;
   const promo = promoActive(p);
   const b = p.boutique || {};
   const sizes = b.sizes || [];
   const colors = b.colors || [];
+  const coll = collectionOf(p);
+  const low = !out && p.stock <= Math.max(1, Number(p.minStock) || 0);
+  const view = () => (onView ? onView(p) : onOpen(p));
   return (
-    <div role="button" tabIndex={0} onClick={() => (onView ? onView(p) : onOpen(p))} onKeyDown={(e) => { if (e.key === "Enter") (onView ? onView(p) : onOpen(p)); }} aria-label={`${p.name} — voir l\'article`} className="gb-focus min-w-0 text-left rounded-[20px] overflow-hidden flex flex-col active:scale-[0.97] transition-transform cursor-pointer" style={{ background: "var(--card)", border: inCart ? "2px solid var(--glass)" : "1px solid var(--line)" }}>
-      <span className="relative w-full flex items-center justify-center overflow-hidden" style={{ height: 138, background: `${getCategory(categories, p.category).color}1a` }}>
-        {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={34} />}
-        <span className="absolute left-2 top-2 flex flex-col items-start gap-1">
-          {promo && <PromoBadge p={p} />}
-          <CollectionBadge p={p} small={promo} />
-        </span>
-        {out && <span className="absolute inset-x-0 bottom-0 py-1 text-center text-[11px] font-bold text-white" style={{ background: "rgba(23,25,31,.75)" }}>Épuisé</span>}
-        {inCart > 0 && <span className="absolute right-2 top-2 min-w-[26px] h-[26px] px-1.5 rounded-full text-white text-[12px] font-bold flex items-center justify-center" style={{ background: "var(--glass)" }}>×{inCart}</span>}
-        {!out && <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(p); }} className="gb-focus absolute right-2 bottom-2 w-[38px] h-[38px] rounded-xl flex items-center justify-center" style={{ background: "#17191F", boxShadow: "0 4px 10px rgba(0,0,0,0.25)" }} aria-label={`Ajouter ${p.name} au panier`}><Plus size={17} color="#fff" /></button>}
+    <div role="button" tabIndex={0} onClick={view} onKeyDown={(e) => { if (e.key === "Enter") view(); }} aria-label={`${p.name} — voir l'article`} className="gb-focus min-w-0 text-left rounded-[14px] overflow-hidden flex flex-col cursor-pointer active:scale-[0.985] transition-transform" style={{ background: "#fff", border: inCart ? "2px solid var(--glass)" : "1px solid #ECECEC", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+      <span className="relative w-full flex items-center justify-center overflow-hidden" style={{ aspectRatio: "1 / 1", background: "#fff" }}>
+        {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" style={{ opacity: out ? 0.55 : 1 }} /> : <span className="w-full h-full flex items-center justify-center" style={{ background: `${getCategory(categories, p.category).color}14` }}><CategoryIcon cat={p.category} categories={categories} size={38} /></span>}
+        {promo && <span className="absolute right-2 top-2 h-[24px] px-1.5 rounded-[6px] text-[12.5px] font-bold flex items-center" style={{ background: "#FEF0E3", color: "#F07B12" }}>-{promoPct(p)}%</span>}
+        {inCart > 0 && <span className="absolute left-2 top-2 min-w-[26px] h-[24px] px-1.5 rounded-[6px] text-white text-[11.5px] font-bold flex items-center justify-center gap-0.5" style={{ background: "var(--glass)" }}><ShoppingCart size={11} />{inCart}</span>}
+        {out && <span className="absolute inset-x-1.5 bottom-1.5 py-1.5 px-2 rounded-[6px] flex items-center gap-1.5 text-[10.5px] font-bold leading-tight" style={{ background: "#E4E4E4", color: "#3A3A3A" }}><X size={12} className="shrink-0" />CET ARTICLE N'EST PLUS DISPONIBLE</span>}
       </span>
-      <span className="px-3 pt-2 pb-3 flex flex-col gap-0.5 w-full">
-        <span className="text-[13.5px] font-bold leading-tight truncate" style={{ color: "var(--ink)" }}>{p.name}</span>
-        <span className="flex items-baseline gap-1.5 flex-wrap">
-          <span className="font-display font-bold text-[16px]" style={{ color: "#D9491F" }}>{fmt(effPrice(p))}</span>
-          {promo && <span className="text-[11px] line-through opacity-50">{fmt(p.price)}</span>}
+      <span className="px-2.5 pt-2 pb-2.5 flex flex-col w-full flex-1">
+        <span className="flex items-center gap-1 h-[20px]">
+          {coll.badge
+            ? <span className="h-[20px] px-1.5 rounded-[4px] text-[10.5px] font-bold flex items-center tracking-wide" style={{ background: coll.bg, color: coll.fg }}>{coll.badge}</span>
+            : <span className="text-[10.5px] font-semibold truncate" style={{ color: "#8A8F98" }}>{getCategory(categories, p.category)?.label || ""}</span>}
         </span>
-        {(sizes.length > 0 || colors.length > 0) && (
-          <span className="flex items-center justify-between gap-1.5 mt-1">
-            <span className="text-[10.5px] opacity-60 truncate">{sizes.length ? (sizes.length > 4 ? `${sizes[0]} → ${sizes[sizes.length - 1]}` : sizes.join(" · ")) : "Taille unique"}</span>
-            <span className="flex -space-x-1 shrink-0">{colors.slice(0, 4).map((c) => <span key={c.name} className="w-3 h-3 rounded-full" style={{ background: c.hex, border: "1.5px solid #fff", boxShadow: "0 0 0 1px var(--line)" }} />)}</span>
+        <span className="mt-1.5 text-[14px] font-bold leading-tight truncate" style={{ color: "#17191F" }}>{p.name}</span>
+        <span className="mt-1 text-[12px] leading-[1.35]" style={{ color: "#6B7079", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", height: "2.7em" }}>
+          {(p.description || "").replace(/\s+/g, " ").trim() || [sizes.length ? `${b.kind === "chaussure" ? "Pointures" : "Tailles"} ${sizes.join(", ")}` : null, colors.length ? `${colors.length} couleur${colors.length > 1 ? "s" : ""} : ${colors.map((c) => c.name).join(", ")}` : null].filter(Boolean).join(" · ") || "Touchez la photo pour voir l'article."}
+        </span>
+        <span className="mt-2 pt-2 flex items-end justify-between gap-1" style={{ borderTop: "1px dashed #ECECEC" }}>
+          <span className="min-w-0">
+            <span className="block font-display font-bold text-[17px] leading-none" style={{ color: "#D9491F" }}>{fmt(effPrice(p))}</span>
+            <span className="block text-[11.5px] line-through leading-none mt-1" style={{ color: "#A0A4AB", height: 12 }}>{promo ? fmt(p.price) : ""}</span>
           </span>
-        )}
-        {!hasVariants(p) && <span className="text-[10.5px] font-semibold mt-0.5" style={{ color: out ? "#8A2419" : p.stock <= p.minStock ? "#9A5B00" : "#1E7A46" }}>{out ? "Épuisé" : `${p.stock} en stock`}</span>}
+          {colors.length > 0 && <span className="flex -space-x-1 shrink-0 mb-0.5">{colors.slice(0, 4).map((c) => <span key={c.name} className="w-3.5 h-3.5 rounded-full" style={{ background: c.hex, border: "1.5px solid #fff", boxShadow: "0 0 0 1px #DDD" }} />)}</span>}
+        </span>
+        <span className="mt-1.5 flex items-center justify-between gap-1 text-[11px] font-bold">
+          <span className="flex items-center gap-1 truncate" style={{ color: out ? "#9A9A9A" : low ? "#C26A00" : "#1E7A46" }}>
+            {out ? "Épuisé" : low ? `Plus que ${p.stock} en stock` : <><Check size={12} strokeWidth={3} />En stock</>}
+          </span>
+          {sold > 0 && <span className="flex items-center gap-0.5 shrink-0" style={{ color: "#6B7079" }}><Flame size={12} color="#F07B12" />{sold} vendu{sold > 1 ? "s" : ""}</span>}
+        </span>
+        <span className="flex items-center gap-[3px] mt-1.5" aria-label="GestiOne shop">
+          <span className="shrink-0 rounded-[4px] overflow-hidden" style={{ width: 15, height: 15 }}><GestiOneIcon size={15} /></span>
+          <span className="text-[12px] font-extrabold tracking-tight leading-none" style={{ color: "#17191F" }}>Gesti<span style={{ color: "#F68B1E" }}>One</span></span>
+          <span className="text-[12px] font-bold italic leading-none" style={{ color: "#F68B1E" }}>shop</span>
+        </span>
+        <span className="flex-1" />
+        {out
+          ? <span className="mt-1.5 w-full h-10 rounded-[6px] text-[14px] font-bold flex items-center justify-center" style={{ background: "#BDBDBD", color: "#fff" }}>Épuisé</span>
+          : <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(p); }} className="gb-focus mt-1.5 w-full h-10 rounded-[6px] text-[14px] font-bold text-white flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform" style={{ background: "#F68B1E", boxShadow: "0 2px 6px rgba(246,139,30,0.35)" }} aria-label={`Vendre ${p.name}`}><ShoppingCart size={15} /> Vendre</button>}
       </span>
     </div>
   );
@@ -3178,7 +3196,7 @@ function BoutiqueProductPage({ product, shop, clients, categories, inCartFor, on
             </div>
             <button onClick={() => ready && onAdd(sel, qty)} disabled={!ready} className="gb-focus w-14 h-14 rounded-[16px] flex items-center justify-center shrink-0 disabled:opacity-40" style={{ background: "var(--card)", border: "1.5px solid var(--ink)" }} aria-label="Ajouter au panier"><ShoppingCart size={20} /></button>
             <button onClick={() => ready && onBuy(sel, qty)} disabled={!ready} className="gb-focus flex-1 h-14 rounded-[16px] text-white font-bold text-[15px] flex flex-col items-center justify-center leading-tight disabled:opacity-40" style={{ background: "var(--ink)" }}>
-              <span>Acheter</span><span className="text-[12.5px] opacity-80 font-semibold">{fmt(price * qty)}</span>
+              <span>Vendre</span><span className="text-[12.5px] opacity-80 font-semibold">{fmt(price * qty)}</span>
             </button>
           </div>
         </div>
@@ -3982,6 +4000,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     if (exact || /^\d{6,}$/.test(code)) { setQuery(""); lookupAndAdd(code); }
   };
   const shown = [...filtered].sort((x, y) => (y.favorite ? 1 : 0) - (x.favorite ? 1 : 0));
+  const soldById = useMemo(() => { const m = {}; (sales || []).forEach((x) => (x.items || []).forEach((i) => { const k = i.product?.id || i.id; m[k] = (m[k] || 0) + (Number(i.qty) || 0); })); return m; }, [sales]);
   return (
     <div style={{ paddingBottom: "calc(190px + env(safe-area-inset-bottom))" }}>
       {isBoutique ? (<>
@@ -4046,7 +4065,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
         })()}
         <div className="px-3 mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {[...shown].sort((x, y) => (y.stock > 0) - (x.stock > 0) || (promoActive(y) - promoActive(x)) || (isNewArticle(y) - isNewArticle(x))).map((p) => (
-            <BoutiqueCard key={p.id} p={p} inCart={qtyInCart(p.id)} categories={categories} onOpen={(x) => addToCart(x)} onView={(x) => setDetailFor(x)} />
+            <BoutiqueCard key={p.id} p={p} inCart={qtyInCart(p.id)} categories={categories} sold={soldById[p.id] || 0} onOpen={(x) => addToCart(x)} onView={(x) => setDetailFor(x)} />
           ))}
           {shown.length === 0 && (
             <div className="col-span-2 sm:col-span-3 lg:col-span-4 rounded-[18px] p-7 text-center flex flex-col gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
