@@ -128,7 +128,12 @@ export async function shareImage(fileName, dataUrl, text = "", phone = "", dialo
         const WhatsAppShare = registerPlugin("WhatsAppShare");
         await WhatsAppShare.shareFile({ base64, fileName, mimeType: mime, phone: num, text });
         return "direct";
-      } catch { /* ancienne version de l'app ou WhatsApp absent : menu de partage */ }
+      } catch (e) {
+        // APK sans le module WhatsApp (pas encore reconstruit) : on ouvre
+        // quand même directement la discussion du numéro, avec le texte.
+        if (isUnimplemented(e)) { await openWhatsAppChat(num, text); return "chat"; }
+        /* WhatsApp absent : menu de partage */
+      }
     }
     const { Filesystem, Directory } = await import("@capacitor/filesystem");
     const { Share } = await import("@capacitor/share");
@@ -163,6 +168,36 @@ export async function shareImage(fileName, dataUrl, text = "", phone = "", dialo
 // (choisir WhatsApp puis le contact), Web Share API dans le navigateur, sinon
 // téléchargement du PDF puis ouverture de WhatsApp avec la légende.
 // Numéro au format international sans « + » (WhatsApp) : 0140575147 → 2250140575147.
+function isUnimplemented(e) {
+  const m = `${e?.code || ""} ${e?.message || e || ""}`;
+  return /UNIMPLEMENTED|not implemented/i.test(m);
+}
+
+// Ouvre DIRECTEMENT la discussion WhatsApp d'un numéro, message pré-rempli
+// (sans photo). Fonctionne toujours, même si le numéro n'est pas enregistré
+// dans les contacts du téléphone.
+export async function openWhatsAppChat(phone, text = "") {
+  const num = whatsappNumber(phone);
+  if (await isNative()) {
+    try {
+      const { registerPlugin } = await import("@capacitor/core");
+      const WhatsAppShare = registerPlugin("WhatsAppShare");
+      await WhatsAppShare.openChat({ phone: num, text });
+      return "chat";
+    } catch { /* ancienne version de l'APK : lien wa.me ci-dessous */ }
+  }
+  window.open(`https://wa.me/${num}${text ? `?text=${encodeURIComponent(text)}` : ""}`, "_blank");
+  return "chat";
+}
+
+// "+225 01 41 29 97 10" — numéro international lisible (affichage).
+export function whatsappDisplay(phone) {
+  const n = whatsappNumber(phone);
+  if (!n) return "";
+  if (n.startsWith("225") && n.length === 13) return "+225 " + n.slice(3).replace(/(\d{2})(?=\d)/g, "$1 ");
+  return "+" + n;
+}
+
 export function whatsappNumber(phone, defaultCountry = "225") {
   const raw = String(phone || "").trim();
   let d = raw.replace(/\D/g, "");

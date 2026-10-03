@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useContext, createContext, Component, useMemo, Fragment } from "react";
 import {
-  ScanLine, ShoppingCart, Boxes, History, ShieldCheck, Plus, Minus,
+  ArrowUp, ScanLine, ShoppingCart, Boxes, History, ShieldCheck, Plus, Minus,
   Trash2, X, Check, AlertTriangle, LogOut, Search, TrendingUp,
   PackagePlus, Pencil, Beer, CupSoda, Droplets, Citrus, Receipt,
   Wallet, CreditCard, Truck, Users, Download, Printer, Store, ChevronDown, ChevronLeft, ChevronRight,
@@ -14,7 +14,7 @@ import * as Tone from "tone";
 import * as api from "./api.js";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
 import { phoneNotify, preparePhoneNotifications } from "./phoneNotify.js";
-import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber } from "./nativeExport.js";
+import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber, openWhatsAppChat, whatsappDisplay } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
 import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder } from "./printer.js";
 
@@ -1308,6 +1308,60 @@ function StatCard({ icon: Icon, label, value, dark, danger, tintBg, tintFg, comp
       <Icon size={compact ? 14 : 16} color={fg} />
       <div className={compact ? "font-mono font-bold text-sm mt-1.5 truncate" : "font-mono font-bold text-lg mt-1.5"} style={{ color: valueColor }}>{value}</div>
       <div className={compact ? "text-[9px] mt-0.5 truncate" : "text-[11px] mt-0.5"} style={{ color: tintFg || (dark ? "#ffffffb0" : "var(--ink)"), opacity: tintFg ? 0.75 : dark ? 1 : 0.5 }}>{label}</div>
+    </div>
+  );
+}
+// Bulle « retour en haut » : apparaît dès qu'on a fait défiler la page,
+// avec un anneau orange qui montre la progression ; un toucher remonte
+// en douceur jusqu'au début de la page.
+function ScrollTopBubble({ bottom = 92 }) {
+  const [state, setState] = useState({ show: false, pct: 0 });
+  useEffect(() => {
+    let raf = 0;
+    const read = () => {
+      raf = 0;
+      const y = window.scrollY || document.documentElement.scrollTop || 0;
+      const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      const show = y > 360;
+      const pct = Math.min(1, y / max);
+      setState((o) => (o.show === show && Math.abs(o.pct - pct) < 0.01 ? o : { show, pct }));
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
+    read();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => { window.removeEventListener("scroll", onScroll); window.removeEventListener("resize", onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+  const R = 25, C = 2 * Math.PI * R;
+  const goTop = () => {
+    try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { window.scrollTo(0, 0); }
+    try { navigator.vibrate && navigator.vibrate(8); } catch { /* ignore */ }
+  };
+  return (
+    <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[29] pointer-events-none no-print" style={{ bottom: `calc(${bottom}px + env(safe-area-inset-bottom))` }}>
+      <button
+        type="button"
+        onClick={goTop}
+        aria-label="Revenir en haut de la page"
+        tabIndex={state.show ? 0 : -1}
+        className="gb-focus absolute right-4 bottom-0 w-[56px] h-[56px] rounded-full flex items-center justify-center active:scale-90"
+        style={{
+          pointerEvents: state.show ? "auto" : "none",
+          opacity: state.show ? 1 : 0,
+          transform: state.show ? "translateY(0) scale(1)" : "translateY(14px) scale(0.8)",
+          transition: "opacity .22s ease, transform .26s cubic-bezier(.2,.9,.3,1.3)",
+          background: "var(--glass)",
+          boxShadow: "0 10px 24px -8px rgba(0,0,0,0.45), 0 0 0 3px var(--paper)",
+        }}
+      >
+        <svg width="56" height="56" viewBox="0 0 56 56" className="absolute inset-0" aria-hidden="true" style={{ transform: "rotate(-90deg)" }}>
+          <circle cx="28" cy="28" r={R} fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="3" />
+          <circle cx="28" cy="28" r={R} fill="none" stroke="#F68B1E" strokeWidth="3" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - state.pct)} style={{ transition: "stroke-dashoffset .15s linear" }} />
+        </svg>
+        <span className="relative w-[38px] h-[38px] rounded-full flex items-center justify-center" style={{ background: "#F68B1E", boxShadow: "inset 0 -2px 0 rgba(0,0,0,0.12)" }}>
+          <ArrowUp size={21} strokeWidth={2.8} color="#fff" />
+        </span>
+      </button>
     </div>
   );
 }
@@ -3004,17 +3058,32 @@ function ProductShareSheet({ product, shop, clients = [], onClose, pushToast }) 
   const [busy, setBusy] = useState(false);
   useEffect(() => { let on = true; buildProductCardImage(product, shop, fmt).then((d) => on && setImg(d)).catch(() => {}); return () => { on = false; }; }, [product.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const withPhone = clients.filter((c) => (c.phone || "").trim() && (!q || normName(c.name).includes(q.trim().toLowerCase()) || String(c.phone).includes(q.trim())));
+  const to = picked?.phone || phone;
+  const toDigits = String(to || "").replace(/\D/g, "");
+  // Numéro local : 10 chiffres (ex. 01 41 29 97 10) ; international
+  // (+… ou 00…) : indicatif + numéro.
+  const toIntl = /^\s*(\+|00)/.test(String(to || "")) || (toDigits.startsWith("225") && toDigits.length === 13);
+  const toOk = toIntl ? toDigits.replace(/^00/, "").length >= 10 : toDigits.length === 10;
+  const toLabel = toOk ? whatsappDisplay(to) : "";
   const send = async () => {
+    if (toDigits && !toOk) { pushToast?.("Numéro incomplet : vérifiez-le", "error"); return; }
     setBusy(true);
     try {
-      const to = picked?.phone || phone;
       const fileName = `${String(product.name).replace(/[^\w-]+/g, "_").slice(0, 40)}.jpg`;
-      if (img) await shareImage(fileName, img, text, to);
-      else window.open(`https://wa.me/${whatsappNumber(to)}?text=${encodeURIComponent(text)}`, "_blank");
-      pushToast?.("Fiche article prête à envoyer", "ok");
+      let how = "shared";
+      if (img) how = await shareImage(fileName, img, text, toOk ? to : "");
+      else if (toOk) how = await openWhatsAppChat(to, text);
+      else window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+      if (how === "direct") pushToast?.(`WhatsApp ouvert dans la discussion ${picked ? `de ${picked.name}` : `du ${toLabel}`}`, "ok");
+      else if (how === "chat") pushToast?.(`Discussion du ${toLabel} ouverte (texte). Reconstruisez l'APK pour joindre la photo.`, "ok");
+      else pushToast?.("Fiche article prête à envoyer", "ok");
       onClose();
     } catch (e) { if (!/cancel/i.test(String(e?.message || e))) pushToast?.("Envoi impossible", "error"); }
     finally { setBusy(false); }
+  };
+  const chatOnly = async () => {
+    if (!toOk) return;
+    try { await openWhatsAppChat(to, text); onClose(); } catch { pushToast?.("WhatsApp introuvable", "error"); }
   };
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
@@ -3046,15 +3115,32 @@ function ProductShareSheet({ product, shop, clients = [], onClose, pushToast }) 
           })}
           {withPhone.length === 0 && <p className="text-[12px] opacity-55 py-2">Aucun client avec numéro{q ? " pour cette recherche" : ""}.</p>}
         </div>
-        <label className="flex items-center gap-2.5 min-h-[46px] px-3 rounded-[14px] mt-2" style={{ background: "var(--card)", border: `1px solid ${phone ? "#128C4A" : "var(--line)"}` }}>
+        <label className="flex items-center gap-2.5 min-h-[46px] px-3 rounded-[14px] mt-2" style={{ background: "var(--card)", border: `1.5px solid ${toOk ? "#128C4A" : toDigits ? "#D97706" : "var(--line)"}` }}>
           <Phone size={16} className="opacity-50" />
-          <input type="tel" inputMode="tel" value={picked ? picked.phone : phone} onChange={(e) => { setPicked(null); setPhone(e.target.value); }} placeholder="Ou saisir un numéro (facultatif)" className="flex-1 min-w-0 bg-transparent outline-none text-[14px] font-mono" />
+          <input type="tel" inputMode="tel" value={picked ? picked.phone : phone} onChange={(e) => { setPicked(null); setPhone(e.target.value); }} placeholder="Ou saisir un numéro (facultatif)" className="flex-1 min-w-0 bg-transparent outline-none text-[14px] font-mono" aria-label="Numéro WhatsApp du client" />
+          {(phone || picked) && <button onClick={() => { setPhone(""); setPicked(null); }} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Effacer le numéro"><X size={14} /></button>}
         </label>
-        <p className="text-[11px] opacity-55 mt-1.5">Sans numéro, WhatsApp s'ouvre et vous choisissez la discussion.</p>
-        <button onClick={send} disabled={busy} className="gb-focus w-full mt-4 min-h-[54px] rounded-2xl text-[15.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: "#128C4A", boxShadow: "0 10px 20px -10px rgba(18,140,74,0.7)" }}>
-          {busy ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />} Envoyer sur WhatsApp{picked ? ` à ${picked.name}` : ""}
+        {toOk ? (
+          <div className="flex items-start gap-2 mt-2 px-3 py-2.5 rounded-[12px]" style={{ background: "#E7F6EC", color: "#0F6B39" }}>
+            <Check size={15} className="shrink-0 mt-[1px]" strokeWidth={3} />
+            <p className="text-[12px] leading-snug"><b>Envoi direct</b> dans la discussion WhatsApp du <b className="whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{toLabel}</b>{picked ? ` (${picked.name})` : ""} — photo et message déjà prêts, il ne reste qu'à appuyer sur « Envoyer ».</p>
+          </div>
+        ) : toDigits ? (
+          <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: "#B45309" }}>Numéro incomplet : saisissez les 10 chiffres (ex. 07 07 11 22 33).</p>
+        ) : (
+          <p className="text-[11px] opacity-55 mt-1.5">Sans numéro, WhatsApp s'ouvre et vous choisissez la discussion.</p>
+        )}
+        <button onClick={send} disabled={busy} className="gb-focus w-full mt-4 min-h-[56px] px-4 py-2 rounded-2xl text-[15.5px] font-bold text-white flex items-center justify-center gap-2.5 disabled:opacity-60" style={{ background: "#128C4A", boxShadow: "0 10px 20px -10px rgba(18,140,74,0.7)" }}>
+          {busy ? <RefreshCw size={18} className="animate-spin shrink-0" /> : <Send size={18} className="shrink-0" />}
+          <span className="flex flex-col items-start min-w-0 leading-tight">
+            <span className="truncate max-w-full">Envoyer sur WhatsApp</span>
+            {(picked || toOk) && <span className="text-[12px] font-semibold opacity-85 truncate max-w-full">{picked ? `à ${picked.name} · ` : "au "}{toLabel}</span>}
+          </span>
         </button>
-        <button onClick={() => { navigator.clipboard?.writeText(text).then(() => pushToast?.("Texte copié", "ok")).catch(() => {}); }} className="gb-focus w-full mt-2 min-h-[44px] rounded-2xl text-[13.5px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Copy size={15} /> Copier le texte</button>
+        <div className="flex gap-2 mt-2">
+          <button onClick={() => { navigator.clipboard?.writeText(text).then(() => pushToast?.("Texte copié", "ok")).catch(() => {}); }} className="gb-focus flex-1 min-h-[44px] rounded-2xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Copy size={15} /> Copier le texte</button>
+          {toOk && <button onClick={chatOnly} className="gb-focus flex-1 min-h-[44px] rounded-2xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)", color: "#0F6B39" }}><MessageCircle size={15} /> Texte seul</button>}
+        </div>
       </div>
     </div>
   );
@@ -3086,6 +3172,21 @@ function BoutiqueProductPage({ product, shop, clients, categories, inCartFor, on
   const sel = variants ? { color: colors.length ? color : "", size: sizes.length ? size : "" } : null;
   const totalStock = variants ? variantTotal(product) : Math.max(0, Number(product.stock) || 0);
   const goPhoto = (k) => { setPhoto(k); const el = galleryRef.current; if (el) el.scrollTo({ left: k * el.clientWidth, behavior: "smooth" }); };
+  // Défilement automatique des photos (s'il y en a plusieurs) : une photo
+  // toutes les 3,5 s, en boucle. Pause de quelques secondes dès que
+  // l'utilisateur touche la galerie, et pendant l'envoi WhatsApp.
+  const AUTO_MS = 3500;
+  const [autoHold, setAutoHold] = useState(false);
+  const holdTimer = useRef(null);
+  const holdAuto = () => { setAutoHold(true); clearTimeout(holdTimer.current); holdTimer.current = setTimeout(() => setAutoHold(false), 6000); };
+  useEffect(() => () => clearTimeout(holdTimer.current), []);
+  const autoOn = photos.length > 1 && !autoHold && !share;
+  useEffect(() => {
+    if (!autoOn) return undefined;
+    const t = setTimeout(() => { if (document.visibilityState !== "hidden") goPhoto((photo + 1) % photos.length); }, AUTO_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photo, autoOn, photos.length]);
   const specs = [
     ["Type", BOUTIQUE_KINDS.find((k) => k.id === b.kind)?.label],
     ["Catégorie", cat?.label],
@@ -3100,7 +3201,8 @@ function BoutiqueProductPage({ product, shop, clients, categories, inCartFor, on
       <div className="relative w-full max-w-[600px] h-full overflow-y-auto gb-scroll gb-slide-up" style={{ background: "var(--paper)" }}>
         {/* Galerie photos */}
         <div className="relative" style={{ background: "#EFE9E2" }}>
-          <div ref={galleryRef} onScroll={(e) => { const el = e.currentTarget; const k = Math.round(el.scrollLeft / Math.max(1, el.clientWidth)); if (k !== photo) setPhoto(k); }} className="flex overflow-x-auto snap-x snap-mandatory" style={{ height: "min(62vh, 470px)", scrollbarWidth: "none" }}>
+          <style>{"@keyframes gbPhotoFill{from{width:0}to{width:100%}}"}</style>
+          <div ref={galleryRef} onPointerDown={holdAuto} onTouchStart={holdAuto} onScroll={(e) => { const el = e.currentTarget; const k = Math.round(el.scrollLeft / Math.max(1, el.clientWidth)); if (k !== photo) setPhoto(k); }} className="flex overflow-x-auto snap-x snap-mandatory" style={{ height: "min(62vh, 470px)", scrollbarWidth: "none" }}>
             {(photos.length ? photos : [null]).map((src, k) => (
               <div key={k} className="w-full h-full shrink-0 snap-center flex items-center justify-center">
                 {src ? <img src={src} alt={`${product.name} — photo ${k + 1}`} className="w-full h-full object-cover" /> : <CategoryIcon cat={product.category} categories={categories} size={72} />}
@@ -3117,7 +3219,11 @@ function BoutiqueProductPage({ product, shop, clients, categories, inCartFor, on
           </div>
           {photos.length > 1 && (
             <div className="absolute inset-x-0 bottom-10 flex justify-center gap-1.5">
-              {photos.map((_, k) => <button key={k} onClick={() => goPhoto(k)} aria-label={`Photo ${k + 1}`} className="h-2 rounded-full transition-all" style={{ width: k === photo ? 22 : 8, background: k === photo ? "#fff" : "rgba(255,255,255,0.55)" }} />)}
+              {photos.map((_, k) => (
+                <button key={k} onClick={() => { holdAuto(); goPhoto(k); }} aria-label={`Photo ${k + 1}`} className="relative h-2 rounded-full overflow-hidden transition-all" style={{ width: k === photo ? 26 : 8, background: k === photo ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.55)", boxShadow: "0 1px 4px rgba(0,0,0,0.25)" }}>
+                  {k === photo && <span key={`${photo}-${autoOn}`} className="absolute inset-y-0 left-0 rounded-full" style={{ background: "#fff", width: "100%", animation: autoOn ? `gbPhotoFill ${AUTO_MS}ms linear forwards` : "none" }} />}
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -3125,7 +3231,7 @@ function BoutiqueProductPage({ product, shop, clients, categories, inCartFor, on
         <div className="relative -mt-6 rounded-t-[28px] px-5 pt-5" style={{ background: "var(--paper)", paddingBottom: "calc(150px + env(safe-area-inset-bottom))" }}>
           {photos.length > 1 && (
             <div className="flex gap-2 mb-4 overflow-x-auto gb-scroll">
-              {photos.map((src, k) => <button key={k} onClick={() => goPhoto(k)} className="gb-focus shrink-0 w-14 h-14 rounded-[12px] overflow-hidden" style={{ border: k === photo ? "2.5px solid var(--ink)" : "1px solid var(--line)", opacity: k === photo ? 1 : 0.7 }}><img src={src} alt="" className="w-full h-full object-cover" /></button>)}
+              {photos.map((src, k) => <button key={k} onClick={() => { holdAuto(); goPhoto(k); }} className="gb-focus shrink-0 w-14 h-14 rounded-[12px] overflow-hidden" style={{ border: k === photo ? "2.5px solid var(--ink)" : "1px solid var(--line)", opacity: k === photo ? 1 : 0.7 }}><img src={src} alt="" className="w-full h-full object-cover" /></button>)}
             </div>
           )}
           <p className="text-[12px] font-bold flex items-center gap-1.5" style={{ color: coll.bg }}><coll.Icon size={13} /> {coll.label}{cat?.label ? <span className="opacity-60" style={{ color: "var(--ink)" }}> · {cat.label}</span> : null}</p>
@@ -19729,6 +19835,7 @@ function AppInner() {
                   />
                 )}
                 {adminGuard && <AdminCodeModal label={adminGuard.label} onSubmit={handleAdminGuard} onCancel={() => { setAdminGuard(null); pushToast("Action annulée", "error"); }} />}
+                {licenseStatus !== "expired" && <ScrollTopBubble key={view} />}
                 {licenseStatus !== "expired" && (
                 <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 pt-2 z-30 no-print" style={{ background: "linear-gradient(to top, var(--paper) 60%, transparent)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
                   <div className="rounded-2xl flex items-stretch shadow-lg overflow-hidden" style={{ background: "var(--glass)" }}>
