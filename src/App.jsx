@@ -7,7 +7,7 @@ import {
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
   Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
-  Phone, Flame, Mail, LockKeyhole, ShieldAlert, Timer, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
+  Phone, Activity, Flame, Minimize2, Maximize2, Mail, LockKeyhole, ShieldAlert, Timer, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
 import * as Tone from "tone";
@@ -843,6 +843,7 @@ const VOICE_EVENT_TYPES = [
   { id: "expense", label: "Dépenses", desc: "Nouvelle dépense enregistrée", bg: "#FCEEDB", fg: "#8A4B00" },
   { id: "cash", label: "Caisse et versements", desc: "Fond de caisse saisi, versement fait", bg: "#EDEBE5", fg: "#3D4550" },
   { id: "license", label: "Licence et rappels", desc: "Licence bientôt expirée", bg: "#F6F5F1", fg: "#4A525C" },
+  { id: "support", label: "Messages de l'assistance", desc: "Réponse de l'équipe GestiOne (administrateur)", bg: "#E3F1EA", fg: "#14684A" },
 ];
 function voicePrefsStorageKey(shopId) { return `voicePrefs:${shopId || "default"}`; }
 function defaultVoiceTypes() { const t = {}; VOICE_EVENT_TYPES.forEach((e) => { t[e.id] = true; }); return t; }
@@ -2893,7 +2894,7 @@ function BoutiqueCard({ p, inCart, onOpen, onView, categories }) {
 // Fiche article : couleur, taille, stock de la variante, quantité.
 // ---------- Boutique : page détail d'un article ----------
 // Compression d'une photo choisie dans la galerie (format JPEG léger).
-function compressImageFile(file, maxDim = 720, quality = 0.72) {
+function compressImageFile(file, maxDim = 600, quality = 0.68) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
@@ -13970,7 +13971,7 @@ const ADMIN_SECTIONS = [
   { id: "abonnement", desc: "Espace propriétaire", label: "Abonnement", Icon: CreditCard, group: "Abonnement" },
   { id: "licence", desc: "Validité et activation", label: "Licence", Icon: Star, group: "Abonnement" },
   { id: "donnees", desc: "Sauvegardes et restauration", label: "Données", Icon: Download, group: "Données" },
-  { id: "assistance", desc: "Messages du support", label: "Assistance", Icon: MessageCircle, group: "Assistance" },
+  { id: "assistance", desc: "Écrire à l'équipe GestiOne", label: "Assistance", Icon: MessageCircle, group: "Assistance" },
 ];
 
 // Un message local "en cours d'envoi" est déjà arrivé sur le serveur si un message
@@ -13980,24 +13981,238 @@ function supportAlreadyOnServer(local, serverMsgs) {
   return serverMsgs.some((m) => m.sender === local.sender && m.body === local.body && Math.abs(new Date(m.created_at).getTime() - t) < 120000);
 }
 
-function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast }) {
-  const [email, setEmail] = useState("");
-  const [secret, setSecret] = useState("");
+function supportAgo(d) {
+  const ms = Date.now() - new Date(d).getTime();
+  if (ms < 60e3) return "à l'instant";
+  if (ms < 36e5) return `il y a ${Math.round(ms / 6e4)} min`;
+  if (ms < 864e5) return `il y a ${Math.round(ms / 36e5)} h`;
+  if (ms < 7 * 864e5) return `il y a ${Math.round(ms / 864e5)} j`;
+  return new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+}
+const SUPPORT_READ_KEY = "supportReadAt";
+const readSupportSeen = () => { try { return JSON.parse(localStorage.getItem(SUPPORT_READ_KEY)) || {}; } catch { return {}; } };
+
+// Fenêtre de discussion avec UN administrateur. Plusieurs fenêtres peuvent
+// être ouvertes en même temps : chacune charge ses messages, a sa propre
+// zone de réponse et se met à jour toute seule.
+const SUPPORT_QUICK_REPLIES = ["Bonjour 👋 Je regarde ça tout de suite.", "C'est noté, je reviens vers vous très vite.", "Est-ce réglé de votre côté ?", "Merci, bonne journée !"];
+function SupportChatWindow({ conv, ownerAccess, pushToast, minimized, onToggleMin, onClose, onRead, onRemoved, pane, hidden }) {
+  const [thread, setThread] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState("");
+  const [fresh, setFresh] = useState(0);
+  const busy = useRef(false);
+  const endRef = useRef(null);
+  const lastUserCount = useRef(null);
+  const id = conv.device_id;
+  const merge = (serverMsgs) => setThread((cur) => {
+    const local = cur.filter((m) => m.pending || m.failed);
+    return [...serverMsgs, ...local.filter((l) => !supportAlreadyOnServer(l, serverMsgs))];
+  });
+  const load = async (silent) => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      const data = await api.ownerSupportMessages({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: id });
+      const msgs = data.messages || [];
+      const n = msgs.filter((m) => m.sender === "user").length;
+      if (lastUserCount.current != null && n > lastUserCount.current && minimized) setFresh((f) => f + (n - lastUserCount.current));
+      lastUserCount.current = n;
+      merge(msgs);
+    } catch (e) { if (!silent) pushToast?.(api.networkErrorText(e, "ouvrir la conversation") || e?.message || "Erreur", "error"); }
+    finally { busy.current = false; setLoading(false); }
+  };
+  useEffect(() => { load(); const t = setInterval(() => { if (document.visibilityState !== "hidden" && !hidden) load(true); }, 2500); return () => clearInterval(t); }, [id, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!minimized && !hidden) { setFresh(0); onRead?.(id); endRef.current?.scrollIntoView({ block: "nearest" }); } }, [thread.length, minimized, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
+  const deliver = async (tmp) => {
+    try {
+      const res = await api.ownerSupportReply({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: id, message: tmp.body });
+      setThread((cur) => cur.map((m) => (m.id === tmp.id ? (res.message ? { ...res.message } : { ...m, pending: false }) : m)));
+      onRead?.(id);
+      setTimeout(() => load(true), 300);
+    } catch {
+      setThread((cur) => cur.map((m) => (m.id === tmp.id ? { ...m, pending: false, failed: true } : m)));
+    }
+  };
+  const send = (text) => {
+    const body = (text ?? draft).trim();
+    if (!body) return;
+    const tmp = { id: `tmp-${Date.now()}-${Math.random()}`, sender: "owner", body, created_at: new Date().toISOString(), pending: true };
+    setThread((cur) => [...cur, tmp]);
+    if (text === undefined) setDraft("");
+    deliver(tmp);
+  };
+  const retry = (m) => { if (!m.failed) return; setThread((cur) => cur.map((x) => (x.id === m.id ? { ...x, failed: false, pending: true } : x))); deliver(m); };
+  const remove = async () => {
+    if (!window.confirm(`Supprimer définitivement la conversation avec ${conv.name || "cet administrateur"} ?`)) return;
+    try { await api.ownerSupportDelete({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: id }); pushToast?.("Conversation supprimée", "ok"); onRemoved?.(id); }
+    catch (e) { pushToast?.(api.networkErrorText(e, "supprimer la conversation") || e?.message || "Erreur", "error"); }
+  };
+  const [bg, fg] = clientTint(conv.name || "Anonyme");
+  const waiting = thread.length > 0 && thread[thread.length - 1].sender === "user";
+  return (
+    <div className={`rounded-[18px] overflow-hidden flex-col ${hidden ? "hidden" : "flex"} ${pane ? "h-full" : "gb-slide-up"}`} style={{ background: "#EFEDE7", border: `1.5px solid ${waiting ? "#9ED9B6" : "var(--line)"}`, boxShadow: "0 10px 24px -14px rgba(16,37,31,0.45)" }}>
+      <div className="px-2.5 py-2 flex items-center gap-2" style={{ background: "linear-gradient(150deg, #10251F, #1C4A3A)" }}>
+        <button onClick={onToggleMin} className="gb-focus flex items-center gap-2 flex-1 min-w-0 text-left" aria-label={minimized ? `Ouvrir la fenêtre de ${conv.name}` : `Réduire la fenêtre de ${conv.name}`}>
+          <span className="relative shrink-0">
+            <span className="w-9 h-9 rounded-full flex items-center justify-center font-display font-bold text-[12.5px]" style={{ background: bg, color: fg }}>{clientInitials(conv.name || "Anonyme")}</span>
+            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full" style={{ background: conv.online ? "#5DCAA5" : "#F07272", border: "2px solid #163A2E" }} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5"><span className="text-[13.5px] font-bold text-white truncate">{conv.name || "Anonyme"}</span>{fresh > 0 && <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center" style={{ background: "#22A35A" }}>{fresh}</span>}</span>
+            <span className="block text-[11px] truncate" style={{ color: "rgba(255,255,255,0.65)" }}>{conv.online ? "En ligne" : "Hors ligne"}{conv.shop_name ? ` · ${conv.shop_name}` : ""}</span>
+          </span>
+        </button>
+        {conv.phone && !minimized && <button onClick={() => waClient(conv.phone)} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(93,202,165,0.18)" }} aria-label="WhatsApp"><MessageCircle size={14} color="#7FE0BE" /></button>}
+        {!minimized && <button onClick={remove} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(240,149,149,0.15)" }} aria-label="Supprimer la conversation"><Trash2 size={14} color="#F09595" /></button>}
+        {!pane && <button onClick={onToggleMin} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label={minimized ? "Agrandir" : "Réduire"}>{minimized ? <Maximize2 size={14} color="#fff" /> : <Minimize2 size={14} color="#fff" />}</button>}
+        {!pane && <button onClick={onClose} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Fermer la fenêtre"><X size={15} color="#fff" /></button>}
+      </div>
+      {!minimized && (
+        <>
+          <div className={`flex flex-col gap-1.5 px-2.5 py-2.5 overflow-y-auto gb-scroll ${pane ? "flex-1 min-h-0" : ""}`} style={pane ? undefined : { height: 250 }}>
+            {loading && thread.length === 0 && <p className="text-[12.5px] opacity-55 text-center py-6">Chargement…</p>}
+            {thread.map((m) => {
+              const mine = m.sender === "owner";
+              return (
+                <div key={m.id} onClick={() => retry(m)} className={`flex ${mine ? "justify-end pl-8" : "justify-start pr-8"}`}>
+                  <div className={`max-w-full px-2.5 pt-1.5 pb-1 ${mine ? "rounded-2xl rounded-br-[5px]" : "rounded-2xl rounded-bl-[5px]"}`} style={mine ? { background: m.failed ? "#5A2530" : "#163A2E", color: "#fff", opacity: m.pending ? 0.75 : 1, cursor: m.failed ? "pointer" : "default" } : { background: "#fff", border: "1px solid #E3E1DA" }}>
+                    <p className={`${pane ? "text-[12px]" : "text-[13px]"} leading-snug whitespace-pre-line break-words`}>{m.body}</p>
+                    <p className="text-[10px] text-right mt-0.5 flex items-center justify-end gap-1" style={{ color: mine ? "rgba(255,255,255,0.6)" : "#8A9099" }}>
+                      {m.failed ? "Non envoyé · toucher pour réessayer" : m.pending ? "Envoi…" : new Date(m.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      {mine && !m.pending && !m.failed && <Check size={10} color="#7FE0BE" />}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={endRef} />
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto gb-scroll px-2.5 pb-1.5" style={{ scrollbarWidth: "none" }}>
+            {SUPPORT_QUICK_REPLIES.map((q) => <button key={q} onClick={() => send(q)} className={`gb-focus shrink-0 ${pane ? "h-6 px-2 text-[10.5px]" : "h-7 px-2.5 text-[11.5px]"} rounded-full font-bold whitespace-nowrap`} style={{ background: "#fff", border: "1px solid #C6D9D2", color: "#1F4F43" }}>{q}</button>)}
+          </div>
+          <div className="flex items-end gap-1.5 p-2" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} rows={1} placeholder={`Répondre à ${conv.name || "l'administrateur"}…`} aria-label={`Réponse à ${conv.name}`} className="gb-focus flex-1 min-w-0 rounded-[14px] px-3 py-2 text-[13.5px] resize-none" style={{ background: "#F4F3EF", border: "1px solid #E3E1DA", maxHeight: 100 }} />
+            <button onClick={() => send()} disabled={!draft.trim()} className="gb-focus shrink-0 w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-40" style={{ background: "#163A2E" }} aria-label={`Envoyer à ${conv.name}`}><Send size={16} color="#fff" /></button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Message groupé : le même texte envoyé à plusieurs administrateurs, chacun
+// le recevant dans SA propre conversation.
+function SupportBroadcastSheet({ targets, ownerAccess, pushToast, onClose, onDone }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    const body = text.trim(); if (!body) return;
+    setBusy(true);
+    const results = await Promise.allSettled(targets.map((c) => api.ownerSupportReply({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: c.device_id, message: body })));
+    const ok = results.filter((r) => r.status === "fulfilled").length;
+    setBusy(false);
+    pushToast?.(ok === targets.length ? `Message envoyé à ${ok} administrateur${ok > 1 ? "s" : ""}` : `Envoyé à ${ok} sur ${targets.length} — réessayez pour les autres`, ok === targets.length ? "ok" : "error");
+    onDone?.(targets.filter((_, i) => results[i].status === "fulfilled").map((c) => c.device_id));
+  };
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+        <div className="flex items-center gap-3 mb-3">
+          <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "#E6EEFA", color: "#1D4F91" }}><Users size={20} /></span>
+          <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px] leading-tight">Message groupé</p><p className="text-[12px] opacity-60">Chacun le reçoit dans sa propre conversation</p></div>
+          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {targets.map((c) => <span key={c.device_id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full text-[12px] font-bold" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><ClientAvatar name={c.name || "Anonyme"} size={22} />{c.name || "Anonyme"}<span className="w-1.5 h-1.5 rounded-full" style={{ background: c.online ? "#22A35A" : "#D93B30" }} /></span>)}
+        </div>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} autoFocus placeholder="Ex : Bonjour, une mise à jour est disponible : pensez à rouvrir l'application." className="gb-focus w-full rounded-[14px] p-3 text-[14px]" style={{ background: "var(--card)", border: "1px solid var(--line)", resize: "none" }} />
+        <button onClick={send} disabled={busy || !text.trim()} className="gb-focus w-full mt-3 min-h-[54px] rounded-2xl text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#163A2E" }}>{busy ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />} Envoyer à {targets.length} administrateur{targets.length > 1 ? "s" : ""}</button>
+      </div>
+    </div>
+  );
+}
+
+// Fiche de la boutique de l'administrateur sélectionné (au-dessus de la
+// discussion) : repliée par défaut, dépliée d'un toucher.
+function SupportShopInfo({ conv, shop: s }) {
+  const [open, setOpen] = useState(false);
+  const sub = s?.subscription || {};
+  const st = s?.stats || {};
+  const money = (n) => formatMoney(Number(n) || 0, s?.currency || "XOF");
+  const isPaid = sub.status === "active", isTrial = sub.status === "trial";
+  const lifetime = isPaid && (sub.plan === "lifetime" || !sub.expiresAt);
+  const tone = !s ? { bg: "#EDEFF2", fg: "#3D4A57" } : isPaid ? { bg: "#EAF3DE", fg: "#2E6B10" } : isTrial ? { bg: "#FDF0DA", fg: "#8A5208" } : { bg: "#FCEBEB", fg: "#A32D2D" };
+  const label = !s ? "Boutique introuvable" : isPaid ? (lifetime ? "Licence à vie" : "Licence active") : isTrial ? "Essai" : sub.status === "expired" ? "Expirée" : "Jamais activée";
+  const planLabel = sub.plan === "trial" ? "Essai gratuit" : sub.plan ? (ACTIVATION_PLANS.find((p) => p.id === sub.plan)?.label || sub.plan) : "Aucun abonnement";
+  const daysTo = sub.expiresAt ? Math.ceil((new Date(sub.expiresAt) - Date.now()) / 864e5) : null;
+  const d = (x) => (x ? new Date(x).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "—");
+  const typeLabel = s ? ESTABLISHMENT_TYPES.find((t) => t.id === s.type)?.label || s.type : null;
+  const rows = s ? [
+    ["Boutique", s.name], ["Type", typeLabel], ["Administrateur", st.adminName || conv.name || "Non renseigné"],
+    ["Contact", st.phone || conv.phone || "Non renseigné"], ["E-mail", conv.email || null],
+    ["Licence", planLabel], ["Période", sub.activatedAt ? `${d(sub.activatedAt)} → ${lifetime ? "sans fin" : d(sub.expiresAt)}` : "—"],
+    ["Reste", lifetime ? "Sans expiration" : daysTo == null ? "—" : daysTo > 0 ? `${daysTo} jour${daysTo > 1 ? "s" : ""}` : `Expirée depuis ${-daysTo} j`],
+    ["Code d'activation", sub.code ? `${sub.code.slice(0, 4)}-••••-${sub.code.slice(-4)}` : null],
+    ["Créée le", d(s.created_at)], ["Vendeurs", String((s.vendors || []).length)],
+    ["Produits", st.products != null ? String(st.products) : null], ["Ventes 30 j", st.sales30d != null ? money(st.sales30d) : null],
+    ["Dernière activité", st.lastActivity ? supportAgo(st.lastActivity) : null],
+  ].filter(([, v]) => v) : [];
+  return (
+    <div className="rounded-[16px] mb-2 shrink-0 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="gb-focus w-full flex items-center gap-2 px-2.5 py-2 text-left">
+        <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: tone.bg, color: tone.fg }}><Store size={15} /></span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[12.5px] font-bold truncate">{s?.name || conv.shop_name || "Boutique"}</span>
+          <span className="flex items-center gap-1.5 mt-0.5 min-w-0">
+            <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: tone.bg, color: tone.fg }}>{label}</span>
+            {s && <span className="text-[10.5px] opacity-60 truncate">{lifetime ? "sans expiration" : daysTo == null ? "" : daysTo > 0 ? `${daysTo} j restants` : "expirée"}</span>}
+          </span>
+        </span>
+        <span className="shrink-0 text-[10.5px] font-bold flex items-center gap-0.5 opacity-70">{open ? "Replier" : "Infos"}<ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} /></span>
+      </button>
+      {open && (
+        <div className="px-2.5 pb-2.5 gb-slide-up max-h-[26vh] overflow-y-auto gb-scroll">
+          {!s && <p className="text-[12px] opacity-60 py-2">Aucune boutique enregistrée sous ce nom. Vérifiez l'onglet Entreprises.</p>}
+          {rows.length > 0 && (
+            <div className="rounded-[12px] overflow-hidden" style={{ background: "var(--paper-dim)" }}>
+              {rows.map(([l, v], k) => (
+                <div key={l} className="flex justify-between gap-2 px-2.5 py-1.5 text-[11.5px]" style={{ borderTop: k ? "1px solid var(--line)" : "none" }}>
+                  <span className="opacity-60 shrink-0">{l}</span><span className="font-bold text-right break-words min-w-0">{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {(st.phone || conv.phone) && (
+            <div className="flex gap-1.5 mt-2">
+              <button onClick={() => waClient(st.phone || conv.phone)} className="gb-focus flex-1 h-8 rounded-[10px] text-[11.5px] font-bold flex items-center justify-center gap-1" style={{ background: "#DDF5E6", color: "#128C4A" }}><MessageCircle size={13} /> WhatsApp</button>
+              <button onClick={() => callClient(st.phone || conv.phone)} className="gb-focus flex-1 h-8 rounded-[10px] text-[11.5px] font-bold flex items-center justify-center gap-1" style={{ background: "#E6EEFA", color: "#1D4F91" }}><Phone size={13} /> Appeler</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast, onStats, shops = [] }) {
   const [loading, setLoading] = useState(false);
   const [conversations, setConversations] = useState(null);
-  const [activeDeviceId, setActiveDeviceId] = useState(null);
-  const [thread, setThread] = useState([]);
-  const [reply, setReply] = useState("");
-
-  const listBusy = useRef(false);
-  const threadBusy = useRef(false);
-  const activeRef = useRef(null);
-  const threadEndRef = useRef(null);
-  const [threadLoading, setThreadLoading] = useState(false);
   const [netIssue, setNetIssue] = useState(false);
-  const errText = (e, action) => api.networkErrorText(e, action) || e?.message || "Erreur";
+  const [query, setQuery] = useState("");
+  const [convFilter, setConvFilter] = useState("all");
+  const [seen, setSeen] = useState(readSupportSeen);
+  const [openWins, setOpenWins] = useState([]); // [{ id, min }]
+  const [activeId, setActiveId] = useState(null);
+  const [visited, setVisited] = useState([]);
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  const [broadcast, setBroadcast] = useState(false);
+  const listBusy = useRef(false);
+  const markRead = (deviceId) => setSeen((cur) => { const n = { ...cur, [deviceId]: new Date().toISOString() }; try { localStorage.setItem(SUPPORT_READ_KEY, JSON.stringify(n)); } catch { /* stockage indisponible */ } return n; });
+  const isUnread = (c) => !!c.last_message_at && new Date(c.last_message_at).getTime() > new Date(seen[c.device_id] || 0).getTime() + 1000;
 
-  // silent = rafraîchissement automatique : aucune alerte, on garde les données déjà affichées
   const fetchList = async (em, sc, { silent = false } = {}) => {
     if (listBusy.current) return false;
     listBusy.current = true;
@@ -14009,121 +14224,31 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
       return true;
     } catch (e) {
       if (silent && api.isNetworkError(e)) setNetIssue(true);
-      else pushToast(errText(e, "charger les messages") || "Accès refusé", "error");
+      else pushToast(api.networkErrorText(e, "charger les messages") || e?.message || "Accès refusé", "error");
       return false;
     } finally {
       listBusy.current = false;
       if (!silent) setLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (ownerAccess && conversations === null) fetchList(ownerAccess.email, ownerAccess.secret);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerAccess]);
-
+  useEffect(() => { if (ownerAccess && conversations === null) fetchList(ownerAccess.email, ownerAccess.secret); }, [ownerAccess]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!ownerAccess) return;
-    const interval = setInterval(() => {
-      if (document.visibilityState === "hidden" || activeRef.current) return;
-      fetchList(ownerAccess.email, ownerAccess.secret, { silent: true });
-    }, 15000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerAccess]);
-
-  const submit = async () => {
-    const em = email.trim().toLowerCase();
-    const ok = await fetchList(em, secret);
-    if (ok) { onVerifyOwner({ email: em, secret }); pushToast("Accès propriétaire vérifié", "ok"); }
-  };
-
-  // Fusionne les messages du serveur avec ceux en cours d'envoi / en échec
-  const mergeThread = (serverMsgs) => setThread((cur) => {
-    const local = cur.filter((m) => m.pending || m.failed);
-    return [...serverMsgs, ...local.filter((l) => !supportAlreadyOnServer(l, serverMsgs))];
-  });
-
-  const loadThread = async (deviceId, { silent = false } = {}) => {
-    if (threadBusy.current) return;
-    threadBusy.current = true;
-    try {
-      const data = await api.ownerSupportMessages({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId });
-      if (activeRef.current === deviceId) { mergeThread(data.messages || []); setNetIssue(false); }
-    } catch (e) {
-      if (silent && api.isNetworkError(e)) setNetIssue(true);
-      else if (!silent) pushToast(errText(e, "ouvrir la conversation"), "error");
-    } finally {
-      threadBusy.current = false;
-      if (!silent) setThreadLoading(false);
-    }
-  };
-
-  const openThread = (deviceId) => {
-    activeRef.current = deviceId;
-    setActiveDeviceId(deviceId);
-    setThread([]);
-    setThreadLoading(true);
-    loadThread(deviceId);
-  };
-
-  const closeThread = () => {
-    activeRef.current = null;
-    setActiveDeviceId(null);
-    fetchList(ownerAccess.email, ownerAccess.secret, { silent: true });
-  };
-
-  // Conversation ouverte : nouveaux messages vérifiés toutes les 5 s
-  useEffect(() => {
-    if (!ownerAccess || !activeDeviceId) return;
-    const t = setInterval(() => {
-      if (document.visibilityState !== "hidden") loadThread(activeDeviceId, { silent: true });
-    }, 5000);
+    const t = setInterval(() => { if (document.visibilityState !== "hidden") fetchList(ownerAccess.email, ownerAccess.secret, { silent: true }); }, 5000);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerAccess, activeDeviceId]);
-
+  }, [ownerAccess]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ block: "end" });
-  }, [thread.length, activeDeviceId]);
-
-  const deliver = async (tmp) => {
-    const deviceId = activeRef.current;
-    try {
-      const res = await api.ownerSupportReply({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId, message: tmp.body });
-      setThread((cur) => cur.map((m) => (m.id === tmp.id ? (res.message ? { ...res.message } : { ...m, pending: false }) : m)));
-      if (!res.message) loadThread(deviceId, { silent: true });
-    } catch (e) {
-      setThread((cur) => cur.map((m) => (m.id === tmp.id ? { ...m, pending: false, failed: true } : m)));
-      pushToast(api.networkErrorText(e, "envoyer le message") ? "Message non envoyé — touchez-le pour réessayer." : errText(e), "error");
-    }
-  };
-
-  const sendReply = () => {
-    const text = reply.trim();
-    if (!text || !activeDeviceId) return;
-    const tmp = { id: `tmp-${Date.now()}`, sender: "owner", body: text, created_at: new Date().toISOString(), pending: true };
-    setThread((cur) => [...cur, tmp]);
-    setReply("");
-    deliver(tmp);
-  };
-
-  const retrySend = (m) => {
-    if (!m.failed) return;
-    setThread((cur) => cur.map((x) => (x.id === m.id ? { ...x, failed: false, pending: true } : x)));
-    deliver(m);
-  };
-
-  const delConversation = async (deviceId) => {
-    if (!window.confirm("Supprimer définitivement cette conversation ?")) return;
-    try {
-      await api.ownerSupportDelete({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId });
-      pushToast("Conversation supprimée", "ok");
-      activeRef.current = null;
-      setActiveDeviceId(null);
-      fetchList(ownerAccess.email, ownerAccess.secret);
-    } catch (e) { pushToast(errText(e, "supprimer la conversation"), "error"); }
-  };
+    if (!conversations) return;
+    const act = conversations.filter((c) => c.last_message);
+    onStats?.({ total: act.length, unread: act.filter(isUnread).length });
+  }, [conversations, seen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selectConv = (id) => { markRead(id); setActiveId(id); setVisited((v) => (v.includes(id) ? v : [id, ...v].slice(0, 8))); };
+  // À l'ouverture : la conversation la plus récente s'affiche à droite.
+  useEffect(() => {
+    if (activeId || !conversations) return;
+    const first = conversations.filter((c) => c.last_message).sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at))[0];
+    if (first) selectConv(first.device_id);
+  }, [conversations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ownerAccess) {
     return (
@@ -14133,91 +14258,138 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
     );
   }
 
-  if (activeDeviceId) {
-    const conv = (conversations || []).find((c) => c.device_id === activeDeviceId);
-    return (
-      <div className="rounded-2xl overflow-hidden" style={{ background: "var(--paper-dim)" }}>
-        <div className="px-3.5 py-3 flex items-center gap-2.5" style={{ background: "var(--glass)" }}>
-          <button onClick={closeThread} className="gb-focus shrink-0" aria-label="Retour"><ArrowUpCircle size={17} color="#fff" style={{ transform: "rotate(-90deg)" }} /></button>
-          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px]" style={{ background: "var(--cap)", color: "var(--glass)" }}>{initials(conv?.name || "Anonyme")}</div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white flex items-center gap-1.5 truncate">
-              {conv?.name || "Anonyme"}
-              {conv?.online && <span className="w-1.5 h-1.5 rounded-full inline-block shrink-0" style={{ background: "#5DCAA5" }} title="En ligne" />}
-            </p>
-            <p className="text-[10px] truncate" style={{ color: "rgba(255,255,255,0.55)" }}>{conv?.phone}{conv?.email ? ` · ${conv.email}` : ""}{conv?.shop_name ? ` · ${conv.shop_name}` : ""}</p>
-          </div>
-          <button onClick={() => delConversation(activeDeviceId)} className="gb-focus shrink-0" aria-label="Supprimer la conversation"><Trash2 size={16} color="#F09595" /></button>
-        </div>
-        <div className="flex flex-col gap-2 p-3.5 max-h-[50vh] overflow-y-auto gb-scroll">
-          {thread.map((m) => (
-            <div
-              key={m.id}
-              onClick={() => retrySend(m)}
-              className="rounded-xl px-3 py-2 text-sm max-w-[80%] gb-slide-up"
-              style={{
-                background: m.failed ? "#FDECEC" : m.sender === "owner" ? "var(--glass)" : "var(--card)",
-                color: m.failed ? "#A32D2D" : m.sender === "owner" ? "#fff" : "var(--ink)",
-                alignSelf: m.sender === "owner" ? "flex-end" : "flex-start",
-                border: m.failed ? "1px solid #F09595" : m.sender === "owner" ? "none" : "1px solid var(--line)",
-                opacity: m.pending ? 0.7 : 1,
-                cursor: m.failed ? "pointer" : "default",
-              }}
-            >
-              {m.body}
-              {(m.pending || m.failed) && (
-                <span className="block text-[10px] mt-0.5 text-right" style={{ opacity: 0.8 }}>
-                  {m.pending ? "Envoi…" : "Échec · toucher pour réessayer"}
-                </span>
-              )}
-            </div>
-          ))}
-          {thread.length === 0 && <p className="text-sm opacity-50 text-center py-4">{threadLoading ? "Chargement…" : "Aucun message."}</p>}
-          <div ref={threadEndRef} />
-        </div>
-        {netIssue && <p className="text-[11px] text-center py-1" style={{ background: "#FFF4E0", color: "#8A5A00" }}>Connexion lente — nouvelle tentative automatique…</p>}
-        <div className="flex items-center gap-2 p-3" style={{ background: "var(--card)", borderTop: "1px solid var(--line)" }}>
-          <input value={reply} onChange={(e) => setReply(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendReply()} placeholder="Répondre…" className="gb-focus flex-1 min-w-0 rounded-full px-4 py-2.5 text-sm border" style={{ borderColor: "var(--line)" }} />
-          <button onClick={sendReply} className="gb-focus shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "var(--cap)" }} aria-label="Envoyer">
-            <ArrowUpCircle size={17} color="var(--glass)" style={{ transform: "rotate(90deg)" }} />
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const byId = new Map((conversations || []).map((c) => [c.device_id, c]));
+  const openWin = (id) => {
+    markRead(id);
+    setOpenWins((cur) => (cur.some((w) => w.id === id) ? cur.map((w) => (w.id === id ? { ...w, min: false } : w)) : [{ id, min: false }, ...cur].slice(0, 6)));
+    setTimeout(() => document.getElementById("gb-open-windows")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+  const closeWin = (id) => setOpenWins((cur) => cur.filter((w) => w.id !== id));
+  const toggleMin = (id) => setOpenWins((cur) => cur.map((w) => (w.id === id ? { ...w, min: !w.min } : w)));
+  const activeConversations = (conversations || []).filter((c) => c.last_message).sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
+  const qq = query.trim().toLowerCase();
+  const shown = activeConversations.filter((c) => !qq || `${c.name || ""} ${c.shop_name || ""} ${c.phone || ""}`.toLowerCase().includes(qq)).filter((c) => convFilter === "all" || (convFilter === "new" && isUnread(c)) || (convFilter === "online" && c.online));
+  const nUnread = activeConversations.filter(isUnread).length;
+  const nOnline = activeConversations.filter((c) => c.online).length;
+  const togglePick = (id) => setPicked((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  // Ouvre toutes les conversations non lues : la plus récente déployée, les
+  // autres réduites (un toucher suffit pour les déployer).
+  const openAllUnread = () => {
+    const list = activeConversations.filter(isUnread).slice(0, 6);
+    if (!list.length) return;
+    setOpenWins((cur) => {
+      const rest = cur.filter((w) => !list.some((c) => c.device_id === w.id));
+      return [...list.map((c, k) => ({ id: c.device_id, min: k > 0 && !cur.some((w) => w.id === c.device_id && !w.min) })), ...rest].slice(0, 6);
+    });
+    setTimeout(() => document.getElementById("gb-open-windows")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+  const wins = openWins.filter((w) => byId.has(w.id));
 
-  const activeConversations = (conversations || []).filter((c) => c.last_message);
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h3 className="font-display font-bold text-base">Assistance</h3>
-          <p className="text-[11px] opacity-50 mt-0.5">{activeConversations.length} conversation{activeConversations.length > 1 ? "s" : ""} active{activeConversations.length > 1 ? "s" : ""}</p>
-        </div>
-        <button onClick={() => fetchList(ownerAccess.email, ownerAccess.secret)} disabled={loading} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: "var(--glass)" }}>
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> {loading ? "…" : "Actualiser"}
-        </button>
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {[["all", "Conversations", activeConversations.length, MessageCircle, "#1D4F91", "#E6EEFA"], ["new", "Non lues", nUnread, Bell, "#B3261E", "#FDECEA"], ["online", "En ligne", nOnline, Activity, "#14684A", "#E3F1EA"]].map(([fid, l, n, Ic, fg, bg]) => {
+          const on = convFilter === fid;
+          return (
+            <button key={fid} onClick={() => setConvFilter(on && fid !== "all" ? "all" : fid)} aria-pressed={on} className="gb-focus rounded-[16px] p-2.5 text-left" style={{ background: on ? bg : "var(--card)", border: `1.5px solid ${on ? fg : "var(--line)"}` }}>
+              <span className="w-7 h-7 rounded-[9px] flex items-center justify-center mb-1.5" style={{ background: bg, color: fg }}><Ic size={14} /></span>
+              <span className="block font-display font-bold text-[20px] leading-none" style={{ color: fg }}>{n}</span>
+              <span className="block text-[11px] font-bold mt-1 opacity-75">{l}</span>
+            </button>
+          );
+        })}
       </div>
-      {netIssue && <p className="text-[11px] rounded-xl px-3 py-2 mb-2.5" style={{ background: "#FFF4E0", color: "#8A5A00" }}>Connexion lente — la liste sera actualisée automatiquement.</p>}
-      <div className="flex flex-col gap-2.5">
-        {activeConversations.map((c) => (
-          <button key={c.device_id} onClick={() => openThread(c.device_id)} className="gb-focus w-full text-left rounded-2xl p-3.5 flex gap-3 items-start" style={{ background: "var(--card)", boxShadow: "0 2px 10px rgba(15,27,22,0.07)" }}>
-            <div className="relative shrink-0">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[12px]" style={{ background: "#FAEEDA", color: "#854F0B" }}>{initials(c.name || "Anonyme")}</div>
-              {c.online && <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full gb-pulse" style={{ background: "#5DCAA5", border: "2px solid var(--card)" }} />}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-semibold truncate">{c.name || "Anonyme"}</span>
-                <span className="text-[10px] opacity-40 shrink-0">{c.last_message_at ? new Date(c.last_message_at).toLocaleDateString("fr-FR") : ""}</span>
+
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <button onClick={() => { const nxt = activeConversations.find((c) => isUnread(c) && c.device_id !== activeId); if (nxt) { setPicking(false); selectConv(nxt.device_id); } }} disabled={!activeConversations.some((c) => isUnread(c) && c.device_id !== activeId)} className="gb-focus min-h-[44px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-45" style={{ background: "#E3F4EA", color: "#14684A", border: "1px solid #BFE6CF" }}><MessageCircle size={15} /> Prochaine non lue{nUnread ? ` (${nUnread})` : ""}</button>
+        <button onClick={() => { setPicking((v) => !v); setPicked(new Set()); }} className="gb-focus min-h-[44px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={picking ? { background: "#1D4F91", color: "#fff" } : { background: "#E6EEFA", color: "#1D4F91", border: "1px solid #C9D9F2" }}><Users size={15} /> {picking ? "Annuler la sélection" : "Message groupé"}</button>
+      </div>
+
+      <div className="flex gap-2 mb-2.5">
+        <label className="flex-1 flex items-center gap-2.5 min-h-[44px] px-3.5 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <Search size={16} className="opacity-50" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom, boutique ou numéro" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
+        </label>
+        <button onClick={() => fetchList(ownerAccess.email, ownerAccess.secret)} disabled={loading} className="gb-focus shrink-0 w-[44px] h-[44px] rounded-2xl flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Actualiser"><RefreshCw size={16} className={loading ? "animate-spin" : ""} /></button>
+      </div>
+      {netIssue && <p className="text-[11.5px] rounded-xl px-3 py-2 mb-2.5" style={{ background: "#FFF4E0", color: "#8A5A00" }}>Connexion lente — la liste sera actualisée automatiquement.</p>}
+      {picking && <p className="text-[12.5px] font-semibold mb-2 px-0.5" style={{ color: "#1D4F91" }}>Cochez à gauche les administrateurs qui doivent recevoir le message.</p>}
+
+      {shown.length > 0 && (
+        <div className="flex gap-2" style={{ height: "max(520px, calc(100dvh - 340px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))" }}>
+          {/* Liste des administrateurs (à gauche) */}
+          <div className="w-[112px] sm:w-[220px] shrink-0 overflow-y-auto gb-scroll rounded-[18px] py-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)", overscrollBehavior: "contain" }} aria-label="Administrateurs : en ligne en tête, hors ligne en bas">
+            {[["on", "En ligne", "#22A35A", shown.filter((c) => c.online)], ["off", "Hors ligne", "#D93B30", shown.filter((c) => !c.online)]].map(([gid, gl, gc, list]) => list.length > 0 && (
+              <div key={gid} className="mb-1">
+                <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wide flex items-center gap-1" style={{ color: gc }}><span className="w-2 h-2 rounded-full" style={{ background: gc }} />{gl} · {list.length}</p>
+                {list.map((c) => {
+                  const unread = isUnread(c);
+                  const on = !picking && activeId === c.device_id;
+                  const sel = picked.has(c.device_id);
+                  const [bg, fg] = clientTint(c.name || "Anonyme");
+                  return (
+                    <button key={c.device_id} onClick={() => (picking ? togglePick(c.device_id) : selectConv(c.device_id))} aria-pressed={on || sel} className="gb-focus relative w-full flex flex-col sm:flex-row items-center sm:items-start gap-1 sm:gap-2 px-1.5 sm:px-2.5 py-2 text-center sm:text-left" style={{ background: on ? "#163A2E" : sel ? "#EEF3FC" : unread ? "#F2FAF5" : "transparent" }}>
+                      {on && <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full" style={{ background: "#5DCAA5" }} />}
+                      <span className="relative shrink-0">
+                        <span className="w-10 h-10 rounded-full flex items-center justify-center font-display font-bold text-[13px]" style={{ background: bg, color: fg }}>{clientInitials(c.name || "Anonyme")}</span>
+                        <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ${c.online ? "gb-pulse" : ""}`} style={{ background: c.online ? "#22A35A" : "#D93B30", border: `2px solid ${on ? "#163A2E" : "var(--card)"}` }} />
+                        {picking && <span className="absolute -top-1 -left-1 w-5 h-5 rounded-[6px] flex items-center justify-center" style={sel ? { background: "#1D4F91" } : { background: "var(--card)", border: "2px solid var(--line)" }}>{sel && <Check size={12} color="#fff" strokeWidth={3} />}</span>}
+                        {!picking && unread && !on && <span className="absolute -top-1 -right-1.5 h-[18px] px-1 rounded-full text-[9px] font-bold text-white flex items-center" style={{ background: "#1D4F91", border: "2px solid var(--card)" }}>Nouv.</span>}
+                      </span>
+                      <span className="min-w-0 w-full">
+                        <span className={`block text-[11.5px] leading-tight truncate ${unread ? "font-bold" : "font-semibold"}`} style={{ color: on ? "#fff" : "var(--ink)" }}>{c.name || "Anonyme"}</span>
+                        <span className="block text-[9.5px] leading-tight truncate mt-0.5" style={{ color: on ? "rgba(255,255,255,0.65)" : "var(--ink)", opacity: on ? 1 : 0.5 }}>{c.shop_name || (c.last_message_at ? supportAgo(c.last_message_at) : "")}</span>
+                        <span className="hidden sm:block text-[11px] truncate mt-0.5" style={{ color: on ? "rgba(255,255,255,0.75)" : "var(--ink)", opacity: on ? 1 : 0.6 }}>{c.last_message}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-              <p className="text-xs opacity-60 truncate mt-0.5">{c.last_message}</p>
-              <p className="text-[10px] opacity-40 mt-1 truncate">{c.phone}{c.shop_name ? ` · ${c.shop_name}` : ""}</p>
+            ))}
+          </div>
+          {/* Discussion de l'administrateur choisi (à droite) */}
+          <div className="flex-1 min-w-0 h-full flex flex-col">
+            {activeId && byId.has(activeId) && !picking && (() => {
+              const cv = byId.get(activeId);
+              const nn = normName(cv.shop_name);
+              const shopRow = nn ? shops.find((x) => normName(x.name) === nn) : null;
+              return <SupportShopInfo key={activeId} conv={cv} shop={shopRow} />;
+            })()}
+            <div className="flex-1 min-h-0">
+            {visited.filter((id) => byId.has(id)).map((id) => (
+              <SupportChatWindow key={id} pane hidden={id !== activeId} conv={byId.get(id)} ownerAccess={ownerAccess} pushToast={pushToast} minimized={false}
+                onRead={markRead} onRemoved={(rid) => { setVisited((v) => v.filter((x) => x !== rid)); setActiveId(null); fetchList(ownerAccess.email, ownerAccess.secret); }} />
+            ))}
+            {(!activeId || !byId.has(activeId)) && (
+              <div className="h-full rounded-[18px] flex flex-col items-center justify-center text-center px-4 gap-2" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+                <span className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "#E3F1EA", color: "#14684A" }}><MessageCircle size={22} /></span>
+                <p className="text-[14px] font-bold">Choisissez un administrateur</p>
+                <p className="text-[12px] opacity-60">Touchez un nom à gauche : sa discussion s'ouvre ici.</p>
+              </div>
+            )}
             </div>
-          </button>
-        ))}
-        {conversations && activeConversations.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun message pour l'instant.</p>}
-      </div>
+          </div>
+        </div>
+      )}
+      {conversations && shown.length === 0 && (
+        <div className="rounded-[18px] p-7 text-center flex flex-col items-center gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+          <MessageCircle size={26} className="opacity-40" />
+          <span className="text-[15px] font-bold">{activeConversations.length ? "Aucune conversation ici" : "Aucun message pour l'instant"}</span>
+          <span className="text-[13px] opacity-60">Les messages envoyés par les boutiques depuis « Assistance » arrivent ici.</span>
+        </div>
+      )}
+
+      {picking && picked.size > 0 && (
+        <div className="sticky bottom-[110px] z-10 mt-2 flex items-center gap-2 rounded-[18px] p-2 pl-3.5" style={{ background: "#1D4F91", boxShadow: "0 12px 24px -10px rgba(29,79,145,0.6)" }}>
+          <span className="flex-1 text-[13.5px] font-bold text-white">{picked.size} sélectionné{picked.size > 1 ? "s" : ""}</span>
+          <button onClick={() => setBroadcast(true)} className="gb-focus min-h-[42px] px-4 rounded-[14px] text-[13.5px] font-bold flex items-center gap-1.5" style={{ background: "#fff", color: "#1D4F91" }}><Send size={15} /> Écrire le message</button>
+        </div>
+      )}
+      {broadcast && (
+        <SupportBroadcastSheet targets={activeConversations.filter((c) => picked.has(c.device_id))} ownerAccess={ownerAccess} pushToast={pushToast}
+          onClose={() => setBroadcast(false)}
+          onDone={(ids) => { setBroadcast(false); setPicking(false); setPicked(new Set()); ids.forEach(markRead); fetchList(ownerAccess.email, ownerAccess.secret, { silent: true }); }} />
+      )}
     </div>
   );
 }
@@ -14541,6 +14713,8 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("recent");
+  const [ownerTab, setOwnerTab] = useState("shops");
+  const [msgStats, setMsgStats] = useState({ total: 0, unread: 0 });
   const [openIds, setOpenIds] = useState(() => new Set());
   const toggleShop = (id) => setOpenIds((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   // Page verrouillée : on efface aussi les données des entreprises de la mémoire.
@@ -14591,7 +14765,7 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
 
   if (!ownerAccess) {
     return (
-      <OwnerGate title="La page Abonnement" lockedReason={lockReason}
+      <OwnerGate title="L'espace propriétaire (abonnements et messages des boutiques)" lockedReason={lockReason}
         verify={async (em, sc) => { const data = await api.getOwnerShops({ email: em, secret: sc }); setAllShops(data.shops); }}
         onVerified={(c) => { onVerifyOwner(c); pushToast("Accès propriétaire vérifié", "ok"); }} />
     );
@@ -14663,6 +14837,22 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
   return (
     <div>
       <OwnerSessionBar onLock={onLockOwner} />
+      <div role="tablist" aria-label="Espace propriétaire" className="grid grid-cols-2 gap-1 p-1 rounded-[18px] mb-3.5" style={{ background: "var(--paper-dim)" }}>
+        {[["shops", "Entreprises", (allShops || []).length, Store], ["messages", "Messages", msgStats.total, MessageCircle]].map(([id, l, n, Ic]) => {
+          const on = ownerTab === id;
+          return (
+            <button key={id} role="tab" aria-selected={on} onClick={() => setOwnerTab(id)} className="gb-focus relative min-h-[50px] rounded-[14px] flex items-center justify-center gap-2 text-[14px] font-bold" style={on ? { background: "var(--card)", boxShadow: "0 2px 8px rgba(15,27,22,0.12)" } : { opacity: 0.7 }}>
+              <Ic size={17} />{l}
+              <span className="text-[11.5px] px-1.5 py-0.5 rounded-full" style={{ background: on ? "var(--paper-dim)" : "rgba(0,0,0,0.06)" }}>{n}</span>
+              {id === "messages" && msgStats.unread > 0 && <span className="absolute top-1.5 right-2 min-w-[20px] h-5 px-1 rounded-full text-[10.5px] font-bold text-white flex items-center justify-center" style={{ background: "#22A35A", boxShadow: "0 0 0 2px var(--paper-dim)" }}>{msgStats.unread}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div className={ownerTab === "messages" ? "" : "hidden"}>
+        <SupportInboxSection ownerAccess={ownerAccess} pushToast={pushToast} onStats={setMsgStats} shops={allShops || []} />
+      </div>
+      <div className={ownerTab === "shops" ? "" : "hidden"}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-display font-bold text-base flex items-center gap-2"><CreditCard size={16} color="#185FA5" /> Parc d'entreprises</h3>
         <button onClick={() => fetchShops(ownerAccess.email, ownerAccess.secret)} disabled={loading} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "#E6F1FB", color: "#185FA5" }}>
@@ -14752,6 +14942,7 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
         ))}
         {(!allShops || allShops.length === 0) && !loading && <p className="text-sm opacity-50 text-center py-6">Aucune entreprise enregistrée sur le serveur.</p>}
         {allShops && allShops.length > 0 && filteredShops.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucune entreprise ne correspond à « {search} ».</p>}
+      </div>
       </div>
     </div>
   );
@@ -14932,6 +15123,7 @@ function notifMeta(n, fmtM) {
       ? T(PackageX, "#5B3FB0", "#EFEAFB", "argent", `Avoir produit · ${n.clientName}`, `${n.itemCount} article${n.itemCount > 1 ? "s" : ""} à remettre`)
       : T(Coins, "#9A5B00", "#FFF1D6", "argent", `Avoir monnaie · ${n.clientName}`, `${fmtM(n.amount)} à rendre`);
     case "trial": return T(Gift, "#9A5B00", "#FFF1D6", "compte", `Essai gratuit : ${n.daysLeft} jour${n.daysLeft > 1 ? "s" : ""} restant${n.daysLeft > 1 ? "s" : ""}`, "Activez une licence pour continuer sans interruption.");
+    case "support_reply": return T(Headphones, "#14684A", "#E3F1EA", "compte", n.count > 1 ? `${n.count} nouveaux messages de l'Assistance GestiOne` : "Nouveau message de l'Assistance GestiOne", "Le contenu est visible uniquement dans Admin › Assistance.");
     case "vendor_blocked": return T(Lock, "#B3261E", "#FCEBEA", "compte", "Vendeur bloqué", n.vendorName);
     case "vendor_unblocked": return T(Unlock, "#1E7A46", "#E6F4EC", "compte", "Vendeur débloqué", n.vendorName);
     default: return T(Bell, "#3B5B7A", "#EDF2F7", "compte", "Notification", n.text || "");
@@ -14948,7 +15140,7 @@ function notifAgo(d) {
   if (sameDay) return t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   return t.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + " · " + t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
-function NotificationPanel({ notifications, currency, onClear, onClose, voice }) {
+function NotificationPanel({ notifications, currency, onClear, onClose, voice, onOpenSupport }) {
   const [fam, setFam] = useState("all");
   const fmtM = (v) => formatMoney(Number(v) || 0, currency);
   const items = notifications.map((n) => ({ n, m: notifMeta(n, fmtM) }));
@@ -15013,6 +15205,7 @@ function NotificationPanel({ notifications, currency, onClear, onClose, voice })
                         <span className="text-[10.5px] shrink-0" style={{ color: "#8A939C" }}>{notifAgo(n.date)}</span>
                       </div>
                       {m.text && <p className="text-[12px] leading-snug mt-0.5" style={{ color: "#66707A" }}>{m.text}</p>}
+                      {n.type === "support_reply" && onOpenSupport && <button onClick={() => { onOpenSupport(); onClose?.(); }} className="gb-focus mt-2 h-8 px-3 rounded-[10px] text-[12px] font-bold flex items-center gap-1.5 text-white" style={{ background: "#14684A" }}><Headphones size={13} /> Ouvrir l'Assistance</button>}
                     </div>
                   </div>
                 ))}
@@ -15604,7 +15797,7 @@ function AdminScreen({
       {section === "securite" && <SecuritySection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
       {section === "journal" && <ActivityLogSection shop={shop} auditLog={auditLog} pushToast={pushToast} />}
       {section === "abonnement" && <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} />}
-      {section === "assistance" && <SupportInboxSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} />}
+      {section === "assistance" && <ShopSupportPage shop={shop} />}
       {section === "licence" && <LicenseSection license={license} licenseStatus={licenseStatus} onActivate={onActivateLicense} pushToast={pushToast} shopName={shop.name} />}
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
       {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} onNavigate={(id) => { setSection(id); onSectionChange?.(id); }} />}
@@ -15648,14 +15841,39 @@ function openExternalUrl(url) {
   import("@capacitor/browser").then(({ Browser }) => Browser.open({ url })).catch(() => { try { window.open(url, "_blank", "noopener"); } catch { /* ignore */ } });
 }
 
-function SupportChatWidget({ shop }) {
-  const [open, setOpen] = useState(false);
+function ShopSupportPage({ shop }) {
+  const [agent, setAgent] = useState(null); // null = inconnu, true = en ligne, false = hors ligne
+  return (
+    <div>
+      <div className="rounded-[22px] p-4 mb-3 text-white relative overflow-hidden" style={{ background: "linear-gradient(150deg, #10251F 0%, #1C4A3A 100%)" }}>
+        <span className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.05)" }} />
+        <div className="flex items-center gap-3 relative">
+          <span className="relative w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "rgba(93,202,165,0.18)", border: "1px solid rgba(93,202,165,0.35)" }}><Headphones size={22} color="#7FE0BE" />{agent !== null && <span className="absolute -right-0.5 -bottom-0.5 w-3 h-3 rounded-full" style={{ background: agent ? "#5CC98A" : "#F07272", border: "2px solid #163A2E" }} />}</span>
+          <div className="min-w-0">
+            <p className="font-display font-bold text-[19px] leading-tight">Assistance GestiOne</p>
+            <p className="text-[12.5px] opacity-75 mt-0.5">Écrivez à notre équipe : la réponse arrive ici même.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-3 relative">
+          {agent !== null && <span className="text-[11.5px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5" style={{ background: agent ? "rgba(93,202,165,0.22)" : "rgba(240,114,114,0.22)", color: agent ? "#9BF0CF" : "#FFB4AB" }}><span className="w-2 h-2 rounded-full" style={{ background: agent ? "#5CC98A" : "#F07272" }} />{agent ? "Équipe en ligne" : "Équipe hors ligne"}</span>}
+          {[[Lock, "Conversation privée"], [HelpCircle, "Questions fréquentes"]].map(([Ic, t]) => <span key={t} className="text-[11.5px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5" style={{ background: "rgba(255,255,255,0.1)" }}><Ic size={12} />{t}</span>)}
+        </div>
+      </div>
+      <SupportChatWidget shop={shop} inline onAgent={setAgent} />
+    </div>
+  );
+}
+
+function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen }) {
+  const [open, setOpen] = useState(!!inline);
+  const [agentOnline, setAgentOnline] = useState(null);
+  const noteAgent = (d) => { if (d && typeof d.agent_online === "boolean") { setAgentOnline(d.agent_online); onAgent?.(d.agent_online); } return d; };
   const [stage, setStage] = useState(() => (localStorage.getItem("support_started") === "true" ? "thread" : "faq"));
   const [openFaq, setOpenFaq] = useState(null);
   const [faqQuery, setFaqQuery] = useState("");
   const [copied, setCopied] = useState(false);
-  const [name, setName] = useState(() => localStorage.getItem("support_name") || "");
-  const [phone, setPhone] = useState(() => localStorage.getItem("support_phone") || "");
+  const [name, setName] = useState(() => localStorage.getItem("support_name") || (inline ? (shop?.adminDisplayName || "").trim() : ""));
+  const [phone, setPhone] = useState(() => localStorage.getItem("support_phone") || (inline ? (shop?.invoicePhone || "").trim() : ""));
   const [email, setEmail] = useState(() => localStorage.getItem("support_email") || "");
   const [message, setMessage] = useState("");
   const [thread, setThread] = useState([]);
@@ -15668,7 +15886,7 @@ function SupportChatWidget({ shop }) {
 
   useEffect(() => {
     if (!open) return;
-    const beat = () => api.supportHeartbeat({ name, phone, email, shopName: shop?.name }).catch(() => {});
+    const beat = () => api.supportHeartbeat({ name, phone, email, shopName: shop?.name }).then(noteAgent).catch(() => {});
     beat();
     const hbInterval = setInterval(beat, 20000);
     let pollInterval;
@@ -15676,10 +15894,10 @@ function SupportChatWidget({ shop }) {
       const poll = () => {
         if (pollBusy.current || document.visibilityState === "hidden") return;
         pollBusy.current = true;
-        api.supportPoll().then((d) => mergeThread(d.messages || [])).catch(() => {}).finally(() => { pollBusy.current = false; });
+        api.supportPoll().then((d) => { noteAgent(d); mergeThread(d.messages || []); }).catch(() => {}).finally(() => { pollBusy.current = false; });
       };
       poll();
-      pollInterval = setInterval(poll, 5000);
+      pollInterval = setInterval(poll, 2500);
     }
     return () => { clearInterval(hbInterval); if (pollInterval) clearInterval(pollInterval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -15705,6 +15923,13 @@ function SupportChatWidget({ shop }) {
     }
     setSending(false);
   };
+
+  // Réponses de l'équipe lues : la discussion est affichée à l'écran.
+  useEffect(() => {
+    if (!open || stage !== "thread") return;
+    const last = thread.filter((m) => m.sender === "owner").map((m) => m.created_at).sort().pop();
+    if (last) { try { localStorage.setItem("support_owner_seen", last); } catch { /* stockage indisponible */ } onSeen?.(); }
+  }, [thread, open, stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Messages du serveur + messages locaux encore en cours d'envoi ou en échec
   const mergeThread = (serverMsgs) => setThread((cur) => {
@@ -15751,28 +15976,30 @@ function SupportChatWidget({ shop }) {
 
   return (
     <>
-      {!open && (
-        <button onClick={() => setOpen(true)} className="gb-focus gb-pulse fixed right-4 z-40 w-14 h-14 rounded-2xl flex items-center justify-center active:scale-95 transition-transform" style={{ background: "#1F2A33", boxShadow: "0 10px 24px rgba(22,32,42,0.35)", bottom: "calc(6rem + env(safe-area-inset-bottom))" }} aria-label="Assistance">
+      {!open && !inline && (
+        <button onClick={() => { setOpen(true); if (unread > 0) setStage("thread"); }} className="gb-focus gb-pulse fixed right-4 z-40 w-14 h-14 rounded-2xl flex items-center justify-center active:scale-95 transition-transform" style={{ background: "#1F2A33", boxShadow: "0 10px 24px rgba(22,32,42,0.35)", bottom: "calc(6rem + env(safe-area-inset-bottom))" }} aria-label={unread > 0 ? `Assistance : ${unread} nouveau${unread > 1 ? "x" : ""} message${unread > 1 ? "s" : ""}` : "Assistance"}>
           <MessageCircle size={24} color="#fff" strokeWidth={2.2} />
-          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full border-2" style={{ background: "#5CC98A", borderColor: "var(--paper)" }} />
+          {unread > 0
+            ? <span className="absolute -top-2 -right-2 min-w-[24px] h-6 px-1.5 rounded-full border-2 text-[12px] font-bold text-white flex items-center justify-center" style={{ background: "#D93B30", borderColor: "var(--paper)" }}>{unread > 9 ? "9+" : unread}</span>
+            : <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full border-2" style={{ background: "#5CC98A", borderColor: "var(--paper)" }} />}
         </button>
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 no-print" style={{ pointerEvents: "none" }}>
-          <div className="absolute inset-0" style={{ background: "rgba(22,32,42,0.18)", pointerEvents: "auto" }} onClick={() => setOpen(false)} />
-          <div role="dialog" aria-label="Assistance GestiOne" className="absolute rounded-[22px] overflow-hidden flex flex-col gb-pop" style={{ pointerEvents: "auto", right: "max(12px, env(safe-area-inset-right))", bottom: "calc(92px + env(safe-area-inset-bottom))", width: "min(320px, calc(100vw - 56px))", height: "min(580px, calc(100vh - 170px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))", background: tab === "chat" ? "#EFEDE7" : "#F4F3EF", color: "#16202A", boxShadow: "0 20px 44px rgba(22,32,42,0.32)", border: "1px solid rgba(22,32,42,0.08)" }}>
+        <div className={inline ? "relative" : "fixed inset-0 z-50 no-print"} style={inline ? undefined : { pointerEvents: "none" }}>
+          {!inline && <div className="absolute inset-0" style={{ background: "rgba(22,32,42,0.18)", pointerEvents: "auto" }} onClick={() => setOpen(false)} />}
+          <div role={inline ? "region" : "dialog"} aria-label="Assistance GestiOne" className={`${inline ? "relative w-full" : "absolute gb-pop"} rounded-[22px] overflow-hidden flex flex-col`} style={inline ? { height: "max(480px, calc(100dvh - 400px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))", background: tab === "chat" ? "#EFEDE7" : "#F4F3EF", color: "#16202A", boxShadow: "0 10px 26px -14px rgba(22,32,42,0.4)", border: "1px solid rgba(22,32,42,0.08)" } : { pointerEvents: "auto", right: "max(12px, env(safe-area-inset-right))", bottom: "calc(92px + env(safe-area-inset-bottom))", width: "min(320px, calc(100vw - 56px))", height: "min(580px, calc(100vh - 170px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))", background: tab === "chat" ? "#EFEDE7" : "#F4F3EF", color: "#16202A", boxShadow: "0 20px 44px rgba(22,32,42,0.32)", border: "1px solid rgba(22,32,42,0.08)" }}>
             <div className="px-3.5 pt-3 pb-3 flex flex-col gap-2.5 shrink-0" style={{ background: "#1F2A33" }}>
               <div className="flex items-center gap-2.5">
                 <div className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#2F6F5E" }}>
                   <Headphones size={17} color="#fff" />
-                  <span className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full border-2" style={{ background: "#5CC98A", borderColor: "#1F2A33" }} />
+                  <span className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full border-2" style={{ background: agentOnline === false ? "#F07272" : "#5CC98A", borderColor: "#1F2A33" }} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-bold text-[14.5px] leading-tight truncate">Assistance GestiOne</p>
-                  <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "#C9D1D8" }}>{thread.some((m) => m.pending) ? "Envoi en cours…" : "En ligne · réponse rapide"}</p>
+                  <p className="text-[11.5px] mt-0.5 truncate flex items-center gap-1.5" style={{ color: agentOnline === false ? "#FFB4AB" : agentOnline ? "#9BF0CF" : "#C9D1D8" }}>{thread.some((m) => m.pending) ? "Envoi en cours…" : agentOnline === false ? <><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#F07272" }} />Pas en ligne · laissez un message</> : agentOnline ? <><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#5CC98A" }} />En ligne · réponse rapide</> : "Réponse rapide"}</p>
                 </div>
-                <button onClick={() => setOpen(false)} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Fermer l'assistance"><X size={17} color="#fff" /></button>
+                {!inline && <button onClick={() => setOpen(false)} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Fermer l'assistance"><X size={17} color="#fff" /></button>}
               </div>
               <div className="flex gap-1 p-1 rounded-xl" style={{ background: "rgba(255,255,255,0.08)" }}>
                 {[{ id: "faq", label: "Questions" }, { id: "chat", label: "Discussion" }].map((t) => (
@@ -15855,6 +16082,7 @@ function SupportChatWidget({ shop }) {
                   <Lock size={16} color="#2F6F5E" className="shrink-0" />
                   <span className="text-[12px] leading-relaxed" style={{ color: "#3D4550" }}>Conversation privée avec l'équipe GestiOne. Ne partagez jamais votre code PIN.</span>
                 </div>
+                {agentOnline === false && <div className="flex gap-2.5 p-3 rounded-xl" style={{ background: "#FFF6E5", border: "1px solid #F3D9A4" }}><Clock size={17} color="#9A5B00" className="shrink-0 mt-0.5" /><span className="text-[12.5px] leading-relaxed" style={{ color: "#6B4A00" }}><b>Équipe hors ligne.</b> Laissez votre message, nous vous recontacterons très bientôt.</span></div>}
                 <p className="text-[13px] font-bold">Vos coordonnées</p>
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Votre nom" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Numéro de téléphone" inputMode="tel" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
@@ -15909,6 +16137,18 @@ function SupportChatWidget({ shop }) {
                   })}
                   <div ref={threadEndRef} />
                 </div>
+                {agentOnline === false && (
+                  <div className="mx-3 mt-1 flex gap-2.5 p-2.5 rounded-xl shrink-0" style={{ background: "#FFF6E5", border: "1px solid #F3D9A4" }}>
+                    <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#FCE7C0" }}><Clock size={16} color="#9A5B00" /></span>
+                    <span className="text-[12px] leading-snug" style={{ color: "#6B4A00" }}><b>Nos conseillers ne sont pas en ligne.</b> Laissez votre message : nous vous recontacterons très bientôt, ici même.</span>
+                  </div>
+                )}
+                {agentOnline === true && (
+                  <div className="mx-3 mt-1 flex gap-2 px-3 py-2 rounded-xl items-center shrink-0" style={{ background: "#E8F6EE", border: "1px solid #BFE6CF" }}>
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0 gb-pulse" style={{ background: "#22A35A" }} />
+                    <span className="text-[12px] font-semibold" style={{ color: "#14684A" }}>Un conseiller GestiOne est en ligne : réponse rapide.</span>
+                  </div>
+                )}
                 <div className="px-3 pt-2 pb-0.5 flex flex-wrap gap-1.5 shrink-0" style={{ background: "#EFEDE7" }}>
                   {["Impression", "Licence", "Synchro"].map((q) => (
                     <button key={q} onClick={() => sendMore(`J'ai une question : ${q.toLowerCase()}`)} className="gb-focus shrink-0 min-h-[32px] px-2.5 rounded-full text-[12px] font-bold whitespace-nowrap disabled:opacity-50" style={{ background: "#fff", border: "1px solid #C6D9D2", color: "#1F4F43" }}>{q}</button>
@@ -17237,6 +17477,7 @@ function AppInner() {
   };
   const ownerAccessRef = useRef(null);
   ownerAccessRef.current = ownerAccess;
+
   const handleLockOwner = (reason) => {
     if (!ownerAccessRef.current) return;
     setOwnerLockReason(typeof reason === "string" ? reason : "");
@@ -17316,6 +17557,58 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [license?.expiresAt, license?.lifetime, role]);
   const shop = shops && activeShopId ? shops.find((s) => s.id === activeShopId) : null;
+  // Présence pour la messagerie du propriétaire : un administrateur qui a
+  // déjà écrit au support apparaît « En ligne » tant que l'application est
+  // ouverte sur sa boutique (signal toutes les 45 s, uniquement au premier plan).
+  useEffect(() => {
+    if (role !== "admin" || !shop?.id) return;
+    if (localStorage.getItem("support_started") !== "true") return;
+    const beat = () => {
+      if (document.visibilityState === "hidden") return;
+      api.supportHeartbeat({ name: localStorage.getItem("support_name") || undefined, phone: localStorage.getItem("support_phone") || undefined, shopName: shop?.name }).catch(() => {});
+    };
+    beat();
+    const t = setInterval(beat, 45000);
+    const onVis = () => { if (document.visibilityState === "visible") beat(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+  }, [role, shop?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Réponse de l'équipe GestiOne : l'ADMINISTRATEUR (jamais le vendeur) est
+  // prévenu à la connexion puis chaque minute — annonce vocale + notification
+  // dans la cloche, sans afficher le contenu du message.
+  const [supportUnread, setSupportUnread] = useState(0);
+  useEffect(() => { if (view === "admin" && activeAdminSection === "assistance") setSupportUnread(0); }, [view, activeAdminSection]);
+  const supportWatchRef = useRef({ section: null, view: null });
+  supportWatchRef.current = { section: activeAdminSection, view };
+  useEffect(() => {
+    if (role !== "admin" || !shop?.id) return;
+    let stop = false;
+    const check = async () => {
+      if (stop || document.visibilityState === "hidden") return;
+      if (localStorage.getItem("support_started") !== "true") return;
+      try {
+        const d = await api.supportPoll();
+        const owner = (d?.messages || []).filter((m) => m.sender === "owner").map((m) => m.created_at).sort();
+        if (!owner.length || stop) return;
+        const latest = owner[owner.length - 1];
+        const seen = localStorage.getItem("support_owner_seen");
+        if (!seen) { localStorage.setItem("support_owner_seen", latest); return; }
+        const fresh = owner.filter((t) => t > seen);
+        setSupportUnread(fresh.length);
+        if (!fresh.length) return;
+        const w = supportWatchRef.current;
+        if (w.view === "admin" && w.section === "assistance") { localStorage.setItem("support_owner_seen", latest); setSupportUnread(0); return; }
+        if (localStorage.getItem("support_owner_notified") === latest) return;
+        localStorage.setItem("support_owner_notified", latest);
+        pushNotification({ type: "support_reply", count: fresh.length });
+        speak(`Vous avez reçu ${fresh.length > 1 ? `${fresh.length} nouveaux messages` : "un nouveau message"} de l'assistance GestiOne. Pour le lire, ouvrez Assistance dans le menu Administration.`, voiceOn(shop, "support"));
+      } catch { /* hors ligne : nouvel essai à la prochaine vérification */ }
+    };
+    const first = setTimeout(check, 4000);
+    const t = setInterval(check, 15000);
+    return () => { stop = true; clearTimeout(first); clearInterval(t); };
+  }, [role, shop?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-réparation silencieuse : si une entreprise connectée n'a pas (ou plus) son
   // code d'invitation en local (ex: séquelle d'une ancienne reconnexion), on va le
@@ -19200,7 +19493,7 @@ function AppInner() {
     <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}`} style={themeVars}>
       <GlobalStyle />
       <div className="w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] min-h-screen relative" style={{ background: "var(--paper)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
-        {role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} />}
+        {role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} />}
         {homeScreenActive ? (
           <OnboardingScreen
             shops={shops}
@@ -19261,6 +19554,7 @@ function AppInner() {
                             onClear={() => setNotifications([])}
                             onClose={() => setNotifPanelOpen(false)}
                             voice={{ prefs: voicePrefs, onChange: saveVoicePrefs, expanded: voiceSettingsOpen, onToggle: () => setVoiceSettingsOpen((v) => !v) }}
+                            onOpenSupport={role === "admin" ? () => goAdminSection("assistance") : undefined}
                           />
                         )}
                       </div>

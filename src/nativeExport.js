@@ -116,21 +116,32 @@ export async function exportBinaryFile(fileName, bytes, mime = "application/octe
 // e-mail…). Navigateur : Web Share API avec fichier si disponible, sinon
 // téléchargement de l'image puis ouverture de WhatsApp avec la légende.
 // Retourne "shared" | "downloaded".
-export async function shareImage(fileName, dataUrl, text = "", phone = "") {
+export async function shareImage(fileName, dataUrl, text = "", phone = "", dialogTitle = "Envoyer") {
   const base64 = String(dataUrl).split(",")[1] || "";
+  const mime = /^data:([^;]+);/.exec(String(dataUrl))?.[1] || "image/png";
   if (await isNative()) {
+    const num = whatsappNumber(phone);
+    if (num) {
+      // Envoi direct dans la discussion WhatsApp du numéro indiqué.
+      try {
+        const { registerPlugin } = await import("@capacitor/core");
+        const WhatsAppShare = registerPlugin("WhatsAppShare");
+        await WhatsAppShare.shareFile({ base64, fileName, mimeType: mime, phone: num, text });
+        return "direct";
+      } catch { /* ancienne version de l'app ou WhatsApp absent : menu de partage */ }
+    }
     const { Filesystem, Directory } = await import("@capacitor/filesystem");
     const { Share } = await import("@capacitor/share");
     await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
     const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
-    await Share.share({ title: fileName, text, url: uri, dialogTitle: "Envoyer la facture" });
+    await Share.share({ title: fileName, text, url: uri, dialogTitle });
     return "shared";
   }
   try {
     const bin = atob(base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const file = new File([bytes], fileName, { type: "image/png" });
+    const file = new File([bytes], fileName, { type: mime });
     if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], title: fileName, text });
       return "shared";
@@ -144,21 +155,47 @@ export async function shareImage(fileName, dataUrl, text = "", phone = "") {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  const digits = String(phone || "").replace(/\D/g, "");
-  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`, "_blank");
+  window.open(`https://wa.me/${whatsappNumber(phone)}?text=${encodeURIComponent(text)}`, "_blank");
   return "downloaded";
 }
 
 // Partage un PDF (jsPDF) avec une légende : menu de partage natif dans l'app
 // (choisir WhatsApp puis le contact), Web Share API dans le navigateur, sinon
 // téléchargement du PDF puis ouverture de WhatsApp avec la légende.
+// Numéro au format international sans « + » (WhatsApp) : 0140575147 → 2250140575147.
+export function whatsappNumber(phone, defaultCountry = "225") {
+  const raw = String(phone || "").trim();
+  let d = raw.replace(/\D/g, "");
+  if (!d) return "";
+  if (raw.startsWith("+")) return d;
+  if (d.startsWith("00")) return d.slice(2);
+  if (d.startsWith(defaultCountry) && d.length > 10) return d;
+  if (d.length === 10 || d.length === 8) return defaultCountry + d;
+  return d;
+}
+
 export async function sharePdfDoc(fileName, doc, text = "", phone = "") {
   if (await isNative()) {
+    const num = whatsappNumber(phone);
+    if (num) {
+      // Envoi direct dans la discussion WhatsApp du fournisseur.
+      try {
+        const { registerPlugin } = await import("@capacitor/core");
+        const WhatsAppShare = registerPlugin("WhatsAppShare");
+        await WhatsAppShare.shareFile({ base64: arrayBufferToBase64(doc.output("arraybuffer")), fileName, mimeType: "application/pdf", phone: num, text });
+        return "direct";
+      } catch { /* ancienne version de l'app ou WhatsApp absent : menu de partage */ }
+    }
     const { Filesystem, Directory } = await import("@capacitor/filesystem");
     const { Share } = await import("@capacitor/share");
     await Filesystem.writeFile({ path: fileName, data: arrayBufferToBase64(doc.output("arraybuffer")), directory: Directory.Cache });
     const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
-    await Share.share({ title: fileName, text, url: uri, dialogTitle: "Envoyer la facture" });
+    try {
+      await Share.share({ title: fileName, text, url: uri, dialogTitle: "Envoyer la facture" });
+    } catch (e) {
+      if (/cancel/i.test(String(e?.message || e))) return "cancelled";
+      throw e;
+    }
     return "shared";
   }
   try {
@@ -171,7 +208,6 @@ export async function sharePdfDoc(fileName, doc, text = "", phone = "") {
     if (e && e.name === "AbortError") return "shared";
   }
   doc.save(fileName);
-  const digits = String(phone || "").replace(/\D/g, "");
-  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`, "_blank");
+  window.open(`https://wa.me/${whatsappNumber(phone)}?text=${encodeURIComponent(text)}`, "_blank");
   return "downloaded";
 }
