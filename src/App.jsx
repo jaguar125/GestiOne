@@ -7,13 +7,13 @@ import {
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
   Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
-  Phone, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
+  Phone, Flame, Mail, LockKeyhole, ShieldAlert, Timer, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
 import * as Tone from "tone";
 import * as api from "./api.js";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
-import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, whatsappNumber } from "./nativeExport.js";
+import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
 import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder } from "./printer.js";
 
@@ -253,7 +253,45 @@ const bvLabel = (bv) => [bv?.color, bv?.size].filter(Boolean).join(" · ");
 function hasVariants(p) { const b = p?.boutique; return !!b && ((b.sizes || []).length > 0 || (b.colors || []).length > 0); }
 function variantStock(p, color, size) { return Math.max(0, Number(p?.boutique?.stockBy?.[bvKey(color, size)]) || 0); }
 function variantTotal(p) { return Object.values(p?.boutique?.stockBy || {}).reduce((t, n) => t + (Number(n) || 0), 0); }
-function isNewArticle(p) { return !!p?.createdAt && Date.now() - new Date(p.createdAt).getTime() < 21 * MS_DAY; }
+function isNewArticleByDate(p) { return !!p?.createdAt && Date.now() - new Date(p.createdAt).getTime() < 21 * MS_DAY; }
+// Collections de la boutique : chaque article appartient à une collection,
+// choisie par l'administrateur (par défaut « Nouvel arrivage »). Certaines
+// affichent un badge sur la fiche de l'article.
+const BOUTIQUE_COLLECTIONS = [
+  { id: "nouveau", label: "Nouvel arrivage", badge: "Nouveau", bg: "#17191F", fg: "#FFFFFF", Icon: Sparkles },
+  { id: "tendance", label: "Tendance", badge: "Tendance", bg: "#7B4FB8", fg: "#FFFFFF", Icon: Flame },
+  { id: "best", label: "Meilleures ventes", badge: "Top vente", bg: "#1D4F91", fg: "#FFFFFF", Icon: Star },
+  { id: "limitee", label: "Édition limitée", badge: "Limité", bg: "#7A1F3D", fg: "#FFFFFF", Icon: Gem },
+  { id: "destockage", label: "Déstockage", badge: "Déstockage", bg: "#B3261E", fg: "#FFFFFF", Icon: TrendingDown },
+  { id: "classique", label: "Collection permanente", badge: null, bg: "#3D4A57", fg: "#FFFFFF", Icon: Layers },
+];
+// Une collection personnalisée est enregistrée par son nom.
+function collectionOf(p) {
+  const c = p?.collection;
+  if (!c) return BOUTIQUE_COLLECTIONS.find((x) => x.id === (isNewArticleByDate(p) ? "nouveau" : "classique"));
+  return BOUTIQUE_COLLECTIONS.find((x) => x.id === c) || { id: c, label: c, badge: c, bg: "#3D4A57", fg: "#FFFFFF", Icon: Tag, custom: true };
+}
+function isNewArticle(p) { return collectionOf(p).id === "nouveau"; }
+// Style du badge promo, au choix de l'administrateur.
+const PROMO_BADGES = [
+  { id: "or", label: "Doré", bg: "linear-gradient(135deg, #FBE38A 0%, #E9B84A 55%, #C99419 100%)", fg: "#3B2A00", border: "#C99419" },
+  { id: "vert", label: "Vert", bg: "#1E8E50", fg: "#FFFFFF", border: "#1E8E50" },
+  { id: "pct", label: "Pourcentage", bg: "#E4572E", fg: "#FFFFFF", border: "#E4572E" },
+];
+function PromoBadge({ p, style = "or", small }) {
+  const b = PROMO_BADGES.find((x) => x.id === (p?.promoBadge || style)) || PROMO_BADGES[0];
+  const pct = promoPct(p);
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-lg font-bold tracking-wide whitespace-nowrap ${small ? "h-[20px] px-1.5 text-[10px]" : "h-[24px] px-2 text-[11px]"}`} style={{ background: b.bg, color: b.fg, boxShadow: b.id === "or" ? "0 2px 6px rgba(201,148,25,0.45), inset 0 1px 0 rgba(255,255,255,0.6)" : "0 2px 6px rgba(0,0,0,0.18)" }}>
+      {b.id === "pct" ? `−${pct} %` : <><Tag size={small ? 10 : 11} />PROMO{pct > 0 ? ` −${pct} %` : ""}</>}
+    </span>
+  );
+}
+function CollectionBadge({ p, small }) {
+  const c = collectionOf(p);
+  if (!c.badge) return null;
+  return <span className={`inline-flex items-center rounded-lg font-bold whitespace-nowrap ${small ? "h-[20px] px-1.5 text-[10px]" : "h-[22px] px-2 text-[10.5px]"}`} style={{ background: c.bg, color: c.fg, boxShadow: "0 2px 6px rgba(0,0,0,0.18)" }}>{c.badge}</span>;
+}
 // Ajoute (sign +1) ou retire (sign -1) les quantités vendues au stock des
 // variantes concernées (vente, suppression, modification, retour).
 function adjustVariantStock(list, items, sign) {
@@ -2815,7 +2853,7 @@ function BoutiqueBanners({ shop, products, onPick }) {
   );
 }
 
-function BoutiqueCard({ p, inCart, onOpen, categories }) {
+function BoutiqueCard({ p, inCart, onOpen, onView, categories }) {
   const fmt = useFmt();
   const out = p.stock <= 0;
   const promo = promoActive(p);
@@ -2823,19 +2861,21 @@ function BoutiqueCard({ p, inCart, onOpen, categories }) {
   const sizes = b.sizes || [];
   const colors = b.colors || [];
   return (
-    <button onClick={() => onOpen(p)} disabled={out} aria-label={`${p.name} — choisir`} className="gb-focus min-w-0 text-left rounded-[20px] overflow-hidden flex flex-col active:scale-[0.97] transition-transform disabled:opacity-55" style={{ background: "var(--card)", border: inCart ? "2px solid var(--glass)" : "1px solid var(--line)" }}>
+    <div role="button" tabIndex={0} onClick={() => (onView ? onView(p) : onOpen(p))} onKeyDown={(e) => { if (e.key === "Enter") (onView ? onView(p) : onOpen(p)); }} aria-label={`${p.name} — voir l\'article`} className="gb-focus min-w-0 text-left rounded-[20px] overflow-hidden flex flex-col active:scale-[0.97] transition-transform cursor-pointer" style={{ background: "var(--card)", border: inCart ? "2px solid var(--glass)" : "1px solid var(--line)" }}>
       <span className="relative w-full flex items-center justify-center overflow-hidden" style={{ height: 138, background: `${getCategory(categories, p.category).color}1a` }}>
         {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={34} />}
-        {promo ? <span className="absolute left-2 top-2 h-[22px] px-2 rounded-lg text-[11px] font-bold flex items-center text-white" style={{ background: "#E4572E" }}>−{promoPct(p)} %</span>
-          : isNewArticle(p) ? <span className="absolute left-2 top-2 h-[22px] px-2 rounded-lg text-[10.5px] font-bold flex items-center text-white" style={{ background: "#17191F" }}>Nouveau</span> : null}
+        <span className="absolute left-2 top-2 flex flex-col items-start gap-1">
+          {promo && <PromoBadge p={p} />}
+          <CollectionBadge p={p} small={promo} />
+        </span>
         {out && <span className="absolute inset-x-0 bottom-0 py-1 text-center text-[11px] font-bold text-white" style={{ background: "rgba(23,25,31,.75)" }}>Épuisé</span>}
         {inCart > 0 && <span className="absolute right-2 top-2 min-w-[26px] h-[26px] px-1.5 rounded-full text-white text-[12px] font-bold flex items-center justify-center" style={{ background: "var(--glass)" }}>×{inCart}</span>}
-        {!out && <span className="absolute right-2 bottom-2 w-[34px] h-[34px] rounded-xl flex items-center justify-center" style={{ background: "#17191F" }}><Plus size={16} color="#fff" /></span>}
+        {!out && <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(p); }} className="gb-focus absolute right-2 bottom-2 w-[38px] h-[38px] rounded-xl flex items-center justify-center" style={{ background: "#17191F", boxShadow: "0 4px 10px rgba(0,0,0,0.25)" }} aria-label={`Ajouter ${p.name} au panier`}><Plus size={17} color="#fff" /></button>}
       </span>
       <span className="px-3 pt-2 pb-3 flex flex-col gap-0.5 w-full">
         <span className="text-[13.5px] font-bold leading-tight truncate" style={{ color: "var(--ink)" }}>{p.name}</span>
         <span className="flex items-baseline gap-1.5 flex-wrap">
-          <span className="font-display font-bold text-[16px]" style={{ color: promo ? "#D9491F" : "var(--ink)" }}>{fmt(effPrice(p))}</span>
+          <span className="font-display font-bold text-[16px]" style={{ color: "#D9491F" }}>{fmt(effPrice(p))}</span>
           {promo && <span className="text-[11px] line-through opacity-50">{fmt(p.price)}</span>}
         </span>
         {(sizes.length > 0 || colors.length > 0) && (
@@ -2846,11 +2886,306 @@ function BoutiqueCard({ p, inCart, onOpen, categories }) {
         )}
         {!hasVariants(p) && <span className="text-[10.5px] font-semibold mt-0.5" style={{ color: out ? "#8A2419" : p.stock <= p.minStock ? "#9A5B00" : "#1E7A46" }}>{out ? "Épuisé" : `${p.stock} en stock`}</span>}
       </span>
-    </button>
+    </div>
   );
 }
 
 // Fiche article : couleur, taille, stock de la variante, quantité.
+// ---------- Boutique : page détail d'un article ----------
+// Compression d'une photo choisie dans la galerie (format JPEG léger).
+function compressImageFile(file, maxDim = 720, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+const productPhotos = (p) => [p?.image, ...(p?.images || [])].filter(Boolean);
+
+// Fiche article en image (1080 × 1350) à envoyer au client sur WhatsApp.
+async function buildProductCardImage(p, shop, fmt) {
+  const W = 1080, H = 1350, PH = p.description ? 760 : 840;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const x = c.getContext("2d");
+  const rr = (X, Y, w, h, r) => { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); };
+  x.fillStyle = "#FFFFFF"; x.fillRect(0, 0, W, H);
+  const src = productPhotos(p)[0];
+  if (src) {
+    const img = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+    if (img) { const s = Math.max(W / img.width, PH / img.height); const w = img.width * s, h = img.height * s; x.drawImage(img, (W - w) / 2, (PH - h) / 2, w, h); }
+  } else { x.fillStyle = "#F1ECE6"; x.fillRect(0, 0, W, PH); x.fillStyle = "#9A8F84"; x.font = "bold 180px sans-serif"; x.textAlign = "center"; x.fillText(clientInitials(p.name), W / 2, PH / 2 + 60); x.textAlign = "left"; }
+  // Badges
+  let by = 48;
+  const badge = (text, bg, fg) => { x.font = "bold 40px sans-serif"; const w = x.measureText(text).width + 52; rr(48, by, w, 70, 20); if (Array.isArray(bg)) { const g = x.createLinearGradient(48, by, 48 + w, by + 70); g.addColorStop(0, bg[0]); g.addColorStop(1, bg[1]); x.fillStyle = g; } else x.fillStyle = bg; x.fill(); x.fillStyle = fg; x.fillText(text, 74, by + 49); by += 86; };
+  if (promoActive(p)) { const b = p.promoBadge || "or"; const t = b === "pct" ? `−${promoPct(p)} %` : `PROMO −${promoPct(p)} %`; badge(t, b === "or" ? ["#FBE38A", "#C99419"] : b === "vert" ? "#1E8E50" : "#E4572E", b === "or" ? "#3B2A00" : "#FFFFFF"); }
+  const col = collectionOf(p); if (col.badge) badge(col.badge, col.bg, col.fg);
+  // Bas de fiche
+  x.fillStyle = "#8A8F98"; x.font = "bold 30px sans-serif"; x.fillText(String(shop?.name || "").toUpperCase(), 64, PH + 70);
+  x.fillStyle = "#17191F"; x.font = "bold 62px sans-serif";
+  const words = String(p.name).split(" "); let line = "", ly = PH + 150, lines = 0;
+  for (const w of words) { const t = line ? `${line} ${w}` : w; if (x.measureText(t).width > W - 128 && line) { x.fillText(line, 64, ly); ly += 72; line = w; lines++; if (lines >= 1) break; } else line = t; }
+  if (line) x.fillText(line, 64, ly);
+  const priceY = ly + 100;
+  x.font = "bold 76px sans-serif"; x.fillStyle = "#D9491F";
+  const pr = fmt(effPrice(p)); x.fillText(pr, 64, priceY);
+  if (promoActive(p)) { const pw = x.measureText(pr).width; x.font = "40px sans-serif"; x.fillStyle = "#9AA0A6"; const old = fmt(p.price); x.fillText(old, 64 + pw + 30, priceY - 8); const ow = x.measureText(old).width; x.fillRect(64 + pw + 30, priceY - 22, ow, 4); }
+  const b = p.boutique || {};
+  let iy = priceY + 70; x.font = "36px sans-serif"; x.fillStyle = "#4A505A";
+  if ((b.sizes || []).length) { x.fillText(`${b.kind === "chaussure" ? "Pointures" : "Tailles"} : ${b.sizes.join(" · ")}`, 64, iy); iy += 56; }
+  if ((b.colors || []).length) { x.fillText("Couleurs :", 64, iy); let cx = 64 + x.measureText("Couleurs :").width + 34; b.colors.slice(0, 8).forEach((cc) => { x.beginPath(); x.arc(cx, iy - 12, 20, 0, Math.PI * 2); x.fillStyle = cc.hex; x.fill(); x.lineWidth = 3; x.strokeStyle = "#D8DCE1"; x.stroke(); cx += 54; }); x.fillStyle = "#4A505A"; }
+  if ((b.colors || []).length) iy += 56;
+  if (p.description) {
+    x.font = "32px sans-serif"; x.fillStyle = "#6B717B";
+    const ws = String(p.description).replace(/\s+/g, " ").trim().split(" "); let ln = "", n = 0;
+    const out = [];
+    for (const w of ws) { const t = ln ? `${ln} ${w}` : w; if (x.measureText(t).width > W - 160) { out.push(ln); ln = w; } else ln = t; }
+    if (ln) out.push(ln);
+    const maxL = Math.max(0, Math.min(3, Math.floor((H - 140 - iy) / 44) + 1));
+    out.slice(0, maxL).forEach((l, k) => { x.fillText(k === maxL - 1 && out.length > maxL ? `${l} …` : l, 64, iy); iy += 44; });
+  }
+  // Bandeau commande
+  x.fillStyle = "#128C4A"; x.fillRect(0, H - 110, W, 110);
+  x.fillStyle = "#FFFFFF"; x.font = "bold 38px sans-serif";
+  const phone = shop?.invoicePhone ? ` · ${shop.invoicePhone}` : "";
+  x.fillText(`Commandez sur WhatsApp${phone}`, 64, H - 42);
+  return c.toDataURL("image/jpeg", 0.88);
+}
+function productShareText(p, shop, fmt) {
+  const b = p.boutique || {};
+  const lines = [`🛍️ *${p.name}*`];
+  lines.push(promoActive(p) ? `~${fmt(p.price)}~ → *${fmt(effPrice(p))}* (−${promoPct(p)} %)${p.promoUntil ? ` jusqu'au ${new Date(p.promoUntil).toLocaleDateString("fr-FR")}` : ""}` : `Prix : *${fmt(effPrice(p))}*`);
+  if ((b.sizes || []).length) lines.push(`${b.kind === "chaussure" ? "Pointures" : "Tailles"} : ${b.sizes.join(", ")}`);
+  if ((b.colors || []).length) lines.push(`Couleurs : ${b.colors.map((c) => c.name).join(", ")}`);
+  if (p.description) lines.push("", p.description.trim());
+  lines.push("", `📍 ${shop?.name || ""}${shop?.invoicePhone ? ` · ${shop.invoicePhone}` : ""}`, "Répondez à ce message pour commander.");
+  return lines.join("\n");
+}
+
+function ProductShareSheet({ product, shop, clients = [], onClose, pushToast }) {
+  const fmt = useFmt();
+  const [img, setImg] = useState(null);
+  const [text, setText] = useState(() => productShareText(product, shop, fmt));
+  const [q, setQ] = useState("");
+  const [phone, setPhone] = useState("");
+  const [picked, setPicked] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { let on = true; buildProductCardImage(product, shop, fmt).then((d) => on && setImg(d)).catch(() => {}); return () => { on = false; }; }, [product.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const withPhone = clients.filter((c) => (c.phone || "").trim() && (!q || normName(c.name).includes(q.trim().toLowerCase()) || String(c.phone).includes(q.trim())));
+  const send = async () => {
+    setBusy(true);
+    try {
+      const to = picked?.phone || phone;
+      const fileName = `${String(product.name).replace(/[^\w-]+/g, "_").slice(0, 40)}.jpg`;
+      if (img) await shareImage(fileName, img, text, to);
+      else window.open(`https://wa.me/${whatsappNumber(to)}?text=${encodeURIComponent(text)}`, "_blank");
+      pushToast?.("Fiche article prête à envoyer", "ok");
+      onClose();
+    } catch (e) { if (!/cancel/i.test(String(e?.message || e))) pushToast?.("Envoi impossible", "error"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[92vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+        <div className="flex items-center gap-3 mb-3">
+          <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "#DDF5E6", color: "#128C4A" }}><MessageCircle size={21} /></span>
+          <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px] leading-tight">Envoyer au client</p><p className="text-[12px] opacity-60">Photo de l'article + message, sur WhatsApp</p></div>
+          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+        </div>
+        <div className="flex gap-3 items-start">
+          <div className="w-[118px] shrink-0 rounded-[14px] overflow-hidden" style={{ aspectRatio: "4 / 5", background: "var(--paper-dim)", border: "1px solid var(--line)" }}>{img ? <img src={img} alt="Aperçu de la fiche" className="w-full h-full object-cover" /> : <span className="w-full h-full flex items-center justify-center"><RefreshCw size={18} className="animate-spin opacity-50" /></span>}</div>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={7} className="gb-focus flex-1 min-w-0 rounded-[14px] p-2.5 text-[12.5px] leading-snug" style={{ background: "var(--card)", border: "1px solid var(--line)", resize: "none" }} aria-label="Message" />
+        </div>
+        <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-55 mt-4 mb-1.5">Destinataire</p>
+        <label className="flex items-center gap-2.5 min-h-[46px] px-3 rounded-[14px] mb-2" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <Search size={16} className="opacity-50" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Chercher un client" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
+        </label>
+        <div className="flex gap-2 overflow-x-auto gb-scroll pb-1">
+          {withPhone.slice(0, 20).map((c) => {
+            const on = picked?.id === c.id;
+            return (
+              <button key={c.id} onClick={() => { setPicked(on ? null : c); setPhone(""); }} className="gb-focus shrink-0 w-[78px] flex flex-col items-center gap-1 py-1.5 rounded-[14px]" style={{ background: on ? "#DDF5E6" : "transparent", border: on ? "1.5px solid #128C4A" : "1.5px solid transparent" }}>
+                <ClientAvatar name={c.name} size={42} />
+                <span className="text-[11px] font-bold truncate w-full text-center px-1">{c.name}</span>
+              </button>
+            );
+          })}
+          {withPhone.length === 0 && <p className="text-[12px] opacity-55 py-2">Aucun client avec numéro{q ? " pour cette recherche" : ""}.</p>}
+        </div>
+        <label className="flex items-center gap-2.5 min-h-[46px] px-3 rounded-[14px] mt-2" style={{ background: "var(--card)", border: `1px solid ${phone ? "#128C4A" : "var(--line)"}` }}>
+          <Phone size={16} className="opacity-50" />
+          <input type="tel" inputMode="tel" value={picked ? picked.phone : phone} onChange={(e) => { setPicked(null); setPhone(e.target.value); }} placeholder="Ou saisir un numéro (facultatif)" className="flex-1 min-w-0 bg-transparent outline-none text-[14px] font-mono" />
+        </label>
+        <p className="text-[11px] opacity-55 mt-1.5">Sans numéro, WhatsApp s'ouvre et vous choisissez la discussion.</p>
+        <button onClick={send} disabled={busy} className="gb-focus w-full mt-4 min-h-[54px] rounded-2xl text-[15.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: "#128C4A", boxShadow: "0 10px 20px -10px rgba(18,140,74,0.7)" }}>
+          {busy ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />} Envoyer sur WhatsApp{picked ? ` à ${picked.name}` : ""}
+        </button>
+        <button onClick={() => { navigator.clipboard?.writeText(text).then(() => pushToast?.("Texte copié", "ok")).catch(() => {}); }} className="gb-focus w-full mt-2 min-h-[44px] rounded-2xl text-[13.5px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Copy size={15} /> Copier le texte</button>
+      </div>
+    </div>
+  );
+}
+
+function BoutiqueProductPage({ product, shop, clients, categories, inCartFor, onAdd, onBuy, onClose, pushToast }) {
+  const fmt = useFmt();
+  const b = product.boutique || {};
+  const colors = b.colors || [];
+  const sizes = b.sizes || [];
+  const variants = hasVariants(product);
+  const avail = (c, s) => (variants ? variantStock(product, c, s) : Math.max(0, Number(product.stock) || 0)) - inCartFor(variants ? bvKey(c, s) : "");
+  const firstColor = colors.find((c) => (sizes.length ? sizes.some((s) => avail(c.name, s) > 0) : avail(c.name, "") > 0))?.name || colors[0]?.name || "";
+  const [color, setColor] = useState(firstColor);
+  const firstSize = (c) => sizes.find((s) => avail(c, s) > 0) || "";
+  const [size, setSize] = useState(sizes.length ? firstSize(firstColor) : "");
+  const [qty, setQty] = useState(1);
+  const [photo, setPhoto] = useState(0);
+  const [share, setShare] = useState(false);
+  const galleryRef = useRef(null);
+  const photos = productPhotos(product);
+  const left = avail(color, size);
+  const promo = promoActive(product);
+  const price = effPrice(product);
+  const coll = collectionOf(product);
+  const cat = getCategory(categories, product.category);
+  const pick = (c) => { setColor(c); if (sizes.length && avail(c, size) <= 0) setSize(firstSize(c)); setQty(1); };
+  const ready = (!colors.length || color) && (!sizes.length || size) && left > 0;
+  const sel = variants ? { color: colors.length ? color : "", size: sizes.length ? size : "" } : null;
+  const totalStock = variants ? variantTotal(product) : Math.max(0, Number(product.stock) || 0);
+  const goPhoto = (k) => { setPhoto(k); const el = galleryRef.current; if (el) el.scrollTo({ left: k * el.clientWidth, behavior: "smooth" }); };
+  const specs = [
+    ["Type", BOUTIQUE_KINDS.find((k) => k.id === b.kind)?.label],
+    ["Catégorie", cat?.label],
+    ["Collection", coll.label],
+    [b.kind === "chaussure" ? "Pointures" : "Tailles", sizes.length ? sizes.join(" · ") : "Taille unique"],
+    ["Couleurs", colors.length ? colors.map((c) => c.name).join(", ") : null],
+    ["Référence", product.barcode || null],
+    ["Disponibilité", totalStock > 0 ? `${totalStock} ${product.unit || "pièce"}${totalStock > 1 ? "s" : ""} en stock` : "Épuisé"],
+  ].filter(([, v]) => v);
+  return (
+    <div className="fixed inset-0 z-[60] flex justify-center no-print" style={{ background: "rgba(0,0,0,0.4)" }}>
+      <div className="relative w-full max-w-[600px] h-full overflow-y-auto gb-scroll gb-slide-up" style={{ background: "var(--paper)" }}>
+        {/* Galerie photos */}
+        <div className="relative" style={{ background: "#EFE9E2" }}>
+          <div ref={galleryRef} onScroll={(e) => { const el = e.currentTarget; const k = Math.round(el.scrollLeft / Math.max(1, el.clientWidth)); if (k !== photo) setPhoto(k); }} className="flex overflow-x-auto snap-x snap-mandatory" style={{ height: "min(62vh, 470px)", scrollbarWidth: "none" }}>
+            {(photos.length ? photos : [null]).map((src, k) => (
+              <div key={k} className="w-full h-full shrink-0 snap-center flex items-center justify-center">
+                {src ? <img src={src} alt={`${product.name} — photo ${k + 1}`} className="w-full h-full object-cover" /> : <CategoryIcon cat={product.category} categories={categories} size={72} />}
+              </div>
+            ))}
+          </div>
+          <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4" style={{ paddingTop: "max(16px, calc(env(safe-area-inset-top) + 8px))" }}>
+            <button onClick={onClose} className="gb-focus w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.94)", boxShadow: "0 4px 14px rgba(0,0,0,0.18)" }} aria-label="Retour"><ChevronLeft size={22} /></button>
+            <button onClick={() => setShare(true)} className="gb-focus h-11 pl-3 pr-4 rounded-full flex items-center gap-2 text-[13.5px] font-bold text-white" style={{ background: "#128C4A", boxShadow: "0 4px 14px rgba(18,140,74,0.45)" }} aria-label="Envoyer sur WhatsApp"><MessageCircle size={18} /> Envoyer</button>
+          </div>
+          <div className="absolute left-4 bottom-10 flex flex-col items-start gap-1.5">
+            {promo && <PromoBadge p={product} />}
+            <CollectionBadge p={product} />
+          </div>
+          {photos.length > 1 && (
+            <div className="absolute inset-x-0 bottom-10 flex justify-center gap-1.5">
+              {photos.map((_, k) => <button key={k} onClick={() => goPhoto(k)} aria-label={`Photo ${k + 1}`} className="h-2 rounded-full transition-all" style={{ width: k === photo ? 22 : 8, background: k === photo ? "#fff" : "rgba(255,255,255,0.55)" }} />)}
+            </div>
+          )}
+        </div>
+
+        <div className="relative -mt-6 rounded-t-[28px] px-5 pt-5" style={{ background: "var(--paper)", paddingBottom: "calc(150px + env(safe-area-inset-bottom))" }}>
+          {photos.length > 1 && (
+            <div className="flex gap-2 mb-4 overflow-x-auto gb-scroll">
+              {photos.map((src, k) => <button key={k} onClick={() => goPhoto(k)} className="gb-focus shrink-0 w-14 h-14 rounded-[12px] overflow-hidden" style={{ border: k === photo ? "2.5px solid var(--ink)" : "1px solid var(--line)", opacity: k === photo ? 1 : 0.7 }}><img src={src} alt="" className="w-full h-full object-cover" /></button>)}
+            </div>
+          )}
+          <p className="text-[12px] font-bold flex items-center gap-1.5" style={{ color: coll.bg }}><coll.Icon size={13} /> {coll.label}{cat?.label ? <span className="opacity-60" style={{ color: "var(--ink)" }}> · {cat.label}</span> : null}</p>
+          <h1 className="font-display font-bold text-[25px] leading-tight mt-1 break-words">{product.name}</h1>
+          <div className="flex items-end gap-2.5 mt-2 flex-wrap">
+            <span className="font-display font-bold text-[28px] leading-none" style={{ color: "#D9491F" }}>{fmt(price)}</span>
+            {promo && <span className="text-[15px] line-through opacity-45 mb-0.5">{fmt(product.price)}</span>}
+            {promo && <span className="text-[12px] font-bold px-2 py-1 rounded-lg mb-0.5" style={{ background: "#E3F4EC", color: "#1E7A46" }}>Économisez {fmt(Number(product.price) - price)}</span>}
+          </div>
+          {promo && product.promoUntil && <p className="text-[12px] mt-1.5 font-semibold" style={{ color: "#B23A12" }}>Offre valable jusqu'au {new Date(product.promoUntil).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}</p>}
+
+          {colors.length > 0 && (
+            <>
+              <p className="text-[11.5px] font-bold uppercase tracking-wider opacity-60 mt-5">Couleur · <span className="normal-case tracking-normal" style={{ color: "var(--ink)", opacity: 1 }}>{color}</span></p>
+              <div className="flex flex-wrap gap-3 mt-2">
+                {colors.map((c) => {
+                  const none = sizes.length ? !sizes.some((s) => avail(c.name, s) > 0) : avail(c.name, "") <= 0;
+                  return <button key={c.name} onClick={() => pick(c.name)} aria-label={c.name} aria-pressed={color === c.name} className="gb-focus relative w-11 h-11 rounded-full" style={{ background: c.hex, border: "3px solid #fff", boxShadow: color === c.name ? "0 0 0 2.5px var(--ink)" : "0 0 0 1px var(--line)", opacity: none ? 0.35 : 1 }}>{none && <span className="absolute inset-0 flex items-center justify-center"><span className="w-full h-0.5 rotate-45" style={{ background: "#B3261E" }} /></span>}</button>;
+                })}
+              </div>
+            </>
+          )}
+          {sizes.length > 0 && (
+            <>
+              <p className="text-[11.5px] font-bold uppercase tracking-wider opacity-60 mt-5">{b.kind === "chaussure" ? "Pointure" : "Taille"}</p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {sizes.map((s) => {
+                  const a = avail(color, s);
+                  const on = size === s;
+                  return <button key={s} onClick={() => { if (a > 0) { setSize(s); setQty(1); } }} disabled={a <= 0} className="gb-focus min-w-[52px] h-12 px-3 rounded-[14px] text-[14.5px] font-bold" style={on ? { background: "var(--ink)", color: "#fff" } : a <= 0 ? { background: "var(--paper-dim)", opacity: 0.4, textDecoration: "line-through" } : { background: "var(--card)", border: "1px solid var(--line)" }}>{s}</button>;
+                })}
+              </div>
+            </>
+          )}
+          <p className="mt-3.5 text-[13px] font-semibold flex items-center gap-2" style={{ color: left > 0 ? (left <= 2 ? "#9A5B00" : "#1E7A46") : "#B3261E" }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: left > 0 ? (left <= 2 ? "#E09A1A" : "#1E7A46") : "#B3261E" }} />
+            {left > 0 ? `${bvLabel(sel) ? `${bvLabel(sel)} · ` : ""}${left <= 2 ? `plus que ${left} en stock` : `${left} en stock`}` : `${bvLabel(sel) || "Article"} : épuisé`}
+          </p>
+
+          <div className="mt-5">
+            <p className="font-display font-bold text-[16px] mb-1.5">Description</p>
+            {product.description ? <p className="text-[14px] leading-relaxed whitespace-pre-line opacity-85">{product.description}</p> : <p className="text-[13px] opacity-50 italic">Aucune description pour cet article. Ajoutez-en une dans Admin › Produits.</p>}
+          </div>
+
+          <div className="mt-5 rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <p className="px-4 pt-3 pb-1 font-display font-bold text-[15px]">Détails de l'article</p>
+            {specs.map(([l, v], k) => (
+              <div key={l} className="flex justify-between gap-3 px-4 py-2.5 text-[13.5px]" style={{ borderTop: k ? "1px solid var(--line)" : "none" }}>
+                <span className="opacity-60 shrink-0">{l}</span><span className="font-semibold text-right">{v}</span>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={() => setShare(true)} className="gb-focus w-full mt-4 rounded-[18px] p-3.5 flex items-center gap-3 text-left" style={{ background: "#E9F8EF", border: "1px solid #BFE8CF" }}>
+            <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0 text-white" style={{ background: "#128C4A" }}><MessageCircle size={21} /></span>
+            <span className="flex-1 min-w-0"><span className="block text-[14.5px] font-bold" style={{ color: "#0E6B39" }}>Envoyer cet article à un client</span><span className="block text-[12px]" style={{ color: "#2C7A50" }}>Photo, prix, tailles et couleurs sur WhatsApp</span></span>
+            <ChevronRight size={18} color="#128C4A" />
+          </button>
+        </div>
+
+        {/* Barre d'achat */}
+        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[600px] px-4 pt-3 z-[61]" style={{ background: "var(--paper)", borderTop: "1px solid var(--line)", boxShadow: "0 -8px 24px rgba(0,0,0,0.06)", paddingBottom: "max(40px, calc(env(safe-area-inset-bottom) + 14px))" }}>
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center rounded-[16px] h-14 shrink-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="gb-focus w-11 h-full flex items-center justify-center" aria-label="Moins"><Minus size={16} /></button>
+              <span className="font-display font-bold text-[18px] min-w-[26px] text-center">{qty}</span>
+              <button onClick={() => setQty((q) => Math.min(Math.max(1, left), q + 1))} className="gb-focus w-11 h-full flex items-center justify-center" aria-label="Plus"><Plus size={16} /></button>
+            </div>
+            <button onClick={() => ready && onAdd(sel, qty)} disabled={!ready} className="gb-focus w-14 h-14 rounded-[16px] flex items-center justify-center shrink-0 disabled:opacity-40" style={{ background: "var(--card)", border: "1.5px solid var(--ink)" }} aria-label="Ajouter au panier"><ShoppingCart size={20} /></button>
+            <button onClick={() => ready && onBuy(sel, qty)} disabled={!ready} className="gb-focus flex-1 h-14 rounded-[16px] text-white font-bold text-[15px] flex flex-col items-center justify-center leading-tight disabled:opacity-40" style={{ background: "var(--ink)" }}>
+              <span>Acheter</span><span className="text-[12.5px] opacity-80 font-semibold">{fmt(price * qty)}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      {share && <ProductShareSheet product={product} shop={shop} clients={clients} pushToast={pushToast} onClose={() => setShare(false)} />}
+    </div>
+  );
+}
+
 function BoutiqueProductSheet({ product, inCartFor, onAdd, onClose }) {
   const fmt = useFmt();
   const b = product.boutique || {};
@@ -2931,7 +3266,7 @@ function BoutiqueProductSheet({ product, inCartFor, onAdd, onClose }) {
 }
 
 // Admin : type d'article, tailles, couleurs, stock par variante, prix promo.
-function BoutiqueProductFields({ f, set }) {
+function BoutiqueProductFields({ f, set, products = [] }) {
   const fmt = useFmt();
   const b = f.boutique || { kind: "vetement", sizes: [], colors: [], stockBy: {} };
   const setB = (patch) => set("boutique", { ...b, ...patch });
@@ -2947,9 +3282,39 @@ function BoutiqueProductFields({ f, set }) {
   const setCell = (c, s, v) => setB({ stockBy: { ...(b.stockBy || {}), [bvKey(c, s)]: v === "" ? "" : Math.max(0, Number(v) || 0) } });
   const total = rows.reduce((t, c) => t + cols.reduce((u, s) => u + (Number(b.stockBy?.[bvKey(c, s)]) || 0), 0), 0);
   const promoOn = f.promoPrice !== undefined && f.promoPrice !== null && f.promoPrice !== "" || f._promoOpen;
+  const extraRef = useRef(null);
+  const extras = f.images || [];
+  const addExtra = async (e) => {
+    const files = [...(e.target.files || [])]; e.target.value = "";
+    const out = [];
+    for (const file of files.slice(0, 4 - extras.length)) { try { out.push(await compressImageFile(file)); } catch { /* photo illisible */ } }
+    if (out.length) set("images", [...extras, ...out].slice(0, 4));
+  };
+  const [customColl, setCustomColl] = useState("");
+  const curColl = collectionOf({ ...f, collection: f.collection || (f.id ? undefined : "nouveau") });
+  const customNames = [...new Set(products.map((x) => x.collection).filter((c) => c && !BOUTIQUE_COLLECTIONS.some((b) => b.id === c)))];
   const pct = Number(f.price) > 0 && Number(f.promoPrice) > 0 ? Math.round((1 - Number(f.promoPrice) / Number(f.price)) * 100) : 0;
   return (
     <div className="flex flex-col gap-3 mb-3">
+      <div className="rounded-2xl p-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <p className="text-[13px] font-bold flex items-center gap-1.5 mb-0.5"><ImagePlus size={14} /> Photos supplémentaires</p>
+        <p className="text-[11px] opacity-60 mb-2">Jusqu'à 4 photos en plus de la photo principale (dos, détails, porté…). Elles défilent sur la page de l'article.</p>
+        <input ref={extraRef} type="file" accept="image/*" multiple className="hidden" onChange={addExtra} />
+        <div className="flex gap-2 flex-wrap">
+          {extras.map((src, k) => (
+            <span key={k} className="relative w-[68px] h-[68px] rounded-[12px] overflow-hidden" style={{ border: "1px solid var(--line)" }}>
+              <img src={src} alt="" className="w-full h-full object-cover" />
+              <button onClick={() => set("images", extras.filter((_, i) => i !== k))} className="gb-focus absolute right-1 top-1 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} aria-label="Retirer la photo"><X size={13} color="#fff" /></button>
+            </span>
+          ))}
+          {extras.length < 4 && <button onClick={() => extraRef.current?.click()} className="gb-focus w-[68px] h-[68px] rounded-[12px] flex flex-col items-center justify-center gap-0.5 text-[10.5px] font-bold" style={{ border: "1.5px dashed var(--line)", background: "var(--paper)" }}><Plus size={18} />Ajouter</button>}
+        </div>
+      </div>
+      <div className="rounded-2xl p-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <p className="text-[13px] font-bold flex items-center gap-1.5 mb-1.5"><StickyNote size={14} /> Description</p>
+        <textarea value={f.description || ""} onChange={(e) => set("description", e.target.value.slice(0, 600))} rows={4} placeholder="Ex : Robe en wax 100 % coton, coupe ajustée, fermeture éclair au dos. Lavage à 30 °C." className="gb-focus w-full rounded-xl p-2.5 text-[13.5px] border" style={{ borderColor: "var(--line)", background: "var(--paper)", resize: "vertical" }} />
+        <p className="text-[10.5px] opacity-50 text-right">{(f.description || "").length}/600</p>
+      </div>
       <div>
         <p className="text-[11px] font-semibold opacity-60 mb-1.5">Type d'article</p>
         <div className="grid grid-cols-4 gap-1.5">
@@ -3014,6 +3379,32 @@ function BoutiqueProductFields({ f, set }) {
         </div>
       )}
 
+      <div className="rounded-2xl p-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <p className="text-[13px] font-bold flex items-center gap-1.5 mb-0.5"><Layers size={14} /> Collection</p>
+        <p className="text-[11px] opacity-60 mb-2">Regroupe l'article dans la boutique. Un badge s'affiche sur la photo.</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {BOUTIQUE_COLLECTIONS.map((c) => {
+            const on = curColl.id === c.id;
+            return (
+              <button key={c.id} onClick={() => set("collection", c.id)} aria-pressed={on} className="gb-focus min-h-[50px] rounded-[14px] px-2.5 py-1.5 flex items-center gap-2 text-left" style={on ? { background: `${c.bg}12`, border: `2px solid ${c.bg}` } : { background: "var(--paper)", border: "1px solid var(--line)" }}>
+                <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: c.bg, color: c.fg }}><c.Icon size={15} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12.5px] font-bold leading-tight">{c.label}</span>
+                  <span className="block text-[10.5px] opacity-60 truncate">{c.badge ? `Badge « ${c.badge} »` : "Sans badge"}</span>
+                </span>
+                {on && <Check size={15} className="shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-1.5 mt-2">
+          <input list="gb-collections" value={customColl} onChange={(e) => setCustomColl(e.target.value.slice(0, 22))} placeholder={curColl.custom ? `Collection : ${curColl.label}` : "Autre collection (ex : Spécial Tabaski)"} className="gb-focus flex-1 min-w-0 h-10 rounded-xl px-3 text-[13px] border" style={{ borderColor: curColl.custom ? "#3D4A57" : "var(--line)", background: "var(--paper)" }} />
+          <datalist id="gb-collections">{customNames.map((n) => <option key={n} value={n} />)}</datalist>
+          <button onClick={() => { const n = customColl.trim(); if (n) { set("collection", BOUTIQUE_COLLECTIONS.find((c) => c.label.toLowerCase() === n.toLowerCase())?.id || n); setCustomColl(""); } }} className="gb-focus h-10 px-3 rounded-xl text-[12.5px] font-bold" style={{ background: "var(--paper-dim)" }}>Choisir</button>
+        </div>
+        {curColl.custom && <p className="text-[11px] mt-1.5 font-semibold flex items-center gap-1.5">Collection personnalisée : <CollectionBadge p={{ collection: curColl.id }} small /></p>}
+      </div>
+
       <div className="rounded-2xl p-3" style={{ background: "#FFF1EC", border: "1px solid #F6C9B8" }}>
         <button onClick={() => { if (promoOn) { set("promoPrice", ""); set("promoUntil", ""); set("_promoOpen", false); } else set("_promoOpen", true); }} className="gb-focus w-full flex items-center justify-between">
           <span className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "#B23A12" }}><Tag size={14} /> Prix promo</span>
@@ -3030,6 +3421,20 @@ function BoutiqueProductFields({ f, set }) {
               <input type="date" value={f.promoUntil || ""} onChange={(e) => set("promoUntil", e.target.value)} className="gb-focus w-full h-10 rounded-xl px-2 text-sm border" style={{ borderColor: "#F6C9B8", background: "#fff" }} />
             </div>
             {Number(f.promoPrice) >= Number(f.price) && Number(f.promoPrice) > 0 && <p className="col-span-2 text-[11px]" style={{ color: "#B3261E" }}>Le prix promo doit être inférieur au prix de vente ({fmt(Number(f.price) || 0)}).</p>}
+            <div className="col-span-2">
+              <p className="text-[10.5px] font-semibold mb-1" style={{ color: "#B23A12" }}>Badge promo sur la photo</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {PROMO_BADGES.map((b) => {
+                  const on = (f.promoBadge || "or") === b.id;
+                  return (
+                    <button key={b.id} onClick={() => set("promoBadge", b.id)} aria-pressed={on} className="gb-focus min-h-[58px] rounded-[12px] flex flex-col items-center justify-center gap-1" style={{ background: "#fff", border: on ? `2px solid ${b.border}` : "1px solid #F6C9B8" }}>
+                      <PromoBadge p={{ price: Number(f.price) || 100, promoPrice: Number(f.promoPrice) || (Number(f.price) || 100) * 0.9, promoBadge: b.id }} small />
+                      <span className="text-[10.5px] font-bold" style={{ color: on ? "#17191F" : "#8A6A5E" }}>{b.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -3142,9 +3547,11 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const isBoutique = shopProfile(shop) === "boutique";
   const nuit = isNuit(shop);
   const [boutiqueFor, setBoutiqueFor] = useState(null);
+  const [detailFor, setDetailFor] = useState(null);
   const [barcode, setBarcode] = useState("");
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("all");
+  const [coll, setColl] = useState("all");
   const [showCart, setShowCart] = useState(false);
   const [payment, setPayment] = useState("especes");
   const [amountReceived, setAmountReceived] = useState("");
@@ -3280,6 +3687,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
 
   const filtered = products.filter((p) => {
     if (cat !== "all" && p.category !== cat) return false;
+    if (isBoutique && coll !== "all" && collectionOf(p).id !== coll) return false;
     if (query && !p.name.toLowerCase().includes(query.toLowerCase()) && !(p.barcode || "").toLowerCase().includes(query.trim().toLowerCase())) return false;
     return true;
   });
@@ -3612,9 +4020,31 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
             );
           })}
         </div>
+        {(() => {
+          const counts = {}; const metas = {};
+          products.forEach((p) => { const c = collectionOf(p); counts[c.id] = (counts[c.id] || 0) + 1; metas[c.id] = c; });
+          const list = [...BOUTIQUE_COLLECTIONS.filter((c) => counts[c.id]), ...Object.values(metas).filter((c) => c.custom)];
+          if (list.length < 2 && coll === "all") return null;
+          return (
+            <div className="px-3 mt-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-55 mb-1.5">Collections</p>
+              <div className="flex gap-2 overflow-x-auto gb-scroll pb-1 -mx-3 px-3">
+                {[{ id: "all", label: "Toutes", Icon: LayoutGrid, bg: "var(--ink)" }, ...list].map((c) => {
+                  const on = coll === c.id;
+                  return (
+                    <button key={c.id} onClick={() => setColl(on && c.id !== "all" ? "all" : c.id)} aria-pressed={on} className="gb-focus shrink-0 h-9 pl-2 pr-3 rounded-[12px] text-[12.5px] font-bold flex items-center gap-1.5 whitespace-nowrap" style={on ? { background: c.bg, color: "#fff", border: `1px solid ${c.bg}` } : { background: "var(--card)", border: "1px solid var(--line)" }}>
+                      <span className="w-6 h-6 rounded-[8px] flex items-center justify-center" style={{ background: on ? "rgba(255,255,255,0.18)" : `${c.id === "all" ? "#17191F" : c.bg}14`, color: on ? "#fff" : c.id === "all" ? "var(--ink)" : c.bg }}><c.Icon size={13} /></span>
+                      {c.label}{c.id !== "all" && <span className="text-[11px] opacity-70">{counts[c.id]}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         <div className="px-3 mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {[...shown].sort((x, y) => (y.stock > 0) - (x.stock > 0) || (promoActive(y) - promoActive(x)) || (isNewArticle(y) - isNewArticle(x))).map((p) => (
-            <BoutiqueCard key={p.id} p={p} inCart={qtyInCart(p.id)} categories={categories} onOpen={(x) => addToCart(x)} />
+            <BoutiqueCard key={p.id} p={p} inCart={qtyInCart(p.id)} categories={categories} onOpen={(x) => addToCart(x)} onView={(x) => setDetailFor(x)} />
           ))}
           {shown.length === 0 && (
             <div className="col-span-2 sm:col-span-3 lg:col-span-4 rounded-[18px] p-7 text-center flex flex-col gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
@@ -4150,6 +4580,17 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
         </div>
       )}
 
+      {detailFor && (() => {
+        const dp = products.find((x) => x.id === detailFor.id) || detailFor;
+        const put = (sel, n) => (sel ? addToCart(dp, false, { bv: sel }, n) : addToCart(dp, false, { opts: [] }, n));
+        return (
+          <BoutiqueProductPage product={dp} shop={shop} clients={clients} categories={categories} pushToast={pushToast}
+            inCartFor={(k) => cart.filter((l) => l.id === dp.id && (hasVariants(dp) ? l.bv && bvKey(l.bv.color, l.bv.size) === k : true)).reduce((t, l) => t + l.qty, 0)}
+            onAdd={(sel, n) => put(sel, n)}
+            onBuy={(sel, n) => { put(sel, n); setDetailFor(null); setShowCart(true); }}
+            onClose={() => setDetailFor(null)} />
+        );
+      })()}
       {boutiqueFor && (
         <BoutiqueProductSheet product={boutiqueFor} inCartFor={(k) => cart.filter((l) => l.id === boutiqueFor.id && l.bv && bvKey(l.bv.color, l.bv.size) === k).reduce((t, l) => t + l.qty, 0)} onAdd={(bv, n) => { addToCart(boutiqueFor, false, { bv }, n); setBoutiqueFor(null); }} onClose={() => setBoutiqueFor(null)} />
       )}
@@ -7706,7 +8147,7 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
         </p>
       )}
 
-      {isBoutique && <BoutiqueProductFields f={f} set={set} />}
+      {isBoutique && <BoutiqueProductFields f={f} set={set} products={products} />}
 
       <button
         onClick={() => set("favorite", !f.favorite)}
@@ -7817,6 +8258,10 @@ function ProductForm({ initial, categories, products, onSave, onCancel, pushToas
                 boutique: vb,
                 stock: withVariants ? Object.values(stockBy).reduce((t, n) => t + n, 0) : Number(f.stock) || 0,
                 promoPrice: promo, promoUntil: promo && f.promoUntil ? f.promoUntil : undefined,
+                promoBadge: promo ? f.promoBadge || "or" : undefined,
+                collection: f.collection || (f.id ? collectionOf(f).id : "nouveau"),
+                description: (f.description || "").trim() || undefined,
+                images: (f.images || []).length ? f.images : undefined,
                 createdAt: f.createdAt || new Date().toISOString(),
                 _promoOpen: undefined,
               };
@@ -13535,7 +13980,7 @@ function supportAlreadyOnServer(local, serverMsgs) {
   return serverMsgs.some((m) => m.sender === local.sender && m.body === local.body && Math.abs(new Date(m.created_at).getTime() - t) < 120000);
 }
 
-function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
+function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast }) {
   const [email, setEmail] = useState("");
   const [secret, setSecret] = useState("");
   const [loading, setLoading] = useState(false);
@@ -13682,22 +14127,9 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, pushToast }) {
 
   if (!ownerAccess) {
     return (
-      <div>
-        <h3 className="font-display font-bold text-base mb-3">Assistance</h3>
-        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-          <div className="flex items-center gap-2 mb-4">
-            <ShieldCheck size={16} color="var(--glass)" />
-            <p className="text-xs font-semibold">Page réservée au propriétaire de l'application</p>
-          </div>
-          <label className="text-xs font-semibold opacity-60 block mb-1.5">Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-3" style={{ borderColor: "var(--line)" }} placeholder="email@exemple.com" />
-          <label className="text-xs font-semibold opacity-60 block mb-1.5">{OWNER_SECURITY_QUESTION}</label>
-          <input type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} className="gb-focus w-full rounded-xl px-3 py-2.5 text-sm border mb-4" style={{ borderColor: "var(--line)" }} placeholder="Réponse" />
-          <button onClick={submit} disabled={loading} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: "var(--glass)" }}>
-            {loading ? "Vérification…" : "Vérifier"}
-          </button>
-        </div>
-      </div>
+      <OwnerGate title="La messagerie d'assistance" lockedReason={lockReason}
+        verify={async (em, sc) => { const data = await api.ownerSupportList({ email: em, secret: sc }); setConversations(data.conversations); }}
+        onVerified={(c) => { onVerifyOwner(c); pushToast("Accès propriétaire vérifié", "ok"); }} />
     );
   }
 
@@ -13825,7 +14257,281 @@ function OwnerActivateForm({ shopId, onActivated, onCancel, pushToast, ownerAcce
   );
 }
 
-function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
+// ---------- Espace propriétaire : verrou ----------
+// Les identifiants ne sont JAMAIS enregistrés sur l'appareil : ils restent en
+// mémoire le temps de la visite. La page se reverrouille en la quittant,
+// après 5 minutes sans activité, ou quand l'application passe en
+// arrière-plan. Après 3 essais faux, la saisie est bloquée 5 minutes.
+const OWNER_IDLE_MS = 5 * 60 * 1000;
+const OWNER_MAX_FAILS = 3;
+const OWNER_LOCKOUT_MS = 5 * 60 * 1000;
+const OWNER_GUARD_KEY = "ownerGuard";
+const readOwnerGuard = () => { try { return JSON.parse(localStorage.getItem(OWNER_GUARD_KEY)) || { fails: 0, until: 0 }; } catch { return { fails: 0, until: 0 }; } };
+const writeOwnerGuard = (g) => { try { localStorage.setItem(OWNER_GUARD_KEY, JSON.stringify(g)); } catch { /* stockage indisponible */ } };
+const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
+function OwnerGate({ title, verify, onVerified, lockedReason }) {
+  const [email, setEmail] = useState("");
+  const [secret, setSecret] = useState("");
+  const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [guard, setGuard] = useState(readOwnerGuard);
+  const [now, setNow] = useState(Date.now());
+  const blocked = guard.until > now;
+  useEffect(() => {
+    if (!blocked) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [blocked]);
+  useEffect(() => { if (!blocked && guard.until && guard.until <= now) { const g = { fails: 0, until: 0 }; writeOwnerGuard(g); setGuard(g); } }, [blocked, guard.until, now]);
+  const submit = async (e) => {
+    e?.preventDefault?.();
+    if (blocked || loading) return;
+    const em = email.trim().toLowerCase();
+    if (!em || !secret.trim()) { setError("Renseignez l'email et la réponse."); return; }
+    setLoading(true); setError("");
+    try {
+      await verify(em, secret);
+      writeOwnerGuard({ fails: 0, until: 0 });
+      setSecret("");
+      onVerified({ email: em, secret });
+    } catch (err) {
+      const m = err?.message || "";
+      if (/OFFLINE|SERVER_DOWN/.test(m)) setError(api.networkErrorText(err, "vérifier l'accès") || "Connexion impossible, réessayez.");
+      else if (/Trop de tentatives/i.test(m)) { const g = { fails: OWNER_MAX_FAILS, until: Date.now() + OWNER_LOCKOUT_MS }; writeOwnerGuard(g); setGuard(g); setNow(Date.now()); }
+      else {
+        const fails = (readOwnerGuard().fails || 0) + 1;
+        const g = fails >= OWNER_MAX_FAILS ? { fails, until: Date.now() + OWNER_LOCKOUT_MS } : { fails, until: 0 };
+        writeOwnerGuard(g); setGuard(g); setNow(Date.now());
+        setSecret("");
+        setError(fails >= OWNER_MAX_FAILS ? "" : `Identifiants incorrects · ${OWNER_MAX_FAILS - fails} essai${OWNER_MAX_FAILS - fails > 1 ? "s" : ""} restant${OWNER_MAX_FAILS - fails > 1 ? "s" : ""}`);
+      }
+    } finally { setLoading(false); }
+  };
+  const inputBox = (Icon, children) => (
+    <span className="flex items-center gap-2.5 min-h-[52px] px-3.5 rounded-[14px]" style={{ background: "var(--card)", border: `1.5px solid ${error ? "#F2B8B3" : "var(--line)"}` }}>
+      <Icon size={18} className="opacity-50 shrink-0" />{children}
+    </span>
+  );
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-3" autoComplete="off">
+      <div className="rounded-[24px] p-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(150deg, #10251F 0%, #1C4A3A 100%)", boxShadow: "0 14px 30px -16px rgba(16,37,31,0.7)" }}>
+        <span className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.05)" }} />
+        <span className="absolute -left-8 -bottom-16 w-36 h-36 rounded-full" style={{ background: "rgba(246,196,83,0.08)" }} />
+        <span className="w-14 h-14 rounded-[18px] flex items-center justify-center relative" style={{ background: "rgba(246,196,83,0.16)", border: "1px solid rgba(246,196,83,0.35)" }}><LockKeyhole size={26} color="#F6C453" /></span>
+        <p className="font-display font-bold text-[22px] mt-3.5 relative">Espace propriétaire</p>
+        <p className="text-[13px] opacity-75 mt-1 relative leading-snug">{title} contient les informations de <b>toutes les entreprises</b> de l'application. Vérifiez votre identité pour continuer.</p>
+        {lockedReason && <p className="mt-3 text-[12px] font-semibold rounded-[10px] px-2.5 py-1.5 inline-flex items-center gap-1.5 relative" style={{ background: "rgba(255,255,255,0.1)" }}><Lock size={13} /> {lockedReason}</p>}
+      </div>
+
+      {blocked ? (
+        <div className="rounded-[18px] p-4 flex items-start gap-3" style={{ background: "#FDECEA", border: "1px solid #F5C2BD", color: "#8A1F17" }}>
+          <ShieldAlert size={22} className="shrink-0 mt-0.5" color="#B3261E" />
+          <div className="min-w-0">
+            <p className="text-[14.5px] font-bold">Accès bloqué temporairement</p>
+            <p className="text-[12.5px] mt-0.5">Trop d'essais incorrects. Nouvel essai possible dans <b className="font-mono text-[14px]">{mmss(guard.until - now)}</b>.</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <label className="block">
+            <span className="text-[12px] font-bold opacity-70 mb-1 block">Email du propriétaire</span>
+            {inputBox(Mail, <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder="email@exemple.com" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />)}
+          </label>
+          <label className="block">
+            <span className="text-[12px] font-bold opacity-70 mb-1 block">Question secrète · {OWNER_SECURITY_QUESTION}</span>
+            {inputBox(KeyRound, <>
+              <input type={show ? "text" : "password"} autoComplete="new-password" autoCapitalize="none" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); setError(""); }} placeholder="Votre réponse" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+              <button type="button" onClick={() => setShow((v) => !v)} className="gb-focus p-1.5 -mr-1.5 rounded-lg opacity-60" aria-label={show ? "Masquer la réponse" : "Afficher la réponse"}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+            </>)}
+          </label>
+          {error && <p className="text-[12.5px] font-bold flex items-center gap-1.5" style={{ color: "#B3261E" }}><AlertTriangle size={14} /> {error}</p>}
+          <button type="submit" disabled={loading} className="gb-focus w-full min-h-[54px] rounded-2xl text-[15.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: "var(--glass)", boxShadow: "0 10px 20px -10px rgba(16,37,31,0.6)" }}>
+            {loading ? <RefreshCw size={18} className="animate-spin" /> : <Unlock size={18} />} {loading ? "Vérification…" : "Déverrouiller"}
+          </button>
+        </>
+      )}
+
+      <div className="rounded-[18px] p-3.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-55 mb-2">Protection de cette page</p>
+        {[
+          [LogOut, "Se verrouille dès que vous quittez la page"],
+          [Timer, "Se verrouille après 5 minutes sans activité"],
+          [EyeOff, "Se verrouille quand l'application passe en arrière-plan"],
+          [ShieldAlert, "3 essais faux : saisie bloquée 5 minutes"],
+          [ShieldCheck, "Rien n'est enregistré sur ce téléphone"],
+        ].map(([Ic, t]) => (
+          <p key={t} className="flex items-center gap-2.5 text-[12.5px] py-1"><span className="w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "#E3F1EA", color: "#14684A" }}><Ic size={14} /></span>{t}</p>
+        ))}
+      </div>
+    </form>
+  );
+}
+
+// Barre de session affichée quand la page est ouverte : compte à rebours
+// avant verrouillage (remis à zéro à chaque geste) et bouton Verrouiller.
+function OwnerSessionBar({ onLock }) {
+  const last = useRef(Date.now());
+  const [left, setLeft] = useState(OWNER_IDLE_MS);
+  useEffect(() => {
+    const bump = () => { last.current = Date.now(); };
+    const evs = ["pointerdown", "keydown", "scroll", "touchstart", "wheel"];
+    evs.forEach((ev) => window.addEventListener(ev, bump, { passive: true, capture: true }));
+    const onHide = () => { if (document.visibilityState === "hidden") onLock("Verrouillée : l'application est passée en arrière-plan"); };
+    document.addEventListener("visibilitychange", onHide);
+    const t = setInterval(() => {
+      const l = OWNER_IDLE_MS - (Date.now() - last.current);
+      setLeft(l);
+      if (l <= 0) onLock("Verrouillée après 5 minutes sans activité");
+    }, 1000);
+    return () => { evs.forEach((ev) => window.removeEventListener(ev, bump, { capture: true })); document.removeEventListener("visibilitychange", onHide); clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const warn = left <= 60000;
+  return (
+    <div className="flex items-center gap-2.5 rounded-[16px] pl-3 pr-1.5 py-1.5 mb-3" style={{ background: warn ? "#FFF1D6" : "#E3F1EA", border: `1px solid ${warn ? "#F0D39A" : "#BFE0CC"}` }}>
+      <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: warn ? "#F6C453" : "#14684A" }}><ShieldCheck size={16} color="#fff" /></span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[12.5px] font-bold" style={{ color: warn ? "#7A4A00" : "#0F4F2B" }}>Session propriétaire ouverte</span>
+        <span className="block text-[11.5px]" style={{ color: warn ? "#7A4A00" : "#14684A" }}>Verrouillage auto dans <b className="font-mono">{mmss(left)}</b></span>
+      </span>
+      <button onClick={() => onLock("Page verrouillée")} className="gb-focus shrink-0 min-h-[40px] px-3 rounded-[12px] text-[13px] font-bold flex items-center gap-1.5 text-white" style={{ background: "#1F2A33" }}><Lock size={14} /> Verrouiller</button>
+    </div>
+  );
+}
+
+// Code sensible masqué par défaut, révélé d'un geste.
+function SecretCode({ label, value }) {
+  const [shown, setShown] = useState(false);
+  if (!value) return null;
+  const masked = value.length > 8 ? `${value.slice(0, 4)}-••••-${value.slice(-4)}` : "••••••";
+  return (
+    <div className="flex items-center gap-2 py-1.5">
+      <span className="text-[12px] opacity-60 flex-1 min-w-0">{label}</span>
+      <span className="font-mono text-[13px] font-bold tracking-wide">{shown ? (value.match(/.{1,4}/g) || [value]).join("-") : masked}</span>
+      <button onClick={() => setShown((v) => !v)} className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label={shown ? `Masquer ${label}` : `Afficher ${label}`}>{shown ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+    </div>
+  );
+}
+
+function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm, onResetAdmin, onResetVendor, onDelete, resetResult }) {
+  const typeLabel = ESTABLISHMENT_TYPES.find((t) => t.id === s.type)?.label || s.type || "Entreprise";
+  const sub = s.subscription || {};
+  const st = s.stats || {};
+  const money = (n) => formatMoney(Number(n) || 0, s.currency);
+  const isPaid = sub.status === "active";
+  const isTrial = sub.status === "trial";
+  const lifetime = isPaid && (sub.plan === "lifetime" || !sub.expiresAt);
+  const tone = isPaid ? { bg: "#EAF3DE", fg: "#2E6B10", ring: "#B9DA93", bar: "#7CB342" } : isTrial ? { bg: "#FDF0DA", fg: "#8A5208", ring: "#F2C98A", bar: "#EF9F27" } : { bg: "#FCEBEB", fg: "#A32D2D", ring: "#F2B8B3", bar: "#E24B4A" };
+  const label = isPaid ? (lifetime ? "Licence à vie" : "Licence active") : isTrial ? "Essai" : sub.status === "expired" ? "Expirée" : "Jamais activée";
+  const planLabel = sub.plan === "trial" ? "Essai gratuit" : sub.plan ? (ACTIVATION_PLANS.find((p) => p.id === sub.plan)?.label || sub.plan) : "Aucun abonnement";
+  const daysTo = sub.expiresAt ? Math.ceil((new Date(sub.expiresAt) - Date.now()) / 864e5) : null;
+  const pct = sub.activatedAt && sub.expiresAt ? Math.min(100, Math.max(0, Math.round(((Date.now() - new Date(sub.activatedAt)) / (new Date(sub.expiresAt) - new Date(sub.activatedAt))) * 100))) : lifetime ? 100 : 0;
+  const lastAct = st.lastActivity ? Date.now() - new Date(st.lastActivity).getTime() : null;
+  const online = lastAct != null && lastAct < 864e5;
+  const ago = (ms) => (ms < 36e5 ? `il y a ${Math.max(1, Math.round(ms / 6e4))} min` : ms < 864e5 ? `il y a ${Math.round(ms / 36e5)} h` : `il y a ${Math.round(ms / 864e5)} j`);
+  return (
+    <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${tone.ring}`, boxShadow: "0 2px 8px rgba(15,27,22,0.05)" }}>
+      <button onClick={onToggle} aria-expanded={open} className="gb-focus w-full text-left p-3.5 pb-3">
+        <div className="flex items-start gap-3">
+          <span className="w-[46px] h-[46px] rounded-[14px] flex items-center justify-center shrink-0 font-display font-bold text-[16px]" style={{ background: tone.bg, color: tone.fg }}>{clientInitials(s.name)}</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[16px] font-bold leading-tight break-words">{s.name}</p>
+            <p className="text-[12px] opacity-60 mt-0.5">{typeLabel} · {s.currency} · créée le {new Date(s.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}</p>
+            <p className="text-[11.5px] font-semibold mt-1 flex items-center gap-1.5" style={{ color: online ? "#1E7A46" : "var(--ink)", opacity: online ? 1 : 0.55 }}>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: online ? "#22A35A" : "#B8BEC6" }} />
+              {lastAct == null ? "Aucune activité enregistrée" : online ? `Active · ${ago(lastAct)}` : `Dernière activité ${ago(lastAct)}`}
+            </p>
+          </div>
+          <span className="flex flex-col items-end gap-1.5 shrink-0">
+            <span className="px-2 py-1 rounded-full text-[10.5px] font-bold whitespace-nowrap" style={{ background: tone.bg, color: tone.fg }}>{label}</span>
+            <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><ChevronDown size={16} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} /></span>
+          </span>
+        </div>
+        {!open && (
+          <p className="mt-2 text-[12px] font-bold flex items-center gap-2 flex-wrap" style={{ color: tone.fg }}>
+            <span>{planLabel}</span>
+            <span className="opacity-40">·</span>
+            <span>{lifetime ? "sans expiration" : daysTo == null ? "—" : daysTo > 0 ? `${daysTo} j restant${daysTo > 1 ? "s" : ""}` : `expirée depuis ${-daysTo} j`}</span>
+            {st.sales30d != null && <><span className="opacity-40">·</span><span style={{ color: "var(--ink)", opacity: 0.7 }}>{money(st.sales30d)} / 30 j</span></>}
+          </p>
+        )}
+      </button>
+
+      {open && (<div className="px-3.5 pb-3.5 gb-slide-up">
+        <div className="rounded-[14px] p-2.5" style={{ background: tone.bg }}>
+          <div className="flex items-center justify-between gap-2 text-[12px]" style={{ color: tone.fg }}>
+            <span className="font-bold truncate">{planLabel}</span>
+            <span className="font-bold whitespace-nowrap">{lifetime ? "sans expiration" : daysTo == null ? "—" : daysTo > 0 ? `${daysTo} j restant${daysTo > 1 ? "s" : ""}` : `expirée depuis ${-daysTo} j`}</span>
+          </div>
+          <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.7)" }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: tone.bar }} /></div>
+          {sub.expiresAt && <p className="text-[11px] mt-1" style={{ color: tone.fg, opacity: 0.8 }}>{isPaid || isTrial ? "Expire" : "A expiré"} le {new Date(sub.expiresAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</p>}
+        </div>
+
+        <div className="grid grid-cols-3 mt-2.5 rounded-[14px] py-2" style={{ background: "var(--paper-dim)" }}>
+          {[["Ventes 30 j", st.sales30d != null ? money(st.sales30d) : "—"], ["Tickets", st.salesCount ?? "—"], ["Produits", st.products ?? "—"]].map(([l, v], k) => (
+            <span key={l} className="px-2 min-w-0 text-center" style={{ borderLeft: k ? "1px solid var(--line)" : "none" }}>
+              <span className="block text-[10.5px] font-bold opacity-55 truncate">{l}</span>
+              <span className="block text-[13px] font-bold truncate">{v}</span>
+            </span>
+          ))}
+        </div>
+
+        <button onClick={onActivate} className="gb-focus w-full mt-2.5 min-h-[44px] rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#E6F1FB", color: "#185FA5" }}><KeyRound size={14} /> Activer une licence</button>
+        {activating && activateForm}
+
+        <div className="mt-3 pt-1" style={{ borderTop: "1px dashed var(--line)" }}>
+          {(st.adminName || st.phone) && (
+            <div className="flex items-center gap-2.5 py-2.5">
+              <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "#EEEDFE", color: "#534AB7" }}><User size={16} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13px] font-bold truncate">{st.adminName || "Administrateur"}</span>
+                <span className="block text-[12px] opacity-60 font-mono truncate">{st.phone || "Pas de numéro"}</span>
+              </span>
+              {st.phone && <button onClick={() => waClient(st.phone)} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "#DDF5E6", color: "#128C4A" }} aria-label="WhatsApp"><MessageCircle size={15} /></button>}
+              {st.phone && <button onClick={() => callClient(st.phone)} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "#E6EEFA", color: "#1D4F91" }} aria-label="Appeler"><Phone size={15} /></button>}
+            </div>
+          )}
+          <div className="rounded-[14px] px-3 py-1 mb-2.5" style={{ background: "var(--paper-dim)" }}>
+            <SecretCode label="Code d'activation" value={sub.code} />
+            <SecretCode label="Code d'invitation" value={s.join_code} />
+            {!sub.code && !s.join_code && <p className="text-[12px] opacity-55 py-2">Aucun code enregistré.</p>}
+          </div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-55 mb-1.5">Accès · codes PIN</p>
+          <div className="rounded-[14px] overflow-hidden" style={{ border: "1px solid var(--line)" }}>
+            <div className="flex items-center gap-2.5 px-3 py-2.5">
+              <ShieldCheck size={16} className="shrink-0" color="#534AB7" />
+              <span className="flex-1 min-w-0 text-[13px] font-bold">Administrateur (propriétaire)</span>
+              <button onClick={onResetAdmin} className="gb-focus shrink-0 text-[12px] font-bold px-2.5 py-1.5 rounded-[10px]" style={{ background: "#E6F1FB", color: "#185FA5" }}>Nouveau PIN</button>
+            </div>
+            {(s.vendors || []).map((v) => (
+              <div key={v.id} className="flex items-center gap-2.5 px-3 py-2.5" style={{ borderTop: "1px solid var(--line)" }}>
+                <User size={16} className="shrink-0 opacity-50" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[13px] font-bold truncate">{v.name}</span>
+                  {v.joinCode && <span className="block text-[11px] font-mono opacity-50">Liaison {v.joinCode}</span>}
+                </span>
+                <button onClick={() => onResetVendor(v)} className="gb-focus shrink-0 text-[12px] font-bold px-2.5 py-1.5 rounded-[10px]" style={{ background: "#E6F1FB", color: "#185FA5" }}>Nouveau PIN</button>
+              </div>
+            ))}
+          </div>
+          {resetResult && (
+            <div className="rounded-[14px] p-3 mt-2.5 gb-slide-up" style={{ background: "#EAF3DE", border: "1px solid #B9DA93" }}>
+              <p className="text-[12px] font-bold" style={{ color: "#27500A" }}>{resetResult.label} — nouveau code</p>
+              <p className="font-mono font-bold text-[24px] tracking-[0.3em] mt-0.5" style={{ color: "#27500A" }}>{resetResult.pin}</p>
+              <p className="text-[11px]" style={{ color: "#27500A" }}>À transmettre maintenant : il ne sera plus jamais réaffiché.</p>
+            </div>
+          )}
+          <button onClick={onDelete} className="gb-focus w-full mt-3 min-h-[44px] rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#FCEBEB", color: "#A32D2D", border: "1px solid #F2C9C5" }}><Trash2 size={14} /> Supprimer l'entreprise et ses données</button>
+          <button onClick={onToggle} className="gb-focus w-full mt-2 min-h-[40px] rounded-[12px] text-[12.5px] font-bold flex items-center justify-center gap-1" style={{ background: "var(--paper-dim)" }}><ChevronDown size={15} style={{ transform: "rotate(180deg)" }} /> Replier</button>
+        </div>
+      </div>)}
+    </div>
+  );
+}
+
+function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast }) {
   const [email, setEmail] = useState("");
   const [secret, setSecret] = useState("");
   const [loading, setLoading] = useState(false);
@@ -13834,6 +14540,11 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
   const [resetResult, setResetResult] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("recent");
+  const [openIds, setOpenIds] = useState(() => new Set());
+  const toggleShop = (id) => setOpenIds((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  // Page verrouillée : on efface aussi les données des entreprises de la mémoire.
+  useEffect(() => { if (!ownerAccess) { setAllShops(null); setResetResult(null); setActivatingId(null); } }, [ownerAccess]);
 
   const fetchShops = async (em, sc, silent) => {
     if (!silent) setLoading(true);
@@ -13880,22 +14591,9 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
 
   if (!ownerAccess) {
     return (
-      <div>
-        <h3 className="font-display font-bold text-base mb-3">Abonnement</h3>
-        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-          <div className="flex items-center gap-2 mb-4">
-            <ShieldCheck size={16} color="var(--glass)" />
-            <p className="text-xs font-semibold">Page réservée au propriétaire de l'application</p>
-          </div>
-          <label className="text-xs font-semibold opacity-60 block mb-1.5">Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-3" style={{ borderColor: "var(--line)" }} placeholder="email@exemple.com" />
-          <label className="text-xs font-semibold opacity-60 block mb-1.5">{OWNER_SECURITY_QUESTION}</label>
-          <input type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} className="gb-focus w-full rounded-xl px-3 py-2.5 text-sm border mb-4" style={{ borderColor: "var(--line)" }} placeholder="Réponse" />
-          <button onClick={submit} disabled={loading} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: "var(--glass)" }}>
-            {loading ? "Vérification…" : "Vérifier"}
-          </button>
-        </div>
-      </div>
+      <OwnerGate title="La page Abonnement" lockedReason={lockReason}
+        verify={async (em, sc) => { const data = await api.getOwnerShops({ email: em, secret: sc }); setAllShops(data.shops); }}
+        onVerified={(c) => { onVerifyOwner(c); pushToast("Accès propriétaire vérifié", "ok"); }} />
     );
   }
 
@@ -13915,7 +14613,11 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
   }, { total: 0, licence: 0, trial: 0, inactive: 0, lifetime: 0, expired: 0, never: 0, soon: 0 });
   const pctOf = (n) => (totals.total ? Math.round((n / totals.total) * 100) : 0);
 
-  const filteredShops = (allShops || []).filter((s) => (s.name || "").toLowerCase().includes(search.trim().toLowerCase()) && (statusFilter === "all" || kindOf(s) === statusFilter));
+  const expTime = (s) => (s.subscription?.expiresAt && kindOf(s) !== "inactive" ? new Date(s.subscription.expiresAt).getTime() : Infinity);
+  const actTime = (s) => (s.stats?.lastActivity ? new Date(s.stats.lastActivity).getTime() : 0);
+  const filteredShops = (allShops || [])
+    .filter((s) => (s.name || "").toLowerCase().includes(search.trim().toLowerCase()) && (statusFilter === "all" || kindOf(s) === statusFilter))
+    .sort((a, b) => (sortBy === "expiry" ? expTime(a) - expTime(b) : sortBy === "activity" ? actTime(b) - actTime(a) : new Date(b.created_at) - new Date(a.created_at)));
 
   const deleteShop = async (shopId, shopName) => {
     if (!window.confirm(`Supprimer définitivement "${shopName}" et toutes ses données ? Cette action est irréversible.`)) return;
@@ -13960,8 +14662,9 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
 
   return (
     <div>
+      <OwnerSessionBar onLock={onLockOwner} />
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-bold text-base flex items-center gap-2"><CreditCard size={16} color="#185FA5" /> Abonnement</h3>
+        <h3 className="font-display font-bold text-base flex items-center gap-2"><CreditCard size={16} color="#185FA5" /> Parc d'entreprises</h3>
         <button onClick={() => fetchShops(ownerAccess.email, ownerAccess.secret)} disabled={loading} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "#E6F1FB", color: "#185FA5" }}>
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> {loading ? "…" : "Actualiser"}
         </button>
@@ -14015,116 +14718,38 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, pushToast }) {
         </button>
       )}
 
-      <div className="rounded-2xl px-3.5 py-2.5 mb-3 flex items-start gap-2.5" style={{ background: "#E1F5EE" }}>
-        <ShieldCheck size={14} className="shrink-0 mt-0.5" color="#0F6E56" />
-        <p className="text-[11px]" style={{ color: "#0F6E56" }}>Données du serveur : <strong>toutes les entreprises, tous appareils confondus</strong>.</p>
+      <div className="flex gap-2 mb-2">
+        <label className="flex-1 flex items-center gap-2.5 min-h-[48px] px-3.5 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <Search size={17} className="opacity-50" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher une entreprise" aria-label="Rechercher une entreprise" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+          {search && <button onClick={() => setSearch("")} className="gb-focus p-1" aria-label="Effacer"><X size={16} /></button>}
+        </label>
       </div>
-
-      <div className="relative mb-4">
-        <Search size={15} className="absolute top-1/2 -translate-y-1/2 left-3.5 opacity-40" />
-        <input
-          className="gb-focus w-full rounded-full pl-10 pr-4 py-2.5 text-sm border"
-          style={{ borderColor: "var(--line)", background: "var(--card)" }}
-          placeholder="Rechercher une entreprise par nom…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex gap-1.5 mb-3 overflow-x-auto gb-scroll pb-0.5">
+        {[["recent", "Plus récentes"], ["expiry", "Expiration proche"], ["activity", "Plus actives"]].map(([id, l]) => (
+          <button key={id} onClick={() => setSortBy(id)} className="gb-focus shrink-0 min-h-[36px] px-3 rounded-full text-[12.5px] font-bold whitespace-nowrap" style={sortBy === id ? { background: "#1F2A33", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>{l}</button>
+        ))}
       </div>
 
       <div className="flex items-center gap-2 mb-2">
         <h3 className="font-display font-bold text-base flex-1">{statusFilter === "all" ? "Toutes les entreprises" : statusFilter === "licence" ? "Licences activées" : statusFilter === "trial" ? "Essais actifs" : "Entreprises inactives"} ({filteredShops.length})</h3>
         {statusFilter !== "all" && <button onClick={() => setStatusFilter("all")} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[12px] font-bold flex items-center gap-1" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><X size={12} /> Tout afficher</button>}
+        {filteredShops.length > 0 && (() => {
+          const allOpen = filteredShops.every((x) => openIds.has(x.id));
+          return <button onClick={() => setOpenIds(allOpen ? new Set() : new Set(filteredShops.map((x) => x.id)))} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[12px] font-bold flex items-center gap-1" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><ChevronDown size={13} style={{ transform: allOpen ? "rotate(180deg)" : "none" }} /> {allOpen ? "Tout replier" : "Tout déplier"}</button>;
+        })()}
       </div>
-      {filteredShops.length === 0 && <p className="text-[12.5px] text-center py-6 opacity-55">Aucune entreprise dans cette catégorie.</p>}
       <div className="flex flex-col gap-2.5">
-        {filteredShops.map((s) => {
-          const typeLabel = ESTABLISHMENT_TYPES.find((t) => t.id === s.type)?.label || s.type || "";
-          const sub = s.subscription || {};
-          // "Actif" = essai en cours OU licence payante en cours ; tout le reste
-          // (jamais activé, essai expiré, licence expirée) = "Inactif".
-          const isTrialActive = sub.status === "trial";
-          const isPaidActive = sub.status === "active";
-          const isActive = isPaidActive || isTrialActive;
-          const label = isPaidActive ? (sub.plan === "lifetime" || !sub.expiresAt ? "LICENCE À VIE" : "LICENCE ACTIVE") : isTrialActive ? "ESSAI ACTIF" : sub.status === "expired" ? "EXPIRÉ" : "INACTIF";
-          // Même code couleur que la barre de progression juste en dessous :
-          // vert = licence payante active, orange = essai en cours, rouge =
-          // expiré (ou jamais activé).
-          const bg = isPaidActive ? "#EAF3DE" : isTrialActive ? "#FAEEDA" : "#FCEBEB";
-          const fg = isPaidActive ? "#3B6D11" : isTrialActive ? "#854F0B" : "#A32D2D";
-          const borderColor = isPaidActive ? "#97C459" : isTrialActive ? "#EF9F27" : sub.status === "expired" ? "#F09595" : "var(--line)";
-          return (
-            <div key={s.id} className="rounded-2xl p-3.5" style={{ border: `1px solid ${borderColor}`, background: "var(--card)" }}>
-              <div className="flex items-center gap-3 mb-1.5">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Store size={16} /></div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate">{s.name}</div>
-                  <div className="text-xs opacity-50">{typeLabel} · {s.currency} · créée le {new Date(s.created_at).toLocaleDateString("fr-FR")}</div>
-                </div>
-                <span className="px-2 py-1 rounded-full text-[10px] font-bold shrink-0" style={{ background: bg, color: fg }}>{label}</span>
-              </div>
-              {sub.plan && (
-                <div className="text-[10px] font-mono opacity-40 mb-1.5">
-                  Plan : {sub.plan === "trial" ? "Essai gratuit" : (ACTIVATION_PLANS.find((p) => p.id === sub.plan)?.label || sub.plan)}
-                  {sub.expiresAt ? ` · ${isActive ? "expire" : "a expiré"} le ${new Date(sub.expiresAt).toLocaleDateString("fr-FR")}` : ""}
-                </div>
-              )}
-              {sub.activatedAt && sub.expiresAt && (() => {
-                const totalMs = new Date(sub.expiresAt) - new Date(sub.activatedAt);
-                const usedMs = Date.now() - new Date(sub.activatedAt);
-                const pct = totalMs > 0 ? Math.min(100, Math.max(0, Math.round((usedMs / totalMs) * 100))) : 0;
-                // Même code couleur que le badge de statut juste au-dessus :
-                // vert = payante active, orange = essai en cours, rouge = expiré.
-                const barColor = sub.status === "expired" ? "#E24B4A" : sub.isTrial ? "#EF9F27" : "#97C459";
-                return (
-                  <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: "var(--paper-dim)" }}>
-                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} />
-                  </div>
-                );
-              })()}
-              {sub.code && (
-                <div className="text-[10px] font-mono opacity-60 mt-0.5">Code d'activation : {sub.code.match(/.{1,4}/g)?.join("-")}</div>
-              )}
-              {s.join_code && <div className="text-[10px] font-mono opacity-40 mt-0.5">Code d'invitation : {s.join_code}</div>}
-
-              {s.vendors && s.vendors.length > 0 && (
-                <div className="mt-2.5 pt-2.5" style={{ borderTop: "1px solid var(--line)" }}>
-                  <p className="text-[10px] font-bold opacity-40 tracking-wide mb-1.5">VENDEURS ({s.vendors.length})</p>
-                  <div className="flex flex-col gap-1.5">
-                    {s.vendors.map((v) => (
-                      <div key={v.id} className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium truncate">{v.name}</div>
-                          {v.joinCode && <div className="text-[10px] font-mono opacity-40 mt-0.5">Code de liaison : {v.joinCode}</div>}
-                        </div>
-                        <button onClick={() => resetVendorPin(s.id, v.id, v.name)} className="gb-focus text-[10px] font-semibold text-right shrink-0" style={{ color: "#185FA5" }}>Réinitialiser<br />le code PIN</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <button onClick={() => resetAdminPin(s.id)} className="gb-focus text-[10px] font-semibold mt-2" style={{ color: "#185FA5" }}>Réinitialiser le code PIN administrateur (propriétaire)</button>
-              {resetResult && resetResult.shopId === s.id && (
-                <div className="rounded-xl p-2.5 mt-2 gb-slide-up" style={{ background: "#EAF3DE" }}>
-                  <p className="text-[11px] font-semibold" style={{ color: "#27500A" }}>{resetResult.label} — nouveau code : <span className="font-mono text-sm tracking-widest">{resetResult.pin}</span></p>
-                  <p className="text-[10px] mt-0.5" style={{ color: "#27500A" }}>À transmettre à l'entreprise maintenant — il ne sera plus jamais réaffiché ici.</p>
-                </div>
-              )}
-
-              {activatingId === s.id ? (
-                <OwnerActivateForm shopId={s.id} ownerAccess={ownerAccess} pushToast={pushToast} onCancel={() => setActivatingId(null)} onActivated={(subscription) => onActivated(s.id, subscription)} />
-              ) : (
-                <div className="flex gap-2 mt-2.5">
-                  <button onClick={() => setActivatingId(s.id)} className="gb-focus flex-1 rounded-xl py-2 text-xs font-semibold flex items-center justify-center gap-1.5" style={{ background: "#E6F1FB", color: "#185FA5" }}>
-                    <KeyRound size={12} /> Activer une licence
-                  </button>
-                  <button onClick={() => deleteShop(s.id, s.name)} className="gb-focus px-3 rounded-xl py-2 text-[11px] font-semibold flex items-center justify-center gap-1.5 text-left leading-tight" style={{ background: "#FCEBEB", color: "#A32D2D" }}>
-                    <Trash2 size={12} className="shrink-0" /> <span>Supprimer<br />l'entreprise</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {filteredShops.map((s) => (
+          <OwnerShopCard key={s.id} s={s} open={openIds.has(s.id)} onToggle={() => toggleShop(s.id)}
+            activating={activatingId === s.id}
+            onActivate={() => setActivatingId(activatingId === s.id ? null : s.id)}
+            activateForm={<OwnerActivateForm shopId={s.id} ownerAccess={ownerAccess} pushToast={pushToast} onCancel={() => setActivatingId(null)} onActivated={(subscription) => onActivated(s.id, subscription)} />}
+            onResetAdmin={() => resetAdminPin(s.id)}
+            onResetVendor={(v) => resetVendorPin(s.id, v.id, v.name)}
+            onDelete={() => deleteShop(s.id, s.name)}
+            resetResult={resetResult && resetResult.shopId === s.id ? resetResult : null} />
+        ))}
         {(!allShops || allShops.length === 0) && !loading && <p className="text-sm opacity-50 text-center py-6">Aucune entreprise enregistrée sur le serveur.</p>}
         {allShops && allShops.length > 0 && filteredShops.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucune entreprise ne correspond à « {search} ».</p>}
       </div>
@@ -14920,7 +15545,7 @@ function AdminScreen({
   cashRegisterEntries, versements, activeCashSession, onRecordVersement, onUpdateVersement, onDeleteVersement,
   shop, saveShopMeta, shops, activeShopId, onSwitchShop, onCreateShop, onDeleteShop,
   products, saveProducts, categories, saveCategories, movements, saveMovements, inventories, saveInventories, sales, saveSales, suppliers, saveSuppliers, expenses, saveExpenses, vendors, saveVendors, clients, saveClients,
-  license, licenseStatus, onActivateLicense, onRestoreBackup, ownerAccess, onVerifyOwner, pushToast,
+  license, licenseStatus, onActivateLicense, onRestoreBackup, ownerAccess, onVerifyOwner, onLockOwner, ownerLockReason, pushToast,
   orders, saveOrders, supplierProducts, saveSupplierProducts, avoirs,
   menuOpen, setMenuOpen, pushNotification, onSectionChange,
   auditLog, requireAdmin, onRestoreServerBackup,
@@ -14930,6 +15555,15 @@ function AdminScreen({
   useEffect(() => {
     if (jump?.id) { setSection(jump.id); onSectionChange?.(jump.id); }
   }, [jump?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Espace propriétaire : verrouillé dès qu'on change de page (et quand on
+  // quitte l'administration). Il faudra ressaisir les identifiants.
+  const prevSectionRef = useRef(section);
+  useEffect(() => {
+    const prev = prevSectionRef.current;
+    prevSectionRef.current = section;
+    if (prev !== section && (prev === "abonnement" || prev === "assistance")) onLockOwner?.();
+  }, [section]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onLockOwner?.(), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [legalDoc, setLegalDoc] = useState(null);
   const activeSection = ADMIN_SECTIONS.find((s) => s.id === section);
   return (
@@ -14969,8 +15603,8 @@ function AdminScreen({
       {section === "etablissement" && <EstablishmentSection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
       {section === "securite" && <SecuritySection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
       {section === "journal" && <ActivityLogSection shop={shop} auditLog={auditLog} pushToast={pushToast} />}
-      {section === "abonnement" && <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} pushToast={pushToast} />}
-      {section === "assistance" && <SupportInboxSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} pushToast={pushToast} />}
+      {section === "abonnement" && <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} />}
+      {section === "assistance" && <SupportInboxSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} />}
       {section === "licence" && <LicenseSection license={license} licenseStatus={licenseStatus} onActivate={onActivateLicense} pushToast={pushToast} shopName={shop.name} />}
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
       {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} onNavigate={(id) => { setSection(id); onSectionChange?.(id); }} />}
@@ -16560,8 +17194,10 @@ function AppInner() {
       }
       let loadedTrialUsed = false;
       try { const r = await window.storage.get("trialUsed"); loadedTrialUsed = JSON.parse(r.value); } catch { loadedTrialUsed = false; }
-      let loadedOwnerAccess = null;
-      try { const r = await window.storage.get("ownerAccess"); loadedOwnerAccess = JSON.parse(r.value); } catch { loadedOwnerAccess = null; }
+      // Les identifiants propriétaire ne sont plus jamais conservés sur
+      // l'appareil : on efface ceux qu'une ancienne version avait enregistrés.
+      const loadedOwnerAccess = null;
+      try { localStorage.removeItem("ownerAccess"); } catch { /* stockage indisponible */ }
       setLicense(loadedLicense);
       setTrialUsed(!!loadedTrialUsed);
       setOwnerAccess(loadedOwnerAccess);
@@ -16593,9 +17229,18 @@ function AppInner() {
 
   const licenseStatus = computeLicenseStatus(license);
 
+  // Identifiants gardés en mémoire seulement, le temps de la visite.
+  const [ownerLockReason, setOwnerLockReason] = useState("");
   const handleVerifyOwner = (credentials) => {
+    setOwnerLockReason("");
     setOwnerAccess(credentials);
-    window.storage.set("ownerAccess", JSON.stringify(credentials)).catch(() => {});
+  };
+  const ownerAccessRef = useRef(null);
+  ownerAccessRef.current = ownerAccess;
+  const handleLockOwner = (reason) => {
+    if (!ownerAccessRef.current) return;
+    setOwnerLockReason(typeof reason === "string" ? reason : "");
+    setOwnerAccess(null);
   };
 
   const handleActivateLicense = async (code) => {
@@ -18555,7 +19200,7 @@ function AppInner() {
     <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}`} style={themeVars}>
       <GlobalStyle />
       <div className="w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] min-h-screen relative" style={{ background: "var(--paper)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
-        {role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && <SupportChatWidget shop={shop} />}
+        {role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} />}
         {homeScreenActive ? (
           <OnboardingScreen
             shops={shops}
@@ -18680,7 +19325,7 @@ function AppInner() {
                         onSwitchShop={handleSwitchShop} onCreateShop={handleCreateShop} onDeleteShop={handleDeleteShop}
                         products={products} saveProducts={saveProducts} categories={categories} saveCategories={saveCategories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} sales={sales} saveSales={saveSales}
                         suppliers={suppliers} saveSuppliers={saveSuppliers} expenses={expenses} saveExpenses={saveExpenses}
-                        vendors={vendors} saveVendors={saveVendors} clients={clients} saveClients={saveClients} license={license} licenseStatus={licenseStatus} onActivateLicense={handleActivateLicense} onRestoreBackup={handleRestoreBackup} ownerAccess={ownerAccess} onVerifyOwner={handleVerifyOwner} pushToast={pushToast}
+                        vendors={vendors} saveVendors={saveVendors} clients={clients} saveClients={saveClients} license={license} licenseStatus={licenseStatus} onActivateLicense={handleActivateLicense} onRestoreBackup={handleRestoreBackup} ownerAccess={ownerAccess} onVerifyOwner={handleVerifyOwner} onLockOwner={handleLockOwner} ownerLockReason={ownerLockReason} pushToast={pushToast}
                         orders={orders} saveOrders={saveOrders} supplierProducts={supplierProducts} saveSupplierProducts={saveSupplierProducts}
                         avoirs={avoirs}
                         menuOpen={adminMenuOpen} setMenuOpen={setAdminMenuOpen} pushNotification={pushNotification} onSectionChange={setActiveAdminSection}
