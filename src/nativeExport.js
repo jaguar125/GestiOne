@@ -176,14 +176,18 @@ function isUnimplemented(e) {
 // Ouvre DIRECTEMENT la discussion WhatsApp d'un numéro, message pré-rempli
 // (sans photo). Fonctionne toujours, même si le numéro n'est pas enregistré
 // dans les contacts du téléphone.
-export async function openWhatsAppChat(phone, text = "") {
+// Avec `image` (data URL) : la photo est aussi copiée dans le presse-papiers
+// pour être collée dans la discussion (résultat "chat+photo").
+export async function openWhatsAppChat(phone, text = "", image = null, fileName = "photo.jpg") {
   const num = whatsappNumber(phone);
   if (await isNative()) {
     try {
       const { registerPlugin } = await import("@capacitor/core");
       const WhatsAppShare = registerPlugin("WhatsAppShare");
-      await WhatsAppShare.openChat({ phone: num, text });
-      return "chat";
+      const opts = { phone: num, text };
+      if (image) { opts.base64 = String(image).split(",")[1] || ""; opts.fileName = fileName; }
+      const r = await WhatsAppShare.openChat(opts);
+      return r && r.photoCopied ? "chat+photo" : "chat";
     } catch { /* ancienne version de l'APK : lien wa.me ci-dessous */ }
   }
   window.open(`https://wa.me/${num}${text ? `?text=${encodeURIComponent(text)}` : ""}`, "_blank");

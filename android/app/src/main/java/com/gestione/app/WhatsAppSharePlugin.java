@@ -1,6 +1,9 @@
 package com.gestione.app;
 
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.util.Base64;
@@ -53,7 +56,12 @@ public class WhatsAppSharePlugin extends Plugin {
         if (text != null && !text.isEmpty()) intent.putExtra(Intent.EXTRA_TEXT, text);
         // "jid" = identifiant WhatsApp du destinataire : WhatsApp ouvre
         // directement sa discussion au lieu de la liste des contacts.
-        intent.putExtra("jid", digits + "@s.whatsapp.net");
+        String jid = digits + "@s.whatsapp.net";
+        intent.putExtra("jid", jid);
+        // Versions récentes de WhatsApp : la discussion visée est lue dans
+        // l'identifiant de « partage direct » (comme quand on choisit une
+        // discussion dans la rangée du haut du menu de partage Android).
+        intent.putExtra(Intent.EXTRA_SHORTCUT_ID, jid);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
@@ -73,11 +81,37 @@ public class WhatsAppSharePlugin extends Plugin {
     }
   }
 
+  private Uri writeShareFile(String base64, String fileName) throws Exception {
+    File dir = new File(getContext().getCacheDir(), "partage");
+    if (!dir.exists()) dir.mkdirs();
+    File file = new File(dir, fileName.replaceAll("[^A-Za-z0-9._-]", "_"));
+    FileOutputStream out = new FileOutputStream(file);
+    out.write(Base64.decode(base64, Base64.DEFAULT));
+    out.close();
+    return FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", file);
+  }
+
   @PluginMethod
   public void openChat(PluginCall call) {
     String text = call.getString("text", "");
     String digits = digitsOf(call.getString("phone", ""));
     if (digits.isEmpty()) { call.reject("Numéro manquant"); return; }
+    // Photo facultative : copiée dans le presse-papiers pour être collée
+    // dans la discussion (le clavier la propose en un toucher).
+    boolean copied = false;
+    String base64 = call.getString("base64");
+    if (base64 != null && !base64.isEmpty()) {
+      try {
+        Uri img = writeShareFile(base64, call.getString("fileName", "photo.jpg"));
+        ClipboardManager cm = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipData clip = ClipData.newUri(getContext().getContentResolver(), "Photo de l'article", img);
+        for (String pkg : PACKAGES) {
+          try { getContext().grantUriPermission(pkg, img, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) { }
+        }
+        cm.setPrimaryClip(clip);
+        copied = true;
+      } catch (Exception ignored) { }
+    }
     String url = "https://api.whatsapp.com/send?phone=" + digits
         + (text != null && !text.isEmpty() ? "&text=" + Uri.encode(text) : "");
     for (String pkg : PACKAGES) {
@@ -88,6 +122,7 @@ public class WhatsAppSharePlugin extends Plugin {
         getContext().startActivity(intent);
         JSObject ret = new JSObject();
         ret.put("app", pkg);
+        ret.put("photoCopied", copied);
         call.resolve(ret);
         return;
       } catch (ActivityNotFoundException e) {

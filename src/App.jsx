@@ -3081,9 +3081,16 @@ function ProductShareSheet({ product, shop, clients = [], onClose, pushToast }) 
     } catch (e) { if (!/cancel/i.test(String(e?.message || e))) pushToast?.("Envoi impossible", "error"); }
     finally { setBusy(false); }
   };
+  // Discussion directe garantie : WhatsApp s'ouvre dans la discussion du
+  // numéro avec le message ; la photo est copiée, prête à être collée.
   const chatOnly = async () => {
     if (!toOk) return;
-    try { await openWhatsAppChat(to, text); onClose(); } catch { pushToast?.("WhatsApp introuvable", "error"); }
+    try {
+      const fileName = `${String(product.name).replace(/[^\w-]+/g, "_").slice(0, 40)}.jpg`;
+      const how = await openWhatsAppChat(to, text, img, fileName);
+      if (how === "chat+photo") pushToast?.("Photo copiée : dans la discussion, touchez la photo proposée par le clavier (ou appui long › Coller)", "ok");
+      onClose();
+    } catch { pushToast?.("WhatsApp introuvable", "error"); }
   };
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
@@ -3139,7 +3146,7 @@ function ProductShareSheet({ product, shop, clients = [], onClose, pushToast }) 
         </button>
         <div className="flex gap-2 mt-2">
           <button onClick={() => { navigator.clipboard?.writeText(text).then(() => pushToast?.("Texte copié", "ok")).catch(() => {}); }} className="gb-focus flex-1 min-h-[44px] rounded-2xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)" }}><Copy size={15} /> Copier le texte</button>
-          {toOk && <button onClick={chatOnly} className="gb-focus flex-1 min-h-[44px] rounded-2xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)", color: "#0F6B39" }}><MessageCircle size={15} /> Texte seul</button>}
+          {toOk && <button onClick={chatOnly} className="gb-focus flex-1 min-h-[44px] rounded-2xl text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "var(--paper-dim)", color: "#0F6B39" }}><MessageCircle size={15} /> Discussion directe</button>}
         </div>
       </div>
     </div>
