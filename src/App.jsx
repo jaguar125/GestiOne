@@ -340,6 +340,10 @@ const PAYMENT_LABELS = { especes: "Espèces", mobile: "Mobile Money", credit: "C
 // date d'encaissement, pas à la date de la vente. Les ventes réglées avant
 // l'existence des paiements partiels (un seul règlement total) sont lues
 // comme un paiement unique à la date d'encaissement déjà enregistrée.
+// Moyen d'un règlement de crédit : espèces (par défaut, anciens règlements)
+// ou Mobile Money (avec l'opérateur).
+function creditPayIsMobile(p) { return !!p && p.method === "mobile"; }
+function creditPayLabel(p) { return creditPayIsMobile(p) ? (p.operator ? (p.operator === "Carte bancaire" || p.operator === "Autre" ? p.operator : `Mobile · ${p.operator}`) : "Mobile Money") : "Espèces"; }
 function creditPaymentsOf(sale) {
   if (Array.isArray(sale.payments)) return sale.payments;
   if (sale.paid && sale.paidDate) return [{ amount: sale.total, date: sale.paidDate, by: sale.paidBy }];
@@ -556,7 +560,12 @@ function buildReceiptText(receipt, shop, fmt) {
   }
   if (receipt.amountReceived != null) {
     lines.push(`Montant reçu : ${fmt(receipt.amountReceived)}`);
-    if (receipt.avoirMonnaie && receipt.avoirAmount > 0) lines.push(`Monnaie en avoir : ${fmt(receipt.avoirAmount)} (${receipt.avoirClientName || receipt.clientName || "client"})`);
+    if (receipt.avoirMonnaie && receipt.avoirAmount > 0) {
+      const st = receipt.avoirStatus;
+      if (st && st.done) lines.push(`${st.verb === "rendu" ? "Monnaie rendue (avoir soldé)" : "Avoir monnaie soldé"} : ${fmt(st.amount)}${st.last ? ` le ${new Date(st.last.date).toLocaleDateString("fr-FR")}` : ""}`);
+      else if (st && st.partial) lines.push(`Monnaie en avoir : ${fmt(st.amount)} · rendu ${fmt(st.returned)} · reste ${fmt(st.remaining)} (${receipt.avoirClientName || receipt.clientName || "client"})`);
+      else lines.push(`Monnaie en avoir : ${fmt(receipt.avoirAmount)} (${receipt.avoirClientName || receipt.clientName || "client"})`);
+    }
     else lines.push(`Monnaie rendue : ${fmt(receipt.changeDue)}`);
   }
   if (receipt.reserve && receipt.reserve.pickups.length) {
@@ -1020,7 +1029,7 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
   const from = cashTime(session?.timestamp || session?.date);
   const to = until ? cashTime(until) : Date.now();
   const inWindow = (d) => { const t = cashTime(d); return t > from && t <= to; };
-  let cashSales = 0, cashSalesCount = 0, mobileSales = 0, mobileSalesCount = 0, creditsCollected = 0, creditsCount = 0;
+  let cashSales = 0, cashSalesCount = 0, mobileSales = 0, mobileSalesCount = 0, creditsCollected = 0, creditsCount = 0, creditsCollectedMobile = 0;
   // Crédits encaissés répartis : ventes d'AVANT l'ouverture de la caisse
   // (anciens crédits) et ventes faites PENDANT la caisse ; crédits de la
   // période encore non encaissés à la clôture.
@@ -1065,6 +1074,8 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
         if (cashTime(pay.date) <= to) paidUpTo += amt;
         if (inWindow(pay.date)) {
           creditsCollected += amt; creditsCount += 1; const v = V(pay.by || sale.vendor); v.credits += amt; v.creditsCount += 1;
+          // Réglé par Mobile Money : n'entre pas dans le tiroir-caisse.
+          if (creditPayIsMobile(pay)) { creditsCollectedMobile += amt; v.creditsMobile = (v.creditsMobile || 0) + amt; }
           if (saleInWindow) { creditsCollectedNew += amt; creditsCountNew += 1; } else { creditsCollectedOld += amt; creditsCountOld += 1; }
         }
       });
@@ -1081,13 +1092,13 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
   // sans être attribuée à un vendeur.
   periodExpenses.forEach((e) => { if ((e.author || "").trim()) V(e.author).expenses += Number(e.amount) || 0; });
   const byVendor = Object.values(vend)
-    .map((v) => ({ ...v, expectedCash: v.cash + v.credits - v.refunds - v.expenses }))
+    .map((v) => ({ ...v, expectedCash: v.cash + v.credits - (v.creditsMobile || 0) - v.refunds - v.expenses }))
     .filter((v) => v.tickets || v.credits || v.refunds || v.expenses)
     .sort((a, b) => (b.cash + b.mobile + b.credits) - (a.cash + a.mobile + a.credits));
   const expensesTotal = periodExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const fund = Number(session?.amount) || 0;
   return {
-    fund, cashSales, cashSalesCount, mobileSales: mobileSales - refundsMobile, mobileSalesCount, creditsCollected, creditsCount,
+    fund, cashSales, cashSalesCount, mobileSales: mobileSales - refundsMobile, mobileSalesCount, creditsCollected, creditsCount, creditsCollectedMobile,
     creditsCollectedOld, creditsCountOld, creditsCollectedNew, creditsCountNew, creditsOpen, creditsOpenCount,
     // Ventes de la caisse hors Mobile Money : espèces + crédits accordés
     // pendant la caisse (déjà encaissés ou encore en cours).
@@ -1095,7 +1106,7 @@ function computeCashSession(session, { sales = [], expenses = [], until = null }
     grandTotal: cashSales + creditsCollectedNew + creditsOpen + (mobileSales - refundsMobile),
     expensesTotal, expensesCount: periodExpenses.length,
     refundsCash, refundsCashCount, refundsMobile, byVendor,
-    expected: fund + cashSales + creditsCollected - expensesTotal - refundsCash,
+    expected: fund + cashSales + creditsCollected - creditsCollectedMobile - expensesTotal - refundsCash,
   };
 }
 
@@ -2606,7 +2617,8 @@ function reserveStatusOf(sale, avoirs) {
 }
 function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToast, avoirs }) {
   const reserve = reserveStatusOf(receiptIn, avoirs);
-  const receipt = reserve ? { ...receiptIn, reserve } : receiptIn;
+  const avoirStatus = receiptIn?.avoirMonnaie ? changeAvoirStatusOf(receiptIn, avoirs, receiptIn.avoirAmount) : null;
+  const receipt = reserve || avoirStatus ? { ...receiptIn, ...(reserve ? { reserve } : {}), ...(avoirStatus ? { avoirStatus } : {}) } : receiptIn;
   const fmt = useFmt();
   const [printing, setPrinting] = useState(false);
   const notify = (msg, type) => { if (pushToast) pushToast(msg, type); };
@@ -2751,12 +2763,23 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
           </div>
         )}
 
-        {receipt.avoirMonnaie && (
-          <div className="rounded-xl p-3 mt-3 gb-slide-up" style={{ background: "#FDECEA", border: "1px solid #F5C2BD" }}>
-            <p className="text-[12px] font-bold" style={{ color: "#C62828" }}>Monnaie en avoir : {fmt(receipt.avoirAmount)}</p>
-            <p className="text-[11px] mt-0.5" style={{ color: "#B3261E" }}>Client : {receipt.avoirClientName || receipt.clientName || "Client"} — à récupérer lors d'un prochain passage.</p>
-          </div>
-        )}
+        {receipt.avoirMonnaie && (() => {
+          const st = changeAvoirStatusOf(receipt, avoirs, receipt.avoirAmount) || { done: false, partial: false, amount: receipt.avoirAmount, remaining: receipt.avoirAmount, reds: [] };
+          const t = AVOIR_TINT[st.done ? "done" : st.partial ? "partial" : "open"];
+          const who = st.client || receipt.avoirClientName || receipt.clientName || "Client";
+          return (
+            <div className="rounded-xl p-3 mt-3 gb-slide-up" style={{ background: t.softBg, border: `1px solid ${t.softBorder}` }}>
+              <p className="text-[12px] font-bold flex items-center gap-1.5" style={{ color: t.softFg }}>
+                {st.done && <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0" style={{ background: t.softFg }}><Check size={12} color="#fff" strokeWidth={3} /></span>}
+                {st.done ? `${st.verb === "rendu" ? "Monnaie rendue" : "Avoir monnaie soldé"} : ${fmt(st.amount)}` : st.partial ? `Monnaie en avoir : reste ${fmt(st.remaining)} sur ${fmt(st.amount)}` : `Monnaie en avoir : ${fmt(receipt.avoirAmount)}`}
+              </p>
+              {st.reds.map((r, k) => (
+                <p key={k} className="text-[11px] mt-0.5" style={{ color: t.softFg, paddingLeft: st.done ? 26 : 0 }}>{r.kind === "achat" ? "Utilisé en achat" : "Rendu"} le {shortDateTime(r.date)} : {fmt(r.amount)}{r.by ? ` · par ${r.by}` : ""}</p>
+              ))}
+              {!st.done && <p className="text-[11px] mt-0.5" style={{ color: t.softFg }}>Client : {who} — à récupérer lors d'un prochain passage.</p>}
+            </div>
+          );
+        })()}
         {reserve && reserve.pickups.length > 0 && (
           <div className="rounded-xl p-3 mt-3 gb-slide-up" style={{ background: "#E8F0FB", border: "1px solid #BFD4F2" }}>
             <p className="text-[12.5px] font-bold flex items-center gap-1.5" style={{ color: "#16457A" }}>
@@ -4767,6 +4790,33 @@ function withChangeAvoir(s, avoirs) {
   return a ? { ...s, changeDue: 0, avoirMonnaie: true, avoirAmount: Number(a.amount) || 0, avoirClientName: a.clientName } : s;
 }
 
+// État de la monnaie mise en avoir sur une vente : encore due, rendue en
+// partie ou entièrement rendue / utilisée (lu dans l'avoir monnaie lié).
+function changeAvoirStatusOf(s, avoirs, amount) {
+  const amt = Number(amount) || 0;
+  if (!s || !(amt > 0)) return null;
+  const a = (avoirs || []).find((x) => x && x.type === "monnaie" && (x.saleId === s.id || (s.avoirId && x.id === s.avoirId)));
+  if (!a) return { amount: amt, returned: 0, remaining: amt, done: false, partial: false, reds: [] };
+  const p = avoirMoneyProgress(a);
+  const reds = (a.redemptions || []).slice().sort((x, y) => String(x.date).localeCompare(String(y.date)));
+  const done = p.remaining <= 0 || !!a.settled;
+  const allPurchase = reds.length > 0 && reds.every((r) => r.kind === "achat");
+  const somePurchase = reds.some((r) => r.kind === "achat");
+  const last = reds[reds.length - 1];
+  return {
+    amount: Number(a.amount) || amt, returned: done ? (Number(a.amount) || amt) : p.already, remaining: done ? 0 : p.remaining,
+    done, partial: !done && p.already > 0, reds, last,
+    verb: allPurchase ? "utilisé en achat" : somePurchase ? "rendu / utilisé" : "rendu",
+    client: a.clientName,
+  };
+}
+const AVOIR_TINT = {
+  open: { bg: "#C62828", fg: "#fff", softBg: "#FDECEA", softBorder: "#F5C2BD", softFg: "#C62828" },
+  partial: { bg: "#FFF1D6", fg: "#9A5B00", softBg: "#FFF6E5", softBorder: "#F3D9A4", softFg: "#9A5B00" },
+  done: { bg: "#E3F4EC", fg: "#0F6E56", softBg: "#EAF7F0", softBorder: "#BFE3CF", softFg: "#0F6E56" },
+};
+const shortDateTime = (d) => { try { const x = new Date(d); return `${x.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} à ${x.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`; } catch { return ""; } };
+
 // Choix des formules d'un produit (ex : Pain simple, Pain fourré, Pain fourré
 // + œuf) avant l'ajout au panier. PLUSIEURS formules peuvent être prises en
 // même temps, chacune avec sa quantité et ses suppléments ; chaque article
@@ -6067,6 +6117,8 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
         {g.items.map((s, idx) => {
           const cs = withChangeAvoir(s, avoirs);
           const changeAvoir = cs.avoirMonnaie && cs.avoirAmount > 0 ? cs.avoirAmount : 0;
+          const avSt = changeAvoir > 0 ? changeAvoirStatusOf(s, avoirs, changeAvoir) : null;
+          const avTint = avSt ? AVOIR_TINT[avSt.done ? "done" : avSt.partial ? "partial" : "open"] : null;
           const unpaid = s.paymentMethod === "credit" && !s.paid;
           const isMixte = s.paymentMethod === "especes" && Number(s.mobilePaid) > 0;
           const PayIcon = s.avoirPaid >= s.total ? Coins : isMixte ? Layers : s.paymentMethod === "especes" ? Banknote : s.paymentMethod === "mobile" ? Smartphone : unpaid ? AlertTriangle : Check;
@@ -6108,13 +6160,23 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
                 <span className="block font-display font-bold text-[14.5px] whitespace-nowrap" style={{ color: unpaid ? "#B3261E" : "var(--ink)" }}>{fmt(s.total)}</span>
                 <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md whitespace-nowrap align-top" style={{ color: payTint.fg, background: payTint.bg }}>{unpaid && !(s.avoirPaid > 0) ? "Crédit" : payLabel}</span>
                 {unpaid && !(s.avoirPaid > 0) && <span className="block text-[10.5px] font-bold mt-0.5 whitespace-nowrap" style={{ color: "#B3261E" }}>reste {fmt(rest)}</span>}
-                {changeAvoir > 0 && <span className="block mt-1"><span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md whitespace-nowrap" style={{ color: "#fff", background: "#C62828" }}>Avoir {fmt(changeAvoir)}</span></span>}
+                {avSt && (
+                  <span className="block mt-1">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md whitespace-nowrap" style={{ color: avTint.fg, background: avTint.bg, border: avSt.done ? `1px solid ${avTint.softBorder}` : "none" }}>
+                      {avSt.done ? <><Check size={11} strokeWidth={3} /> {avSt.verb === "rendu" ? "Rendu" : avSt.verb === "utilisé en achat" ? "Avoir utilisé" : "Avoir soldé"} {fmt(avSt.amount)}</>
+                        : avSt.partial ? <>Reste {fmt(avSt.remaining)}</>
+                        : <>Avoir {fmt(changeAvoir)}</>}
+                    </span>
+                    {avSt.partial && <span className="block text-[10px] font-bold mt-0.5 whitespace-nowrap" style={{ color: "#0F6E56" }}>✓ {fmt(avSt.returned)} rendus</span>}
+                  </span>
+                )}
               </span>
             </button>
             {isOpen && (
               <div className="pb-3 pr-3.5 gb-slide-up" style={{ paddingLeft: 60 }}>
                 <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>N° de reçu</span><span className="font-mono font-bold">{receiptNumber(s.id)}</span></div>
                 <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Date</span><span>{new Date(s.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+                {s.originalDate && s.originalDate !== s.date && <div className="flex justify-between text-[11px] py-0.5"><span style={{ color: H.mut }}>Date modifiée</span><span style={{ color: "#9A5B00" }}>à l'origine le {new Date(s.originalDate).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span></div>}
                 <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Vendeur</span><span>{s.vendor}</span></div>
                 <div className="mt-1.5 pt-1.5" style={{ borderTop: "1px dashed var(--line)" }}>
                   {s.items.map((i) => (
@@ -6129,10 +6191,24 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
                   {isMixte && <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>{s.mobileOperator || "Mobile Money"} / espèces</span><span>{fmt(s.mobilePaid)} / {fmt(s.total - s.mobilePaid)}</span></div>}
                   {s.amountReceived != null && <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Montant reçu</span><span>{fmt(s.amountReceived)}</span></div>}
                   {cs.changeDue > 0 && <div className="flex justify-between text-[11.5px] py-0.5"><span style={{ color: H.mut }}>Monnaie rendue</span><span>{fmt(cs.changeDue)}</span></div>}
-                  {changeAvoir > 0 && (
-                    <div className="mt-1 rounded-[10px] px-2.5 py-1.5" style={{ background: "#FDECEA", border: "1px solid #F5C2BD" }}>
-                      <div className="flex justify-between gap-2 text-[12px] font-bold" style={{ color: "#C62828" }}><span>Monnaie en avoir</span><span className="whitespace-nowrap">{fmt(changeAvoir)}</span></div>
-                      <p className="text-[10.5px] font-semibold" style={{ color: "#B3261E", opacity: 0.85 }}>Non rendue · due à {cs.avoirClientName || s.clientName || "client"}</p>
+                  {avSt && (
+                    <div className="mt-1 rounded-[10px] px-2.5 py-1.5" style={{ background: avTint.softBg, border: `1px solid ${avTint.softBorder}` }}>
+                      <div className="flex justify-between gap-2 text-[12px] font-bold" style={{ color: avTint.softFg }}>
+                        <span className="flex items-center gap-1">{avSt.done && <Check size={13} strokeWidth={3} />}{avSt.done ? (avSt.verb === "rendu" ? "Monnaie rendue" : "Avoir monnaie soldé") : "Monnaie en avoir"}</span>
+                        <span className="whitespace-nowrap">{fmt(avSt.amount)}</span>
+                      </div>
+                      {avSt.reds.map((r, k) => (
+                        <div key={k} className="mt-1 pt-1 text-[10.5px] font-semibold" style={{ color: avTint.softFg, borderTop: `1px dashed ${avTint.softBorder}` }}>
+                          <div className="flex justify-between gap-2"><span>{r.kind === "achat" ? "Utilisé en achat" : "Rendu"} le {shortDateTime(r.date)}</span><span className="whitespace-nowrap">{fmt(r.amount)}</span></div>
+                          {r.by && <div className="opacity-75 font-medium break-words">par {r.by}</div>}
+                        </div>
+                      ))}
+                      {!avSt.done && (
+                        <div className="flex justify-between gap-2 text-[10.5px] font-bold mt-0.5" style={{ color: avSt.partial ? "#9A5B00" : "#B3261E" }}>
+                          <span>{avSt.partial ? "Reste dû" : "Non rendue"} · à {avSt.client || cs.avoirClientName || s.clientName || "client"}</span>
+                          <span className="whitespace-nowrap">{fmt(avSt.remaining)}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                   {unpaid && <div className="flex justify-between text-[11.5px] py-0.5 font-bold" style={{ color: "#B3261E" }}><span>Reste à payer</span><span>{fmt(rest)}</span></div>}
@@ -6177,7 +6253,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
         <EditSaleModal
           sale={editingSale}
           products={products}
-          onSave={(id, items, method) => { onUpdateSale(id, items, method); setEditingSale(null); }}
+          onSave={(id, items, method, date) => { onUpdateSale(id, items, method, date); setEditingSale(null); }}
           onClose={() => setEditingSale(null)}
           pushToast={pushToast}
         />
@@ -6208,6 +6284,20 @@ function EditSaleModal({ sale, products, onSave, onClose, pushToast }) {
   const fmt = useFmt();
   const [items, setItems] = useState(sale.items.map((i) => ({ ...i })));
   const [paymentMethod, setPaymentMethod] = useState(sale.paymentMethod);
+  // Date et heure de la vente (heure locale du téléphone). Jamais dans le
+  // futur : une vente ne peut être datée qu'à aujourd'hui ou avant.
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const toDay = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const toTime = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const origDate = new Date(sale.date);
+  const [day, setDay] = useState(() => toDay(origDate));
+  const [time, setTime] = useState(() => toTime(origDate));
+  const todayStr = toDay(new Date());
+  const yesterdayStr = toDay(new Date(Date.now() - 864e5));
+  const newDate = (() => { const [y, m, d] = day.split("-").map(Number); const [h, mi] = time.split(":").map(Number); const x = new Date(y, (m || 1) - 1, d || 1, h || 0, mi || 0, origDate.getSeconds(), origDate.getMilliseconds()); return isNaN(x) ? origDate : x; })();
+  const dateChanged = toDay(newDate) !== toDay(origDate) || toTime(newDate) !== toTime(origDate);
+  const inFuture = newDate.getTime() > Date.now() + 60000;
+  const longDate = (d) => d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   // Ligne en cours de remplacement d'article ("swap") : soit l'id d'une
   // ligne existante (on remplace son article), soit "new" (on ajoute une
   // ligne). null = aucun sélecteur ouvert.
@@ -6285,7 +6375,8 @@ function EditSaleModal({ sale, products, onSave, onClose, pushToast }) {
 
   const save = () => {
     if (items.length === 0) { pushToast("La vente doit contenir au moins un article", "error"); return; }
-    onSave(sale.id, items, paymentMethod);
+    if (inFuture) { pushToast("La date de la vente ne peut pas être dans le futur", "error"); return; }
+    onSave(sale.id, items, paymentMethod, dateChanged ? newDate.toISOString() : null);
   };
 
   const pickerResults = swapTarget
@@ -6356,6 +6447,38 @@ function EditSaleModal({ sale, products, onSave, onClose, pushToast }) {
             <button onClick={() => setSwapTarget("new")} className="gb-focus w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold mb-4" style={{ background: "var(--paper-dim)" }}>
               <PackagePlus size={14} /> Ajouter un article
             </button>
+
+            <p className="text-xs font-semibold opacity-60 mb-2">Date de la vente</p>
+            <div className="rounded-2xl p-3 mb-4" style={{ background: "var(--card)", border: `1.5px solid ${dateChanged ? (inFuture ? "#D93B30" : "#E8A33D") : "var(--line)"}` }}>
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: dateChanged ? "#FFF1D6" : "var(--paper-dim)", color: dateChanged ? "#9A5B00" : "var(--ink)" }}><Calendar size={17} /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13.5px] font-bold leading-tight first-letter:uppercase">{longDate(newDate)}</p>
+                  <p className="text-[11.5px] opacity-60">à {toTime(newDate).replace(":", " h ")}</p>
+                </div>
+              </div>
+              <div className="flex gap-1.5 mt-2.5">
+                {[["Aujourd'hui", todayStr], ["Hier", yesterdayStr]].map(([l, v]) => (
+                  <button key={l} onClick={() => setDay(v)} className="gb-focus flex-1 rounded-xl py-2 text-xs font-bold" style={{ background: day === v ? "var(--glass)" : "var(--paper-dim)", color: day === v ? "#fff" : "var(--ink)" }}>{l}</button>
+                ))}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <label className="flex-[3] min-w-0 flex items-center gap-1.5 rounded-xl px-2.5 py-2" style={{ background: "var(--paper-dim)" }}>
+                  <Calendar size={13} className="opacity-50 shrink-0" />
+                  <input type="date" value={day} max={todayStr} onChange={(e) => e.target.value && setDay(e.target.value)} className="gb-focus bg-transparent outline-none text-[13px] font-semibold flex-1 min-w-0" aria-label="Jour de la vente" />
+                </label>
+                <label className="flex-[2] min-w-0 flex items-center gap-1.5 rounded-xl px-2.5 py-2" style={{ background: "var(--paper-dim)" }}>
+                  <Clock size={13} className="opacity-50 shrink-0" />
+                  <input type="time" value={time} onChange={(e) => e.target.value && setTime(e.target.value)} className="gb-focus bg-transparent outline-none text-[13px] font-semibold flex-1 min-w-0" aria-label="Heure de la vente" />
+                </label>
+              </div>
+              {dateChanged && (
+                <p className="text-[11px] font-semibold mt-2 flex items-start gap-1.5" style={{ color: inFuture ? "#B3261E" : "#9A5B00" }}>
+                  <AlertTriangle size={13} className="shrink-0 mt-[1px]" />
+                  {inFuture ? "Date dans le futur : impossible." : <span>Avant : {origDate.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })} à {toTime(origDate)}. La vente sera classée à la nouvelle date (Historique, totaux du jour, rapports).</span>}
+                </p>
+              )}
+            </div>
 
             <p className="text-xs font-semibold opacity-60 mb-2">Mode de paiement</p>
             <div className="flex gap-2 mb-5">
@@ -6658,12 +6781,14 @@ function SettleCreditModal({ sale, onConfirm, onClose }) {
   const remaining = Math.max(0, sale.total - alreadyPaid);
   const [amount, setAmount] = useState(String(remaining));
   const [error, setError] = useState("");
+  const [method, setMethod] = useState("especes");
+  const value = Number(String(amount).replace(/[^\d.]/g, "")) || 0;
+  const after = Math.max(0, remaining - value);
 
   const submit = () => {
-    const value = Number(amount.replace(/[^\d.]/g, ""));
     if (!value || value <= 0) { setError("Entre un montant valide"); return; }
     if (value > remaining + 0.5) { setError(`Le montant dépasse le solde dû (${fmt(remaining)})`); return; }
-    onConfirm(value);
+    onConfirm(value, { method });
   };
 
   return (
@@ -6689,15 +6814,38 @@ function SettleCreditModal({ sale, onConfirm, onClose }) {
           type="number"
           value={amount}
           onChange={(e) => { setAmount(e.target.value); setError(""); }}
-          className="gb-focus w-full rounded-xl px-3 py-3 text-lg font-bold text-center border mb-2"
-          style={{ borderColor: error ? "var(--danger)" : "var(--line)" }}
+          className="gb-focus w-full rounded-xl px-3 py-3 text-lg font-bold text-center border mb-1.5"
+          style={{ borderColor: error && !value ? "var(--danger)" : "var(--line)" }}
         />
-        {error && <p className="text-xs mb-4" style={{ color: "var(--danger)" }}>{error}</p>}
+        <div className="flex gap-1.5 mb-1">
+          {[["Tout le solde", remaining], ["Moitié", Math.round(remaining / 2)]].filter(([, v]) => v > 0).map(([l, v]) => (
+            <button key={l} onClick={() => { setAmount(String(v)); setError(""); }} className="gb-focus flex-1 rounded-xl py-1.5 text-[11.5px] font-bold" style={{ background: value === v ? "#E3F4EC" : "var(--paper-dim)", color: value === v ? "#0F6E56" : "var(--ink)" }}>{l} · {fmt(v)}</button>
+          ))}
+        </div>
+        <p className="text-[11px] mb-3.5" style={{ color: after > 0 ? "#9A5B00" : "#0F6E56" }}>{value > 0 && value <= remaining + 0.5 ? (after > 0 ? `Paiement partiel · il restera ${fmt(after)}` : "Le crédit sera entièrement soldé") : "\u00a0"}</p>
 
-        <button onClick={submit} className="gb-focus w-full rounded-2xl py-3 font-semibold text-sm text-white flex items-center justify-center gap-2 mt-2" style={{ background: "var(--glass)" }}>
-          <Banknote size={16} /> Encaisser {amount ? fmt(Number(amount) || 0) : ""}
+        <p className="text-xs font-semibold opacity-60 mb-1.5">Moyen de paiement</p>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          {[["especes", "Espèces", Banknote, "Dans la caisse", "#1E7A46", "#E6F4EC"], ["mobile", "Mobile Money", Smartphone, "Hors caisse", "#1D5FA8", "#E8F0FB"]].map(([id, label, Ico, sub, fg, bg]) => {
+            const on = method === id;
+            return (
+              <button key={id} onClick={() => { setMethod(id); setError(""); }} aria-pressed={on} className="gb-focus relative rounded-2xl px-3 py-2.5 flex items-center gap-2.5 text-left" style={{ background: on ? bg : "var(--paper)", border: `1.5px solid ${on ? fg : "var(--line)"}` }}>
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: on ? fg : "var(--paper-dim)", color: on ? "#fff" : "var(--ink)" }}><Ico size={17} /></span>
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-bold leading-tight" style={{ color: on ? fg : "var(--ink)" }}>{label}</span>
+                  <span className="block text-[10.5px] opacity-60">{sub}</span>
+                </span>
+                {on && <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: fg }}><Check size={10} color="#fff" strokeWidth={3.5} /></span>}
+              </button>
+            );
+          })}
+        </div>
+        {error && <p className="text-xs mb-1 font-semibold" style={{ color: "var(--danger)" }}>{error}</p>}
+
+        <button onClick={submit} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2 mt-2" style={{ background: method === "mobile" ? "#1D5FA8" : "var(--glass)" }}>
+          {method === "mobile" ? <Smartphone size={16} /> : <Banknote size={16} />} Encaisser {value ? fmt(value) : ""} {method === "mobile" ? "par Mobile Money" : "en espèces"}
         </button>
-        <p className="text-[11px] opacity-40 text-center mt-2.5">Ajouté à la recette du jour dès l'encaissement.</p>
+        <p className="text-[11px] opacity-50 text-center mt-2.5">{method === "mobile" ? "Ajouté à la recette du jour, sans entrer dans la caisse (espèces)." : "Ajouté à la recette du jour et aux espèces de la caisse."}</p>
       </div>
     </div>
   );
@@ -6767,9 +6915,12 @@ function CreditReceiptModal({ sale, shop, onClose, pushToast }) {
         <p className="text-[11px] font-semibold uppercase tracking-wide opacity-50 mb-2">Règlements</p>
         <div className="flex flex-col gap-1.5 mb-1">
           {payments.map((p, i) => (
-            <div key={i} className="flex justify-between text-xs">
-              <span className="opacity-60">{new Date(p.date).toLocaleDateString("fr-FR")} · {p.by}</span>
-              <span className="font-mono font-semibold">{fmt(p.amount)}</span>
+            <div key={i} className="flex justify-between items-start gap-2 text-xs">
+              <span className="min-w-0">
+                <span className="opacity-60">{new Date(p.date).toLocaleDateString("fr-FR")} · {p.by}</span>
+                <span className="block mt-0.5"><span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={creditPayIsMobile(p) ? { background: "#E8F0FB", color: "#1D5FA8" } : { background: "#E6F4EC", color: "#1E7A46" }}>{creditPayIsMobile(p) ? <Smartphone size={10} /> : <Banknote size={10} />} {creditPayLabel(p)}</span></span>
+              </span>
+              <span className="font-mono font-semibold shrink-0">{fmt(p.amount)}</span>
             </div>
           ))}
         </div>
@@ -6855,8 +7006,8 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, 
     .flatMap((s) => creditPaymentsOf(s).filter((p) => inPeriod(p.date, periodFilter, customFrom, customTo)));
   const totalCollected = collectedPaymentsInPeriod.reduce((s, p) => s + p.amount, 0);
 
-  const handleConfirmSettle = (amount) => {
-    const updated = onSettle(settling.id, amount);
+  const handleConfirmSettle = (amount, pay) => {
+    const updated = onSettle(settling.id, amount, pay);
     setSettling(null);
     if (updated) setConfirmReceipt(updated);
   };
@@ -8011,7 +8162,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
                   {s.avoirPaid > 0 && <Row l="Payé avec un avoir" v={`– ${fmt(s.avoirPaid)}`} />}
                   {s.amountReceived != null && !isCredit && <Row l="Montant reçu" v={fmt(s.amountReceived)} />}
                   {withChangeAvoir(s, avoirs).changeDue > 0 && <Row l="Monnaie rendue" v={fmt(s.changeDue)} />}
-                  {(() => { const c = withChangeAvoir(s, avoirs); return c.avoirMonnaie && c.avoirAmount > 0 ? <div className="flex justify-between text-[12.5px] font-bold py-0.5" style={{ color: "#C62828" }}><span>Monnaie en avoir</span><span>{fmt(c.avoirAmount)}</span></div> : null; })()}
+                  {(() => { const c = withChangeAvoir(s, avoirs); if (!(c.avoirMonnaie && c.avoirAmount > 0)) return null; const st = changeAvoirStatusOf(s, avoirs, c.avoirAmount); const t = AVOIR_TINT[st?.done ? "done" : st?.partial ? "partial" : "open"]; return <div className="flex justify-between text-[12.5px] font-bold py-0.5" style={{ color: t.softFg }}><span>{st?.done ? (st.verb === "rendu" ? "✓ Monnaie rendue" : "✓ Avoir monnaie soldé") : st?.partial ? `Monnaie en avoir · reste ${fmt(st.remaining)}` : "Monnaie en avoir"}</span><span>{fmt(c.avoirAmount)}</span></div>; })()}
                 </div>
               </div>
 
@@ -8048,7 +8199,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
       {viewSale && <SaleReceiptModal receipt={viewSale} shop={shop} clients={clients || []} onClose={() => setViewSale(null)} pushToast={pushToast} avoirs={avoirs} />}
       {viewAvoir && <AvoirReceiptModal avoir={viewAvoir} shop={shop} onClose={() => setViewAvoir(null)} pushToast={pushToast} />}
       {returning && <SaleReturnFlow sale={returning} shop={shop} onReturnSale={onReturnSale} onClose={() => setReturning(null)} pushToast={pushToast} />}
-      {settling && <SettleCreditModal sale={settling} onClose={() => setSettling(null)} onConfirm={(amount) => { const updated = onSettleCredit(settling.id, amount); setSettling(null); if (updated) setCreditReceipt(updated); }} />}
+      {settling && <SettleCreditModal sale={settling} onClose={() => setSettling(null)} onConfirm={(amount, pay) => { const updated = onSettleCredit(settling.id, amount, pay); setSettling(null); if (updated) setCreditReceipt(updated); }} />}
       {creditReceipt && <CreditReceiptModal sale={creditReceipt} shop={shop} onClose={() => setCreditReceipt(null)} pushToast={pushToast} />}
       {redeemMoney && <RedeemMoneyAvoirModal avoir={redeemMoney} onClose={() => setRedeemMoney(null)} onConfirm={(amount) => { const updated = onRedeemMoney(redeemMoney.id, amount); setRedeemMoney(null); if (updated) setViewAvoir(updated); }} />}
       {redeemProduct && <RedeemProductAvoirModal avoir={redeemProduct} onClose={() => setRedeemProduct(null)} onConfirm={(items2) => { const updated = onRedeemProduct(redeemProduct.id, items2); setRedeemProduct(null); if (updated) setViewAvoir(updated); }} />}
@@ -19033,7 +19184,11 @@ function AppInner() {
       const tid = stockTargetId(real);
       const target = products.find((p) => p.id === tid);
       const isBaseLine = !!(real?.stockFrom || real?.isBase || (real?.variants || []).length);
-      return { ...i, productId: realId, stockId: tid, ...(isBaseLine && target ? { base: { price: Number(target.price) || 0, cost: Number(target.costPrice) || 0 } } : {}) };
+      // La ligne de vente garde la fiche produit SANS sa photo ni sa
+      // description (elles restent dans le catalogue) : sinon chaque vente
+      // pèse la taille de la photo et la synchronisation devient trop lente.
+      const lineProduct = i.product && typeof i.product === "object" ? (({ image, images, description, ...rest }) => rest)(i.product) : i.product; // eslint-disable-line no-unused-vars
+      return { ...i, product: lineProduct, productId: realId, stockId: tid, ...(isBaseLine && target ? { base: { price: Number(target.price) || 0, cost: Number(target.costPrice) || 0 } } : {}) };
     });
     const qtyByStock = {};
     cartItems.forEach((i) => { qtyByStock[i.stockId] = (qtyByStock[i.stockId] || 0) + i.qty; });
@@ -19223,7 +19378,7 @@ function AppInner() {
   // l'historique des paiements de la vente et à la recette du jour même
   // (jour de l'encaissement, pas jour de la vente d'origine). Le crédit ne
   // passe "réglé" que lorsque la somme des paiements couvre le total.
-  const handleSettleCredit = (saleId, amount) => {
+  const handleSettleCredit = (saleId, amount, pay = {}) => {
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return null;
     const paidBy = role === "admin" ? (shop?.adminDisplayName?.trim() || "Administrateur") : currentVendorName;
@@ -19232,14 +19387,16 @@ function AppInner() {
     const remaining = Math.max(0, sale.total - alreadyPaid);
     const received = Math.min(Math.max(0, Number(amount) || 0), remaining);
     if (received <= 0) return sale;
-    const payments = [...creditPaymentsOf(sale), { amount: received, date: paidDate, by: paidBy }];
+    const method = pay && pay.method === "mobile" ? "mobile" : "especes";
+    const newPay = { amount: received, date: paidDate, by: paidBy, method, ...(method === "mobile" && pay.operator ? { operator: pay.operator } : {}) };
+    const payments = [...creditPaymentsOf(sale), newPay];
     const fullyPaid = alreadyPaid + received >= sale.total - 0.5;
     const nextSales = sales.map((s) => (s.id === saleId ? { ...s, payments, paid: fullyPaid, paidBy, paidDate } : s));
     saveSales(nextSales);
     const settled = nextSales.find((s) => s.id === saleId);
     pushToast(fullyPaid ? "Crédit encaissé en totalité" : "Remboursement partiel enregistré", "ok");
     pushNotification({ type: "credit_settled", clientName: settled?.clientName || settled?.vendor, total: received, by: paidBy, partial: !fullyPaid });
-    logAudit("caisse", `Crédit encaissé${settled?.clientName ? ` · ${settled.clientName}` : ""} : ${formatMoney(received, shop?.currency)}${fullyPaid ? " (soldé)" : " (partiel)"}`, { amount: received, saleId });
+    logAudit("caisse", `Crédit encaissé${settled?.clientName ? ` · ${settled.clientName}` : ""} : ${formatMoney(received, shop?.currency)} · ${creditPayLabel(newPay)}${fullyPaid ? " (soldé)" : " (partiel)"}`, { amount: received, saleId });
     return settled;
   };
 
@@ -19506,7 +19663,7 @@ function AppInner() {
     pushToast(`Perte supprimée · ${q} × ${m.formulaName || m.productName} remis en stock`, "ok");
   };
 
-  const handleUpdateSale = (saleId, newItems, newPaymentMethod) => {
+  const handleUpdateSale = (saleId, newItems, newPaymentMethod, newDate) => {
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return;
     const sumBy = (list) => list.reduce((m, i) => { const k = itemStockId(i); m[k] = (m[k] || 0) + (Number(i.qty) || 0); return m; }, {});
@@ -19527,14 +19684,19 @@ function AppInner() {
     const newTotal = newItems.reduce((s, i) => s + computeItemTotal(i.product, i.qty), 0);
     const paymentChangedToCredit = newPaymentMethod === "credit" && sale.paymentMethod !== "credit";
     const paymentChangedFromCredit = newPaymentMethod !== "credit" && sale.paymentMethod === "credit";
+    const dateMoved = !!newDate && newDate !== sale.date;
     const nextSale = {
       ...sale, items: newItems, total: newTotal, paymentMethod: newPaymentMethod,
       paid: paymentChangedToCredit ? false : paymentChangedFromCredit ? true : sale.paid,
+      ...(dateMoved ? { date: newDate, originalDate: sale.originalDate || sale.date } : {}),
     };
     saveProducts(nextProducts);
-    if (editMovements.length > 0) saveMovements([...editMovements, ...movements]);
+    // Les sorties de stock « vente » de cette vente (même horodatage) suivent
+    // la nouvelle date, pour que le stock du jour reste cohérent.
+    const baseMovements = dateMoved ? movements.map((m) => (m.type === "vente" && m.date === sale.date ? { ...m, date: newDate } : m)) : movements;
+    if (editMovements.length > 0 || dateMoved) saveMovements([...editMovements, ...baseMovements]);
     saveSales(sales.map((s) => (s.id === saleId ? nextSale : s)));
-    logAudit("vente", `Vente N° ${receiptNumber(saleId)} modifiée : ${formatMoney(Number(sale.total) || 0, shop?.currency)} → ${formatMoney(newTotal, shop?.currency)}${newPaymentMethod !== sale.paymentMethod ? ` · paiement ${PAYMENT_LABELS[sale.paymentMethod]} → ${PAYMENT_LABELS[newPaymentMethod]}` : ""}`, { amount: newTotal - (Number(sale.total) || 0), saleId });
+    logAudit("vente", `Vente N° ${receiptNumber(saleId)} modifiée : ${formatMoney(Number(sale.total) || 0, shop?.currency)} → ${formatMoney(newTotal, shop?.currency)}${newPaymentMethod !== sale.paymentMethod ? ` · paiement ${PAYMENT_LABELS[sale.paymentMethod]} → ${PAYMENT_LABELS[newPaymentMethod]}` : ""}${dateMoved ? ` · date ${new Date(sale.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} → ${new Date(newDate).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}`, { amount: newTotal - (Number(sale.total) || 0), saleId });
     setNotifications((prev) => [{ id: `edit-${saleId}-${Date.now()}`, type: "sale_edited", receiptNumber: saleId.slice(0, 6).toUpperCase(), total: newTotal, date: new Date().toISOString() }, ...prev].slice(0, 30));
     setUnreadCount((c) => c + 1);
     pushToast("Vente modifiée", "ok");
@@ -19807,7 +19969,7 @@ function AppInner() {
                       onDeleteAvoirs={role === "admin" ? (ids, restock) => requireAdmin("Supprimer un avoir", () => handleDeleteAvoirs(ids, restock)) : undefined}
                       onWriteOffCredit={role === "admin" ? (id) => requireAdmin("Annuler une dette", () => handleWriteOffCredit(id)) : undefined}
                       onDeleteCreditSale={role === "admin" ? (id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id)) : undefined} />}
-                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
+                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method, date) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method, date))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
                     {view === "expenses" && role === "vendeur" && (
                       <VendorExpensesScreen expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} vendorName={currentVendorName} />
                     )}

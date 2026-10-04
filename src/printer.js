@@ -233,10 +233,20 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
     line("Credits clients jusqu'au reglement complet.");
   }
   if (receipt.avoirMonnaie) {
+    const st = receipt.avoirStatus;
     line("");
-    line(`Monnaie en avoir : ${fmt(receipt.avoirAmount)}`);
-    line(`Client : ${clientName || "Client"} - a recuperer lors`);
-    line("d'un prochain passage.");
+    if (st && st.done) {
+      line(`${st.verb === "rendu" ? "Monnaie rendue (avoir solde)" : "Avoir monnaie solde"} : ${fmt(st.amount)}`);
+      (st.reds || []).forEach((r) => line(`  ${r.kind === "achat" ? "Utilise en achat" : "Rendu"} le ${new Date(r.date).toLocaleDateString("fr-FR")} : ${fmt(r.amount)}`));
+    } else if (st && st.partial) {
+      line(`Monnaie en avoir : ${fmt(st.amount)}`);
+      line(`Deja rendu : ${fmt(st.returned)} - Reste : ${fmt(st.remaining)}`);
+      line(`Client : ${clientName || "Client"}`);
+    } else {
+      line(`Monnaie en avoir : ${fmt(receipt.avoirAmount)}`);
+      line(`Client : ${clientName || "Client"} - a recuperer lors`);
+      line("d'un prochain passage.");
+    }
   }
   if (receipt.reserve && receipt.reserve.pickups && receipt.reserve.pickups.length) {
     line("");
@@ -298,6 +308,15 @@ export function buildCreditReceiptEscPos(receipt, shop, fmt) {
   line(twoCol("Client", receipt.clientName || "Client"));
   line(twoCol("Vente initiale", new Date(receipt.date).toLocaleDateString("fr-FR")));
   line(twoCol("Encaisse par", receipt.paidBy || ""));
+  const pays = Array.isArray(receipt.payments) ? receipt.payments : [];
+  if (pays.length) {
+    line("--------------------------------");
+    line("Reglements :");
+    pays.forEach((p) => {
+      const how = p.method === "mobile" ? (p.operator || "Mobile Money") : "Especes";
+      line(twoCol(`${new Date(p.date).toLocaleDateString("fr-FR")} ${how}`, fmt(p.amount)));
+    });
+  }
   line("--------------------------------");
   push(ESC, 0x45, 0x01);
   line(twoCol("MONTANT ENCAISSE", fmt(receipt.total)));
