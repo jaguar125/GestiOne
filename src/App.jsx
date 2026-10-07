@@ -7,7 +7,7 @@ import {
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
   Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
-  Phone, Activity, Flame, Minimize2, Maximize2, Mail, LockKeyhole, ShieldAlert, Timer, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
+  Phone, Link2, Info, UserCheck, Activity, Flame, Minimize2, Maximize2, Mail, LockKeyhole, ShieldAlert, Timer, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
 import * as Tone from "tone";
@@ -2019,12 +2019,13 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
   const [rcPin, setRcPin] = useState("");
   const [rcVendorName, setRcVendorName] = useState("");
   const [rcJoinCode, setRcJoinCode] = useState("");
+  const [rcError, setRcError] = useState(null);
 
   const submitReconnect = async () => {
     if (!rcShopName.trim() || rcPin.length !== 4 || !rcVendorName.trim() || (reconnectRole === "vendeur" && !rcJoinCode.trim())) {
       pushToast("Merci de remplir tous les champs", "error"); return;
     }
-    setLoading(true);
+    setLoading(true); setRcError(null);
     try {
       const backend = await api.reconnectShopBackend({
         role: reconnectRole,
@@ -2050,7 +2051,13 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
       };
       onJoinShop(shopObj, pulled, backend.role, backend.vendorName || "Administrateur", backend.shop_license);
     } catch (e) {
-      pushToast(api.networkErrorText(e, "vous reconnecter") || e.message || "Reconnexion impossible", "error");
+      const msg = api.networkErrorText(e, "vous reconnecter") || e.message || "Reconnexion impossible";
+      const code = e?.data?.code;
+      // Refus de sécurité : affichés dans le formulaire (pas un simple toast).
+      if (["USED", "EXPIRED", "REVOKED", "LOCKED", "BLOCKED", "BAD_CODE"].includes(code)) {
+        const titles = { USED: "Invitation déjà utilisée", EXPIRED: "Code expiré", REVOKED: "Invitation remplacée", LOCKED: "Trop d'essais", BLOCKED: "Accès bloqué", BAD_CODE: "Code d'invitation incorrect" };
+        setRcError({ title: titles[code], text: msg.replace(new RegExp(`^${titles[code]}\\s*[.:]?\\s*`, "i"), "").replace(/^\(([^)]*)\)\.\s*/, "Utilisée $1. ") });
+      } else pushToast(msg, "error");
     } finally {
       setLoading(false);
     }
@@ -2134,7 +2141,7 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
             </div>
             <p className="text-[11.5px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--cap)" }}>Reconnexion</p>
             <h1 className="font-display font-bold text-[24px] text-white leading-tight">{isAdminRc ? "Espace administrateur" : "Espace vendeur"}</h1>
-            <p className="text-[13px] text-white/60 mt-1 max-w-[290px]">{isAdminRc ? "Retrouvez votre entreprise sur ce téléphone avec votre code administrateur." : "Retrouvez votre entreprise avec votre nom, votre code et votre code de liaison."}</p>
+            <p className="text-[13px] text-white/60 mt-1 max-w-[290px]">{isAdminRc ? "Retrouvez votre entreprise sur ce téléphone avec votre code administrateur." : "Retrouvez votre entreprise avec votre nom, votre code PIN et votre code d'invitation."}</p>
           </div>
           <div className="rounded-[26px] p-5" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", boxShadow: "0 24px 50px -20px rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}>
             <div className="flex flex-col gap-3.5">
@@ -2146,9 +2153,15 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
               </AuthField>
               <SecretPinField label={isAdminRc ? "Code administrateur" : "Votre code PIN"} value={rcPin} onChange={setRcPin} onEnter={submitReconnect} />
               {reconnectRole === "vendeur" && (
-                <AuthField Icon={KeyRound} label="Code de liaison" hint="7 caractères, fournis par l'administrateur">
-                  <input value={rcJoinCode} onChange={(e) => setRcJoinCode(e.target.value.toUpperCase())} placeholder="Ex : 6ZNNT37" className="flex-1 min-w-0 bg-transparent outline-none text-[15px] font-mono tracking-[0.2em] text-white placeholder-white/35" />
+                <AuthField Icon={KeyRound} label="Code d'invitation" hint="Reçu sur WhatsApp, ou affiché sur le téléphone du responsable">
+                  <input value={rcJoinCode} onChange={(e) => { setRcJoinCode(e.target.value.toUpperCase()); setRcError(null); }} placeholder="Ex : K7Q-4MX" autoCapitalize="characters" className="flex-1 min-w-0 bg-transparent outline-none text-[15px] font-mono tracking-[0.2em] text-white placeholder-white/35" />
                 </AuthField>
+              )}
+              {rcError && (
+                <div role="alert" className="rounded-[16px] p-3.5 flex gap-2.5 gb-slide-up" style={{ background: "#FDE8E6", color: "#7A1F1A" }}>
+                  <ShieldAlert size={20} className="shrink-0 mt-0.5" />
+                  <div className="min-w-0"><p className="text-[14px] font-bold">{rcError.title}</p><p className="text-[12.5px] leading-snug mt-0.5">{rcError.text}</p></div>
+                </div>
               )}
               <button onClick={submitReconnect} disabled={loading} className="gb-focus w-full min-h-[54px] rounded-[16px] font-bold text-[15.5px] disabled:opacity-60 mt-1 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #F6B774, var(--cap))", color: "var(--glass)", boxShadow: "0 12px 24px -10px rgba(242,166,90,0.7)" }}>
                 {loading ? <><RefreshCw size={17} className="animate-spin" /> Connexion…</> : <>Se reconnecter <ChevronRight size={18} /></>}
@@ -8602,19 +8615,41 @@ function ExpenseForm({ onSave, onCancel, suppliers, author }) {
 }
 
 function VendorForm({ initial, onSave, onCancel, pushToast, vendors, adminPin, adminPinHash, backendLinked }) {
-  const [f, setF] = useState(initial ? { ...initial, pin: initial.pin || "" } : { name: "", pin: "" });
+  const [f, setF] = useState(initial ? { ...initial, pin: initial.pin || "", phone: initial.phone || "" } : { name: "", pin: "", phone: "" });
+  const [showPin, setShowPin] = useState(!initial);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const isEdit = !!initial;
+  const field = (label, Icon, input, hint) => (
+    <label className="block">
+      <span className="text-[11.5px] font-bold opacity-70 mb-1 block">{label}</span>
+      <span className="flex items-center gap-2.5 min-h-[48px] px-3.5 rounded-[14px]" style={{ background: "var(--paper-dim)", border: "1px solid var(--line)" }}>
+        <Icon size={16} className="opacity-50 shrink-0" />{input}
+      </span>
+      {hint && <span className="text-[10.5px] opacity-55 mt-1 block">{hint}</span>}
+    </label>
+  );
   return (
-    <div className="rounded-2xl border p-4 mb-3 gb-slide-up" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-      <div className="flex flex-col gap-2.5">
-        <input className="gb-focus rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} placeholder="Nom du vendeur" value={f.name} onChange={(e) => set("name", e.target.value)} />
-        <input className="gb-focus rounded-xl px-3 py-2 text-sm border font-mono" style={{ borderColor: "var(--line)" }} placeholder={backendLinked && isEdit ? "Nouveau PIN (laisser vide = inchangé)" : "Code PIN (4 chiffres)"} maxLength={4} value={f.pin} onChange={(e) => set("pin", e.target.value.replace(/\D/g, ""))} />
+    <div className="rounded-[20px] p-4 mb-3 gb-slide-up" style={{ border: "1.5px solid #AFA9EC", background: "var(--card)", boxShadow: "0 8px 24px rgba(83,74,183,.12)" }}>
+      <div className="flex items-center gap-2.5 mb-3.5">
+        <span className="w-9 h-9 rounded-[12px] flex items-center justify-center" style={{ background: "#EEEDFE" }}>{isEdit ? <Pencil size={16} color="#534AB7" /> : <UserPlus size={17} color="#534AB7" />}</span>
+        <div className="min-w-0">
+          <p className="font-display font-bold text-[15px] leading-tight">{isEdit ? `Modifier ${initial.name}` : "Nouveau vendeur"}</p>
+          <p className="text-[11px] opacity-55">{isEdit ? "Mettez à jour le nom, le numéro ou le code PIN" : "Le code de liaison est créé automatiquement"}</p>
+        </div>
       </div>
-      <div className="flex gap-2 mt-3">
-        <button onClick={onCancel} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+      <div className="flex flex-col gap-3">
+        {field("Nom du vendeur", User, <input className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" placeholder="Ex. : Francisca" value={f.name} onChange={(e) => set("name", e.target.value)} />)}
+        {field("Numéro WhatsApp (facultatif)", Phone, <input type="tel" inputMode="tel" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" placeholder="Ex. : 07 08 09 10 11" value={f.phone} onChange={(e) => set("phone", e.target.value)} />, "Pour lui envoyer ses accès en un clic")}
+        {field("Code PIN (4 chiffres)", KeyRound, <>
+          <input type={showPin ? "text" : "password"} inputMode="numeric" className="flex-1 min-w-0 bg-transparent outline-none text-[15px] font-mono tracking-[0.3em]" placeholder={backendLinked && isEdit ? "Laisser vide = inchangé" : "••••"} maxLength={4} value={f.pin} onChange={(e) => set("pin", e.target.value.replace(/\D/g, ""))} />
+          <button type="button" onClick={() => setShowPin((x) => !x)} className="gb-focus opacity-55 shrink-0" aria-label={showPin ? "Masquer le code" : "Afficher le code"}>{showPin ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+        </>)}
+      </div>
+      <div className="flex gap-2 mt-4">
+        <button onClick={onCancel} className="gb-focus flex-1 rounded-[14px] min-h-[46px] text-sm font-semibold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
         <button onClick={() => {
-          if (!f.name) { pushToast("Nom requis", "error"); return; }
+          if (!f.name.trim()) { pushToast("Nom requis", "error"); return; }
+          if (vendors.some((v) => v.id !== f.id && normName(v.name) === normName(f.name))) { pushToast("Un vendeur porte déjà ce nom", "error"); return; }
           const pinProvided = f.pin.length === 4;
           const keepExistingPin = backendLinked && isEdit && f.pin.length === 0;
           if (!pinProvided && !keepExistingPin) { pushToast("PIN à 4 chiffres requis", "error"); return; }
@@ -8624,7 +8659,9 @@ function VendorForm({ initial, onSave, onCancel, pushToast, vendors, adminPin, a
               : f.pin === (adminPin || DEFAULT_ADMIN_PIN) || vendors.some((v) => v.pin === f.pin && v.id !== f.id);
             if (duplicate) { pushToast("Ce code PIN est déjà utilisé", "error"); return; }
           }
-          const record = { id: f.id || uid(), name: f.name, phone: f.phone };
+          // On garde les autres champs (bloqué, date de création…) lors d'une modification.
+          const record = { ...(initial || {}), id: f.id || uid(), name: f.name.trim(), phone: (f.phone || "").trim() };
+          if (!initial) record.createdAt = new Date().toISOString();
           if (backendLinked) {
             record.pinHash = pinProvided ? api.hashPin(f.pin) : initial?.pinHash;
             record.pin = pinProvided ? f.pin : initial?.pin;
@@ -8633,7 +8670,7 @@ function VendorForm({ initial, onSave, onCancel, pushToast, vendors, adminPin, a
             record.pin = f.pin;
           }
           onSave(record);
-        }} className="gb-focus flex-1 rounded-xl py-2.5 text-sm font-semibold text-white" style={{ background: "var(--glass)" }}>Enregistrer</button>
+        }} className="gb-focus flex-[1.4] rounded-[14px] min-h-[46px] text-sm font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "#534AB7" }}><Check size={16} /> Enregistrer</button>
       </div>
     </div>
   );
@@ -9053,9 +9090,49 @@ function InvoiceSettingsCard({ shop, saveShopMeta }) {
   );
 }
 
+// Petits éléments communs des pages Établissement / Entreprises.
+const TYPE_STYLE = {
+  maquis: { Icon: Beer, color: "#B7791F", bg: "#FFF3DC" },
+  cave: { Icon: Wine, color: "#7A2438", bg: "#FBE7EC" },
+  buvette: { Icon: CupSoda, color: "#C2410C", bg: "#FDEBDD" },
+  bar: { Icon: Martini, color: "#6D4FD6", bg: "#EFEBFE" },
+  snack: { Icon: Croissant, color: "#8A5A12", bg: "#FBEFD9" },
+  boutique: { Icon: ShoppingBag, color: "#1D5FA8", bg: "#E8F0FB" },
+  autre: { Icon: Store, color: "#0F6E56", bg: "#E3F4EC" },
+};
+const typeStyleOf = (t) => TYPE_STYLE[t] || TYPE_STYLE.autre;
+const shopInitials = (name) => ((name || "?").replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("") || "?").toUpperCase();
+function SettingsCard({ Icon, color, bg, title, sub, children }) {
+  return (
+    <div className="rounded-[20px] p-4 mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 6px 18px -14px rgba(22,32,42,0.35)" }}>
+      <div className="flex items-center gap-3 mb-3.5">
+        <span className="w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: bg, color }}><Icon size={18} /></span>
+        <div className="min-w-0"><p className="text-[15px] font-bold leading-tight">{title}</p>{sub && <p className="text-[11.5px] opacity-60 mt-0.5">{sub}</p>}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+function SettingToggle({ Icon, color, title, desc, on, onChange, danger }) {
+  const c = danger ? "#B3261E" : color || "var(--glass)";
+  return (
+    <button onClick={onChange} role="switch" aria-checked={!!on} className="gb-focus w-full flex items-center gap-3 py-2.5 text-left" style={{ borderTop: "1px solid var(--line)" }}>
+      <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: on ? c : "var(--paper-dim)", color: on ? "#fff" : "var(--ink)", opacity: on ? 1 : 0.75 }}><Icon size={15} /></span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[13.5px] font-bold leading-tight">{title}</span>
+        {desc && <span className="block text-[11px] opacity-55 mt-0.5 leading-snug">{desc}</span>}
+      </span>
+      <span className="w-11 h-6 rounded-full relative shrink-0 transition-colors" style={{ background: on ? c : "#D5D9DE" }}>
+        <span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all" style={{ left: on ? 23 : 3, boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }} />
+      </span>
+    </button>
+  );
+}
+
 function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
-  const [f, setF] = useState({ salesNotificationsEnabled: true, theme: "emeraude", darkMode: false, soundsEnabled: true, ...shop });
-  const [currencyOpen, setCurrencyOpen] = useState(false);
+  const fmt = useFmt();
+  const initial = { salesNotificationsEnabled: true, theme: "emeraude", darkMode: false, soundsEnabled: true, ...shop };
+  const [f, setF] = useState(initial);
   const [btPrintDisabled, setBtPrintDisabled] = useState(false);
   useEffect(() => { setBtPrintDisabled(isBluetoothPrintDisabled()); }, []);
   // Si le type actuel n'est pas l'un des ids standards, c'est déjà un
@@ -9063,177 +9140,192 @@ function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
   // reprend tel quel dans le champ de précision.
   const [customType, setCustomType] = useState(() => (f.type && !ESTABLISHMENT_TYPES.some((t) => t.id === f.type)) ? f.type : "");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const finalType = (f.type === "autre" || customType) && customType.trim() ? customType.trim() : f.type;
+  const WATCH = ["name", "adminDisplayName", "currency", "theme", "darkMode", "soundsEnabled", "salesNotificationsEnabled", "loyaltyThreshold", "cashRegisterResetHour", "language"];
+  const dirty = WATCH.some((k) => (f[k] ?? "") !== (initial[k] ?? "")) || finalType !== (shop.type || "");
   const submit = () => {
     if (f.type === "autre" && !customType.trim()) { pushToast("Précisez le type de votre établissement", "error"); return; }
-    const finalType = f.type === "autre" && customType.trim() ? customType.trim() : f.type;
     // Les réglages gérés ailleurs (facturation, sécurité, objectifs) gardent
     // leur valeur actuelle : ce formulaire ne les réécrit pas.
-    const { taxId, rccm, invoiceAddress, invoicePhone, invoiceEmail, vatRate, invoiceFooter, autoLockMinutes, protectSensitive, vendorGoals, ...rest } = f;
+    const { taxId, rccm, invoiceAddress, invoicePhone, invoiceEmail, vatRate, invoiceFooter, autoLockMinutes, protectSensitive, vendorGoals, ...rest } = f; // eslint-disable-line no-unused-vars
     saveShopMeta({ ...shop, ...rest, type: finalType });
   };
   const copyJoinCode = async () => {
     try { await navigator.clipboard.writeText(shop.joinCode); pushToast?.("Code copié !", "ok"); } catch { /* presse-papier indisponible */ }
   };
+  const shareJoinCode = async () => {
+    try { await shareText(`Rejoindre ${shop.name}`, `Bonjour, voici le code pour rejoindre « ${shop.name} » sur GestiOne : ${shop.joinCode}\nOuvrez GestiOne › Rejoindre une entreprise, puis saisissez ce code.`); } catch { /* annulé */ }
+  };
   const selectedCurrency = CURRENCIES.find((c) => c.code === f.currency) || CURRENCIES[0];
+  const theme = getTheme(f.theme || "emeraude");
+  const typeId = ESTABLISHMENT_TYPES.some((t) => t.id === f.type) ? f.type : "autre";
+  const TS = typeStyleOf(typeId);
+  const typeLabel = customType.trim() || ESTABLISHMENT_TYPES.find((t) => t.id === f.type)?.label || "—";
+  const adminName = (f.adminDisplayName || "").trim() || "Administrateur";
+  const loyalty = Number(f.loyaltyThreshold ?? 10) || 10;
+  const hour = Number(f.cashRegisterResetHour ?? 0) || 0;
+
   return (
-    <div>
-      <h3 className="font-display font-bold text-base mb-3">Informations de l'entreprise</h3>
-      {shop.backendLinked && shop.joinCode && (
-        <div className="rounded-2xl p-4 mb-4 flex items-center justify-between" style={{ background: "#E1F5EE" }}>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide flex items-center gap-1.5 mb-1" style={{ color: "#0F6E56" }}>
-              <UserPlus size={12} /> Code d'invitation vendeurs
-            </p>
-            <p className="font-display font-bold text-2xl tracking-[0.15em]" style={{ color: "#0F6E56" }}>{shop.joinCode}</p>
+    <div style={{ paddingBottom: dirty ? 110 : 8 }}>
+      {/* Carte d'identité de l'entreprise */}
+      <div className="rounded-[24px] p-4 mb-3 relative overflow-hidden text-white" style={{ background: `linear-gradient(135deg, ${theme.glass} 0%, ${theme.glassLight} 100%)`, boxShadow: `0 16px 30px -18px ${theme.glass}` }}>
+        <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.07)" }} />
+        <div className="relative flex items-center gap-3">
+          <span className="w-14 h-14 rounded-[18px] flex items-center justify-center shrink-0 font-display font-bold text-[20px]" style={{ background: theme.cap, color: theme.glass }}>{shopInitials(f.name)}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] opacity-70">Mon entreprise</p>
+            <p className="font-display font-bold text-[22px] leading-tight truncate">{f.name || "Sans nom"}</p>
+            <p className="text-[12px] opacity-80 flex items-center gap-1.5 mt-0.5"><TS.Icon size={13} /> {typeLabel} · {selectedCurrency.symbol}</p>
           </div>
-          <button onClick={copyJoinCode} className="gb-focus px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0" style={{ background: "var(--card)", color: "#0F6E56" }}>
-            <Download size={13} className="rotate-180" /> Copier
-          </button>
         </div>
-      )}
-      <div className="rounded-2xl border p-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-        <label className="text-xs font-semibold opacity-60 block mb-1.5">Nom</label>
-        <input className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-4" style={{ borderColor: "var(--line)" }} value={f.name} onChange={(e) => set("name", e.target.value)} />
+        <div className="relative flex flex-wrap gap-1.5 mt-3">
+          <span className="text-[10.5px] font-bold px-2 py-1 rounded-full flex items-center gap-1" style={{ background: "rgba(255,255,255,0.14)" }}><User size={11} /> {adminName}</span>
+          <span className="text-[10.5px] font-bold px-2 py-1 rounded-full flex items-center gap-1" style={{ background: shop.backendLinked ? "rgba(123,224,176,0.22)" : "rgba(255,255,255,0.14)", color: shop.backendLinked ? "#BFF3D9" : "#fff" }}>{shop.backendLinked ? <><Cloud size={11} /> Synchronisée</> : <><Smartphone size={11} /> Sur cet appareil</>}</span>
+          <span className="text-[10.5px] font-bold px-2 py-1 rounded-full flex items-center gap-1" style={{ background: "rgba(255,255,255,0.14)" }}><Palette size={11} /> {theme.label}</span>
+        </div>
+        {shop.backendLinked && shop.joinCode && (
+          <div className="relative mt-3.5 rounded-[16px] p-3" style={{ background: "rgba(255,255,255,0.1)", border: "1px dashed rgba(255,255,255,0.35)" }}>
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] opacity-75 flex items-center gap-1.5"><UserPlus size={12} /> Code d'invitation vendeurs</p>
+            <p className="font-display font-bold text-[28px] tracking-[0.22em] leading-tight mt-0.5" style={{ color: theme.cap }}>{shop.joinCode}</p>
+            <p className="text-[11px] opacity-75">Le vendeur saisit ce code dans « Rejoindre une entreprise » pour travailler sur cette caisse.</p>
+            <div className="flex gap-2 mt-2.5">
+              <button onClick={copyJoinCode} className="gb-focus flex-1 h-10 rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#fff", color: theme.glass }}><Copy size={14} /> Copier</button>
+              <button onClick={shareJoinCode} className="gb-focus flex-1 h-10 rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#25D366", color: "#fff" }}><MessageCircle size={14} /> Envoyer</button>
+            </div>
+          </div>
+        )}
+      </div>
 
-        <label className="text-xs font-semibold opacity-60 mb-1.5 flex items-center gap-1.5"><User size={13} color="#534AB7" /> Nom affiché de l'administrateur</label>
-        <input
-          className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-4"
-          style={{ borderColor: "var(--line)" }}
-          placeholder="Administrateur"
-          value={f.adminDisplayName || ""}
-          onChange={(e) => set("adminDisplayName", e.target.value)}
-        />
-        <p className="text-[11px] opacity-45 -mt-3 mb-4">Ce nom remplace "Administrateur" sur vos ventes, dépenses et reçus. Laissez vide pour garder "Administrateur".</p>
+      {/* Identité */}
+      <SettingsCard Icon={Building2} color="#0F6E56" bg="#E3F4EC" title="Identité" sub="Nom de l'entreprise et nom de l'administrateur">
+        <label className="text-[11.5px] font-bold opacity-60 block mb-1.5">Nom de l'entreprise</label>
+        <input className="gb-focus w-full rounded-[12px] px-3 h-11 text-[14.5px] font-semibold border mb-3" style={{ borderColor: "var(--line)", background: "var(--paper)" }} value={f.name} onChange={(e) => set("name", e.target.value)} />
+        <label className="text-[11.5px] font-bold opacity-60 block mb-1.5">Nom affiché de l'administrateur</label>
+        <input className="gb-focus w-full rounded-[12px] px-3 h-11 text-[14.5px] font-semibold border" style={{ borderColor: "var(--line)", background: "var(--paper)" }} placeholder="Administrateur" value={f.adminDisplayName || ""} onChange={(e) => set("adminDisplayName", e.target.value)} />
+        <div className="mt-2 rounded-[12px] px-3 py-2 flex items-center gap-2 text-[11.5px]" style={{ background: "#EEF4FF", color: "#1D4E89" }}>
+          <Receipt size={14} className="shrink-0" /><span>Sur les reçus, ventes et dépenses : « Servi par <b>{adminName}</b> ». Laissez vide pour garder « Administrateur ».</span>
+        </div>
+      </SettingsCard>
 
-        <label className="text-xs font-semibold opacity-60 mb-1.5 flex items-center gap-1.5"><Store size={13} color="#534AB7" /> Type</label>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {ESTABLISHMENT_TYPES.map((t) => (
-            <button key={t.id} onClick={() => { set("type", t.id); if (t.id !== "autre") setCustomType(""); }} className="gb-focus px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: (f.type === t.id || (t.id === "autre" && customType)) ? "var(--glass)" : "#EEEDFE", color: (f.type === t.id || (t.id === "autre" && customType)) ? "#fff" : "#534AB7" }}>{t.label}</button>
-          ))}
+      {/* Activité */}
+      <SettingsCard Icon={Store} color="#534AB7" bg="#EEEDFE" title="Activité et devise" sub="Le type adapte le vocabulaire (casiers, lots, cartons…)">
+        <div className="grid grid-cols-2 gap-2">
+          {ESTABLISHMENT_TYPES.map((t) => {
+            const on = f.type === t.id || (t.id === "autre" && !!customType);
+            const st = typeStyleOf(t.id);
+            return (
+              <button key={t.id} onClick={() => { set("type", t.id); if (t.id !== "autre") setCustomType(""); }} aria-pressed={on} className="gb-focus h-12 rounded-[14px] px-2.5 flex items-center gap-2 text-left" style={on ? { background: st.color, color: "#fff" } : { background: st.bg, color: st.color }}>
+                <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: on ? "rgba(255,255,255,0.2)" : "#fff" }}><st.Icon size={15} /></span>
+                <span className="text-[12.5px] font-bold leading-tight min-w-0">{t.label}</span>
+                {on && <Check size={14} strokeWidth={3} className="ml-auto shrink-0" />}
+              </button>
+            );
+          })}
         </div>
         {(f.type === "autre" || customType) && (
-          <input autoFocus={f.type === "autre" && !customType} className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-4" style={{ borderColor: "var(--line)" }} placeholder="Précisez le type (ex : Épicerie, Salon de thé…)" value={customType} onChange={(e) => { setCustomType(e.target.value); set("type", "autre"); }} />
+          <input autoFocus={f.type === "autre" && !customType} className="gb-focus w-full rounded-[12px] px-3 h-11 text-sm border mt-2" style={{ borderColor: "var(--line)", background: "var(--paper)" }} placeholder="Précisez le type (ex : Épicerie, Salon de thé…)" value={customType} onChange={(e) => { setCustomType(e.target.value); set("type", "autre"); }} />
         )}
-
-        <label className="text-xs font-semibold opacity-60 mb-1.5 flex items-center gap-1.5"><Banknote size={13} color="#185FA5" /> Devise</label>
-        <div className="rounded-xl overflow-hidden mb-4" style={{ border: `1px solid ${currencyOpen ? "var(--glass)" : "var(--line)"}` }}>
-          <button onClick={() => setCurrencyOpen((v) => !v)} className="gb-focus w-full flex items-center justify-between px-3.5 py-3" style={{ background: "#E6F1FB" }}>
-            <span className="text-sm font-semibold" style={{ color: "#185FA5" }}>{selectedCurrency.label}</span>
-            <ChevronDown size={16} color="#185FA5" style={{ transform: currencyOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-          </button>
-          {currencyOpen && (
-            <div>
-              {CURRENCIES.filter((c) => c.code !== selectedCurrency.code).map((c) => (
-                <button key={c.code} onClick={() => { set("currency", c.code); setCurrencyOpen(false); }} className="gb-focus w-full flex items-center justify-between px-3.5 py-3 text-left" style={{ borderTop: "1px solid var(--line)" }}>
-                  <span className="text-sm">{c.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
+        <label className="text-[11.5px] font-bold opacity-60 block mt-3.5 mb-1.5">Devise</label>
+        <div className="grid grid-cols-3 gap-2">
+          {CURRENCIES.map((c) => {
+            const on = (f.currency || CURRENCIES[0].code) === c.code;
+            return (
+              <button key={c.code} onClick={() => set("currency", c.code)} aria-pressed={on} className="gb-focus rounded-[14px] px-2 py-2 text-center" style={on ? { background: "#1D5FA8", color: "#fff" } : { background: "#E8F0FB", color: "#1D5FA8" }}>
+                <span className="block font-display font-bold text-[16px] leading-tight">{c.symbol}</span>
+                <span className="block text-[10px] font-semibold opacity-80 truncate">{c.label}</span>
+              </button>
+            );
+          })}
         </div>
+        <p className="text-[11px] opacity-55 mt-2">Aperçu d'un prix : <b>{formatMoney(1500, f.currency)}</b></p>
+      </SettingsCard>
 
-        <label className="text-xs font-semibold opacity-60 mb-1.5 flex items-center gap-1.5"><Layers size={13} color="#993556" /> Couleur de l'application</label>
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {THEME_PRESETS.map((t) => (
-            <button key={t.id} onClick={() => set("theme", t.id)} className="gb-focus rounded-xl p-2.5 flex flex-col items-center gap-1.5" style={{ background: (f.theme || "emeraude") === t.id ? "#FBEAF0" : "transparent", border: (f.theme || "emeraude") === t.id ? "1px solid #D4537E" : "1px solid var(--line)" }}>
-              <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: t.glass }}>
-                {(f.theme || "emeraude") === t.id && <Check size={13} color={t.cap} />}
-              </span>
-              <span className="text-[10px] font-semibold">{t.label}</span>
-            </button>
-          ))}
+      {/* Apparence */}
+      <SettingsCard Icon={Palette} color="#993556" bg="#FBEAF0" title="Apparence" sub="Couleur, mode jour / nuit et langue">
+        <div className="grid grid-cols-3 gap-2">
+          {THEME_PRESETS.map((t) => {
+            const on = (f.theme || "emeraude") === t.id;
+            return (
+              <button key={t.id} onClick={() => set("theme", t.id)} aria-pressed={on} className="gb-focus rounded-[14px] overflow-hidden text-left" style={{ border: `2px solid ${on ? t.glass : "var(--line)"}` }}>
+                <span className="block h-10 relative" style={{ background: `linear-gradient(135deg, ${t.glass}, ${t.glassLight})` }}>
+                  <span className="absolute right-1.5 bottom-1.5 w-4 h-4 rounded-full" style={{ background: t.cap }} />
+                  {on && <span className="absolute left-1.5 top-1.5 w-5 h-5 rounded-full bg-white flex items-center justify-center"><Check size={12} color={t.glass} strokeWidth={3} /></span>}
+                </span>
+                <span className="block text-[11.5px] font-bold px-2 py-1.5" style={{ background: on ? "#F7F3F5" : "var(--card)" }}>{t.label}</span>
+              </button>
+            );
+          })}
         </div>
-
-        <label className="text-xs font-semibold opacity-60 block mb-1.5">Apparence</label>
-        <button
-          onClick={() => set("darkMode", !f.darkMode)}
-          className="gb-focus w-full flex items-center justify-between mb-4 px-3 py-2.5 rounded-xl"
-          style={{ background: "#EEEDFE" }}
-        >
-          <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#534AB7" }}>{f.darkMode ? <Moon size={13} /> : <Sun size={13} />} Mode {f.darkMode ? "nuit" : "jour"}</span>
-          <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: f.darkMode ? "#534AB7" : "var(--line)" }}>
-            <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: f.darkMode ? 18 : 2 }} />
-          </span>
-        </button>
-
-        <label className="text-xs font-semibold opacity-60 block mb-1.5">Notifications</label>
-        <button
-          onClick={() => set("soundsEnabled", !f.soundsEnabled)}
-          className="gb-focus w-full flex items-center justify-between mb-2.5 px-3 py-2.5 rounded-xl"
-          style={{ background: "#FAEEDA" }}
-        >
-          <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#854F0B" }}><Volume2 size={13} /> Sons de confirmation (scan, vente)</span>
-          <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: f.soundsEnabled ? "#854F0B" : "var(--line)" }}>
-            <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: f.soundsEnabled ? 18 : 2 }} />
-          </span>
-        </button>
-        <button
-          onClick={() => set("salesNotificationsEnabled", !f.salesNotificationsEnabled)}
-          className="gb-focus w-full flex items-center justify-between mb-2.5 px-3 py-2.5 rounded-xl"
-          style={{ background: "#FAEEDA" }}
-        >
-          <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#854F0B" }}><Bell size={13} /> Notifications de vente pour l'administrateur</span>
-          <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: f.salesNotificationsEnabled ? "#854F0B" : "var(--line)" }}>
-            <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: f.salesNotificationsEnabled ? 18 : 2 }} />
-          </span>
-        </button>
-        <button
-          onClick={() => {
-            const next = !f.voiceNotificationsEnabled;
-            set("voiceNotificationsEnabled", next);
-            // Sauvegarde IMMÉDIATE, sans attendre le bouton "Enregistrer" du
-            // formulaire — sinon la confirmation vocale ci-dessous donne
-            // l'impression que c'est activé alors que shop.voiceNotificationsEnabled
-            // (la valeur réellement lue partout ailleurs dans l'app) ne
-            // changeait qu'après un clic séparé sur "Enregistrer", jamais fait
-            // en pratique. C'est très exactement ce qui rendait toutes les
-            // autres annonces silencieuses malgré une confirmation qui, elle,
-            // parlait bien (elle ne dépendait pas de la sauvegarde).
-            saveShopMeta({ ...shop, voiceNotificationsEnabled: next });
-            if (next) speak("Vous venez d'activer l'annonce vocale.", true);
-          }}
-          className="gb-focus w-full flex items-center justify-between mb-4 px-3 py-2.5 rounded-xl"
-          style={{ background: "#FAEEDA" }}
-        >
-          <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#854F0B" }}><Volume2 size={13} /> Notifications vocales (ventes, dépenses, crédit/avoir au scan, stock bas, licence)</span>
-          <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: f.voiceNotificationsEnabled ? "#854F0B" : "var(--line)" }}>
-            <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: f.voiceNotificationsEnabled ? 18 : 2 }} />
-          </span>
-        </button>
-        <label className="text-xs font-semibold opacity-60 block mb-1.5 flex items-center gap-1.5"><Gift size={13} color="#993556" /> Fidélité (achats avant récompense)</label>
-        <input type="number" min="1" className="gb-focus w-full rounded-xl px-3 py-2 text-sm border mb-4" style={{ borderColor: "var(--line)" }} value={f.loyaltyThreshold ?? 10} onChange={(e) => set("loyaltyThreshold", Number(e.target.value) || 10)} />
-
-        <label className="text-xs font-semibold opacity-60 block mb-1.5 flex items-center gap-1.5"><Banknote size={13} color="#854F0B" /> Heure d'enregistrement du montant (fonds de caisse)</label>
-        <select className="gb-focus w-full rounded-xl px-3 py-2.5 text-sm border mb-1.5" style={{ borderColor: "var(--line)" }} value={f.cashRegisterResetHour ?? 0} onChange={(e) => set("cashRegisterResetHour", Number(e.target.value))}>
-          {Array.from({ length: 24 }, (_, h) => (
-            <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-          ))}
-        </select>
-        <p className="text-[11px] opacity-50 mb-4 leading-snug">La fenêtre de fond de caisse redemandera un nouveau montant à partir de cette heure chaque jour — utile si la boutique reste ouverte après minuit (ex : 06:00 pour un bar qui ferme tard).</p>
-
-        <label className="text-xs font-semibold opacity-60 block mb-1.5">Impression</label>
-        <button
-          onClick={() => { const next = !btPrintDisabled; setBtPrintDisabled(next); setBluetoothPrintDisabled(next); }}
-          className="gb-focus w-full flex items-center justify-between mb-1.5 px-3 py-2.5 rounded-xl"
-          style={{ background: "#FCEBE8" }}
-        >
-          <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "var(--danger)" }}><Printer size={13} /> Désactiver l'impression Bluetooth directe</span>
-          <span className="w-9 h-5 rounded-full relative shrink-0 transition-colors" style={{ background: btPrintDisabled ? "var(--danger)" : "var(--line)" }}>
-            <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: btPrintDisabled ? 18 : 2 }} />
-          </span>
-        </button>
-        <p className="text-[11px] opacity-50 mb-4 leading-snug">À activer si l'impression sur imprimante Bluetooth fait planter l'application. Les reçus restent disponibles via Partager / WhatsApp.</p>
-
-        <label className="text-xs font-semibold opacity-60 block mb-1.5">Langue de l'application</label>
-        <div className="flex gap-2 mb-4">
-          <button onClick={() => set("language", "fr")} className="gb-focus flex-1 rounded-xl py-2 text-sm font-semibold" style={{ background: (f.language || "fr") === "fr" ? "var(--glass)" : "var(--paper-dim)", color: (f.language || "fr") === "fr" ? "#fff" : "var(--ink)" }}>Français</button>
-          <button onClick={() => set("language", "en")} className="gb-focus flex-1 rounded-xl py-2 text-sm font-semibold" style={{ background: f.language === "en" ? "var(--glass)" : "var(--paper-dim)", color: f.language === "en" ? "#fff" : "var(--ink)" }}>English</button>
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <div className="flex p-1 rounded-[12px]" style={{ background: "var(--paper-dim)" }}>
+            {[[false, "Jour", Sun], [true, "Nuit", Moon]].map(([v, l, I]) => (
+              <button key={l} onClick={() => set("darkMode", v)} className="gb-focus flex-1 h-9 rounded-[9px] text-[12.5px] font-bold flex items-center justify-center gap-1" style={!!f.darkMode === v ? { background: "var(--card)", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" } : { opacity: 0.6 }}><I size={13} /> {l}</button>
+            ))}
+          </div>
+          <div className="flex p-1 rounded-[12px]" style={{ background: "var(--paper-dim)" }}>
+            {[["fr", "Français"], ["en", "English"]].map(([v, l]) => (
+              <button key={v} onClick={() => set("language", v)} className="gb-focus flex-1 h-9 rounded-[9px] text-[12.5px] font-bold" style={(f.language || "fr") === v ? { background: "var(--card)", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" } : { opacity: 0.6 }}>{l}</button>
+            ))}
+          </div>
         </div>
-        <p className="text-[10px] opacity-40 mb-4">La traduction couvre pour l'instant la navigation principale — le reste de l'application arrivera en anglais complet avec l'app native.</p>
+        <p className="text-[10.5px] opacity-45 mt-1.5">L'anglais couvre pour l'instant la navigation principale.</p>
+      </SettingsCard>
 
-        <button onClick={submit} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold text-white" style={{ background: "var(--glass)" }}>Enregistrer</button>
-      </div>
+      {/* Notifications */}
+      <SettingsCard Icon={Bell} color="#854F0B" bg="#FAEEDA" title="Sons et notifications" sub="Ce que l'application vous signale">
+        <SettingToggle Icon={Volume2} color="#B7791F" title="Sons de confirmation" desc="Un petit son au scan d'un article et à chaque vente." on={f.soundsEnabled} onChange={() => set("soundsEnabled", !f.soundsEnabled)} />
+        <SettingToggle Icon={Bell} color="#B7791F" title="Notifications de vente" desc="L'administrateur est prévenu de chaque vente faite par un vendeur." on={f.salesNotificationsEnabled} onChange={() => set("salesNotificationsEnabled", !f.salesNotificationsEnabled)} />
+        <SettingToggle Icon={Mic} color="#B7791F" title="Annonces vocales" desc="Ventes, dépenses, crédit / avoir au scan, stock bas, licence. Enregistré tout de suite." on={f.voiceNotificationsEnabled} onChange={() => {
+          const next = !f.voiceNotificationsEnabled;
+          set("voiceNotificationsEnabled", next);
+          // Sauvegarde IMMÉDIATE : shop.voiceNotificationsEnabled est la valeur
+          // lue partout ailleurs, la confirmation vocale doit refléter l'état réel.
+          saveShopMeta({ ...shop, voiceNotificationsEnabled: next });
+          if (next) speak("Vous venez d'activer l'annonce vocale.", true);
+        }} />
+      </SettingsCard>
+
+      {/* Caisse et fidélité */}
+      <SettingsCard Icon={Banknote} color="#1E7A46" bg="#E6F4EC" title="Caisse et fidélité" sub="Fond de caisse quotidien et récompense des clients">
+        <label className="text-[11.5px] font-bold opacity-60 block mb-1.5">Heure du nouveau fond de caisse</label>
+        <div className="flex items-center gap-2">
+          <span className="w-11 h-11 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Clock size={17} /></span>
+          <select className="gb-focus flex-1 rounded-[12px] px-3 h-11 text-[14.5px] font-bold border" style={{ borderColor: "var(--line)", background: "var(--paper)" }} value={hour} onChange={(e) => set("cashRegisterResetHour", Number(e.target.value))}>
+            {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+          </select>
+        </div>
+        <p className="text-[11px] opacity-55 mt-1.5 leading-snug">Chaque jour à partir de <b>{String(hour).padStart(2, "0")}:00</b>, la caisse redemande le montant de départ. Utile pour un bar qui ferme après minuit (ex. 06:00).</p>
+        <label className="text-[11.5px] font-bold opacity-60 block mt-3.5 mb-1.5">Fidélité : achats avant récompense</label>
+        <div className="flex items-center gap-2">
+          <button onClick={() => set("loyaltyThreshold", Math.max(1, loyalty - 1))} className="gb-focus w-11 h-11 rounded-[12px] flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Moins"><Minus size={16} /></button>
+          <input type="number" min="1" className="gb-focus flex-1 rounded-[12px] h-11 text-center text-[18px] font-bold border" style={{ borderColor: "var(--line)", background: "var(--paper)" }} value={f.loyaltyThreshold ?? 10} onChange={(e) => set("loyaltyThreshold", Number(e.target.value) || 10)} />
+          <button onClick={() => set("loyaltyThreshold", loyalty + 1)} className="gb-focus w-11 h-11 rounded-[12px] flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Plus"><Plus size={16} /></button>
+        </div>
+        <div className="mt-2 flex items-center gap-1" aria-hidden="true">
+          {Array.from({ length: Math.min(loyalty, 12) }, (_, i) => <span key={i} className="flex-1 h-2 rounded-full" style={{ background: i === Math.min(loyalty, 12) - 1 ? "#E8A33D" : "#CFE9DB" }} />)}
+          <Gift size={15} color="#E8A33D" className="ml-1 shrink-0" />
+        </div>
+        <p className="text-[11px] opacity-55 mt-1.5">Le client est récompensé à son <b>{loyalty}<sup>e</sup></b> achat.</p>
+      </SettingsCard>
+
+      {/* Impression */}
+      <SettingsCard Icon={Printer} color="#46546A" bg="#EEF1F6" title="Impression" sub="Imprimante Bluetooth des reçus">
+        <SettingToggle Icon={Printer} danger title="Désactiver l'impression Bluetooth directe" desc="À activer si l'imprimante fait planter l'application. Les reçus restent disponibles par Partager / WhatsApp. Enregistré sur ce téléphone." on={btPrintDisabled} onChange={() => { const next = !btPrintDisabled; setBtPrintDisabled(next); setBluetoothPrintDisabled(next); }} />
+      </SettingsCard>
+
+      <button onClick={submit} className="gb-focus w-full rounded-[16px] h-12 text-[14.5px] font-bold text-white flex items-center justify-center gap-2 mb-1" style={{ background: "var(--glass)" }}><Check size={17} strokeWidth={3} /> Enregistrer les informations</button>
+
       <InvoiceSettingsCard shop={shop} saveShopMeta={saveShopMeta} />
+
+      {dirty && (
+        <div className="fixed left-1/2 -translate-x-1/2 z-[31] w-[calc(100%-2rem)] max-w-[420px] no-print gb-slide-up" style={{ bottom: "calc(10.2rem + env(safe-area-inset-bottom))" }}>
+          <div className="rounded-[18px] p-2.5 flex items-center gap-2.5 shadow-2xl" style={{ background: "#16202A", color: "#fff" }}>
+            <span className="w-2.5 h-2.5 rounded-full shrink-0 ml-1.5" style={{ background: "#F6C453" }} />
+            <p className="flex-1 min-w-0 text-[12.5px] font-bold">Modifications non enregistrées</p>
+            <button onClick={submit} className="gb-focus h-10 px-4 rounded-[12px] text-[13px] font-bold shrink-0" style={{ background: "#2FBF7F", color: "#06301F" }}>Enregistrer</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -9241,60 +9333,104 @@ function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
 function BoutiquesSection({ shops, activeShopId, onSwitchShop, onCreateShop, onDeleteShop, pushToast }) {
   const [adding, setAdding] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
+  const active = shops.find((x) => x.id === activeShopId);
+  const synced = shops.filter((x) => x.backendLinked).length;
 
   const askDelete = (id) => {
     if (shops.length <= 1) { pushToast("Vous devez garder au moins une entreprise", "error"); return; }
     setConfirmId(id);
   };
+  const copy = async (code) => { try { await navigator.clipboard.writeText(code); pushToast?.("Code copié !", "ok"); } catch { /* indisponible */ } };
+  const confirmShop = shops.find((x) => x.id === confirmId);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-bold text-base flex items-center gap-2"><Layers size={16} color="#185FA5" /> Entreprises ({shops.length})</h3>
-        <button onClick={() => setAdding(true)} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: "var(--glass)" }}><Plus size={14} /> Nouvelle</button>
+      {/* Résumé */}
+      <div className="rounded-[24px] p-4 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, #0B3B5C 0%, #12557E 100%)", boxShadow: "0 16px 30px -18px #0B3B5C" }}>
+        <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.07)" }} />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] opacity-70">Mes entreprises</p>
+            <p className="font-display font-bold text-[30px] leading-tight">{shops.length}</p>
+            <p className="text-[12px] opacity-80">{synced} synchronisée{synced > 1 ? "s" : ""} · une seule active à la fois</p>
+          </div>
+          <button onClick={() => setAdding(true)} className="gb-focus h-11 px-4 rounded-[14px] text-[13.5px] font-bold flex items-center gap-1.5 shrink-0" style={{ background: "#5FD1F2", color: "#06263A" }}><Plus size={16} strokeWidth={3} /> Nouvelle</button>
+        </div>
+        {active && (
+          <div className="relative mt-3 rounded-[14px] px-3 py-2.5 flex items-center gap-2.5" style={{ background: "rgba(255,255,255,0.1)" }}>
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "#7BE0B0", boxShadow: "0 0 0 4px rgba(123,224,176,0.25)" }} />
+            <p className="text-[12.5px] min-w-0 truncate">En cours d'utilisation : <b>{active.name}</b></p>
+          </div>
+        )}
       </div>
+
       {adding && <ShopForm shops={shops} onSave={async (shop, vendor) => { const ok = await onCreateShop(shop, vendor); if (ok) setAdding(false); }} onCancel={() => setAdding(false)} pushToast={pushToast} />}
-      <div className="flex flex-col gap-2.5">
+
+      <div className="flex flex-col gap-3">
         {shops.map((s) => {
           const isActive = s.id === activeShopId;
+          const typeId = ESTABLISHMENT_TYPES.some((t) => t.id === s.type) ? s.type : "autre";
+          const st = typeStyleOf(typeId);
           const typeLabel = ESTABLISHMENT_TYPES.find((t) => t.id === s.type)?.label || s.type || "";
-          const currencyLabel = (CURRENCIES.find((c) => c.code === s.currency) || CURRENCIES[0]).symbol;
+          const cur = CURRENCIES.find((c) => c.code === s.currency) || CURRENCIES[0];
+          const th = getTheme(s.theme || "emeraude");
           return (
-            <div key={s.id} className="rounded-2xl p-3.5" style={{ border: `1px solid ${isActive ? "#378ADD" : "var(--line)"}`, background: "var(--card)" }}>
-              <div className="flex items-center gap-3 mb-2.5">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#E6F1FB" }}><Store size={17} color="#185FA5" /></div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate flex items-center gap-1.5">
-                    {s.name}
-                    {isActive && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ background: "#185FA5" }}>ACTIVE</span>}
+            <div key={s.id} className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: `1.5px solid ${isActive ? "#1E9E6A" : "var(--line)"}`, boxShadow: isActive ? "0 10px 24px -16px rgba(30,158,106,0.7)" : "0 4px 14px -12px rgba(22,32,42,0.3)" }}>
+              <div className="h-1.5" style={{ background: `linear-gradient(90deg, ${th.glass}, ${th.glassLight}, ${th.cap})` }} />
+              <div className="p-3.5">
+                <div className="flex items-center gap-3">
+                  <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 font-display font-bold text-[16px]" style={{ background: st.bg, color: st.color }}>{shopInitials(s.name)}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[16px] font-bold truncate">{s.name}</p>
+                    <p className="text-[11.5px] opacity-65 flex items-center gap-1 truncate"><st.Icon size={12} color={st.color} /> {typeLabel} · {cur.symbol}</p>
                   </div>
-                  <div className="text-xs opacity-50">{typeLabel} · {currencyLabel}</div>
+                  {isActive ? (
+                    <span className="text-[10.5px] font-bold px-2 py-1 rounded-full flex items-center gap-1 shrink-0" style={{ background: "#E3F4EC", color: "#0F6E56" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#1E9E6A" }} /> Active</span>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                  <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1" style={s.backendLinked ? { background: "#E8F0FB", color: "#1D5FA8" } : { background: "#F1F3F6", color: "#5B6573" }}>{s.backendLinked ? <><Cloud size={11} /> Synchronisée</> : <><Smartphone size={11} /> Sur cet appareil</>}</span>
+                  <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: "#F1F3F6", color: "#5B6573" }}><span className="w-2.5 h-2.5 rounded-full" style={{ background: th.glass }} /> {th.label}</span>
+                  {s.adminDisplayName && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: "#F1F3F6", color: "#5B6573" }}><User size={11} /> {s.adminDisplayName}</span>}
+                </div>
+                {s.joinCode && (
+                  <div className="flex items-center gap-2 rounded-[14px] pl-3 pr-1.5 py-1.5 mt-2.5" style={{ background: "#F4F7FB", border: "1px dashed #BFD0E6" }}>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: "#1D5FA8" }}>Code vendeurs</span>
+                      <span className="block font-display font-bold text-[18px] tracking-[0.18em]" style={{ color: "#0B3B5C" }}>{s.joinCode}</span>
+                    </span>
+                    <button onClick={() => copy(s.joinCode)} className="gb-focus h-9 px-3 rounded-[10px] text-[12px] font-bold flex items-center gap-1 shrink-0" style={{ background: "#fff", color: "#1D5FA8", border: "1px solid #D6E2F2" }}><Copy size={13} /> Copier</button>
+                  </div>
+                )}
+                <div className="flex gap-2 mt-2.5">
+                  {!isActive && <button onClick={() => onSwitchShop(s.id)} className="gb-focus flex-1 h-11 rounded-[13px] text-[13px] font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "#12557E" }}><ArrowUpDown size={14} /> Passer à cette entreprise</button>}
+                  {isActive && <div className="flex-1 h-11 rounded-[13px] text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#E3F4EC", color: "#0F6E56" }}><Check size={15} strokeWidth={3} /> Vous travaillez ici</div>}
+                  <button onClick={() => askDelete(s.id)} className="gb-focus w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA", color: "#B3261E" }} aria-label={`Supprimer ${s.name}`}><Trash2 size={16} /></button>
                 </div>
               </div>
-              {s.joinCode && (
-                <div className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-2.5" style={{ background: "#E6F1FB" }}>
-                  <span className="text-[11px] font-medium" style={{ color: "#185FA5" }}>Code d'invitation vendeurs</span>
-                  <span className="font-mono font-bold text-sm tracking-wider" style={{ color: "#185FA5" }}>{s.joinCode}</span>
-                </div>
-              )}
-              {confirmId === s.id ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs flex-1" style={{ color: "var(--danger)" }}>Supprimer définitivement cette entreprise et ses données ?</span>
-                  <button onClick={() => { onDeleteShop(s.id); setConfirmId(null); }} className="gb-focus px-3 py-1.5 rounded-full text-[11px] font-semibold text-white shrink-0" style={{ background: "var(--danger)" }}>Confirmer</button>
-                  <button onClick={() => setConfirmId(null)} className="gb-focus px-3 py-1.5 rounded-full text-[11px] font-semibold shrink-0" style={{ background: "var(--paper-dim)" }}>Annuler</button>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  {!isActive && <button onClick={() => onSwitchShop(s.id)} className="gb-focus flex-1 rounded-full py-1.5 text-[11px] font-semibold text-white" style={{ background: "#185FA5" }}>Passer à cette entreprise</button>}
-                  <button onClick={() => askDelete(s.id)} className="gb-focus flex items-center justify-center gap-1 rounded-full py-1.5 text-[11px] font-semibold" style={{ background: "var(--paper-dim)", flex: isActive ? 1 : "0 0 auto", paddingLeft: isActive ? 0 : 12, paddingRight: isActive ? 0 : 12 }}>
-                    <Trash2 size={12} color="var(--danger)" /> <span style={{ color: "var(--danger)" }}>Supprimer</span>
-                  </button>
-                </div>
-              )}
             </div>
           );
         })}
       </div>
+
+      {confirmShop && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setConfirmId(null)}>
+          <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 18px))" }} onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+            <div className="flex items-center gap-3 mb-3">
+              <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA", color: "#B3261E" }}><Trash2 size={21} /></span>
+              <div className="min-w-0"><p className="font-display font-bold text-[18px] leading-tight">Supprimer « {confirmShop.name} » ?</p><p className="text-[12px] opacity-60">Action définitive</p></div>
+            </div>
+            <div className="rounded-[14px] p-3 mb-4 text-[12.5px] leading-relaxed" style={{ background: "#FFF6E5", color: "#7A4A00", border: "1px solid #F3D9A4" }}>
+              L'entreprise sera retirée de ce téléphone avec ses données locales : produits, ventes, clients, dépenses, commandes.{confirmShop.backendLinked ? " Les données déjà synchronisées restent sur le serveur et sur les téléphones des vendeurs." : " Elle n'est pas synchronisée : ces données seront perdues."}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setConfirmId(null)} className="gb-focus h-12 rounded-2xl text-[14px] font-bold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+              <button onClick={() => { onDeleteShop(confirmShop.id); setConfirmId(null); }} className="gb-focus h-12 rounded-2xl text-[14px] font-bold text-white" style={{ background: "#B3261E" }}>Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -9930,7 +10066,9 @@ function InventoryOverview({ products, categories, movements }) {
   );
 }
 
-function MovementsLedger({ movements, categories }) {
+function MovementsLedger({ movements, categories, products = [] }) {
+  const fmt = useFmt();
+  const V = useVocab();
   const [filter, setFilter] = useState("all");
   const [period, setPeriod] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
@@ -9938,7 +10076,19 @@ function MovementsLedger({ movements, categories }) {
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState(null);
   const [limit, setLimit] = useState(150);
-  const TYPES = { ...MOVEMENT_TYPES, livraison: { label: "Arrivage", color: "#1E7A46" }, perte: { label: "Perte", color: "#B3261E" } };
+  // Types de mouvements : libellé, couleur, icône.
+  const TYPES = {
+    vente: { label: "Vente", plural: "Ventes", color: "#C2362B", bg: "#FCEBEA", Icon: ShoppingCart },
+    livraison: { label: "Arrivage", plural: "Arrivages", color: "#1E7A46", bg: "#E3F4EC", Icon: Truck },
+    ajustement: { label: "Ajustement manuel", plural: "Ajustements", color: "#B7791F", bg: "#FFF3DC", Icon: Pencil },
+    comptage: { label: "Comptage d'inventaire", plural: "Comptages", color: "#6D4FD6", bg: "#EFEBFE", Icon: ClipboardCheck },
+    retour: { label: "Retour client", plural: "Retours", color: "#0F6E8C", bg: "#E2F3F8", Icon: Undo2 },
+    perte: { label: "Perte", plural: "Pertes", color: "#8A2419", bg: "#FBE4E1", Icon: PackageX },
+    creation: { label: "Création produit", plural: "Créations", color: "#1D5FA8", bg: "#E8F0FB", Icon: PackagePlus },
+  };
+  const typeOf = (t) => TYPES[t] || { label: MOVEMENT_TYPES[t]?.label || t || "Mouvement", plural: t, color: "#66707A", bg: "#EEF0F2", Icon: Boxes };
+  const prodById = new Map((products || []).map((p) => [p.id, p]));
+  const costOf = (m) => { const p = prodById.get(m.productId); return Number(p?.costPrice) || 0; };
   const inPeriod = (m) => {
     const d = new Date(m.date);
     if (period === "today") return d.toDateString() === new Date().toDateString();
@@ -9952,79 +10102,159 @@ function MovementsLedger({ movements, categories }) {
     return true;
   };
   const k = q.trim().toLowerCase();
-  const base = movements.filter(inPeriod).filter((m) => !k || (m.productName || "").toLowerCase().includes(k));
+  const base = movements.filter(inPeriod).filter((m) => !k || (m.productName || "").toLowerCase().includes(k) || (m.author || "").toLowerCase().includes(k));
   const filtered = (filter === "all" ? base : base.filter((m) => m.type === filter)).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
-  const counts = base.reduce((o, m) => ({ ...o, [m.type]: (o[m.type] || 0) + 1 }), {});
+  const byType = {};
+  base.forEach((m) => { const t = m.type || "autre"; const d = Number(m.delta) || 0; byType[t] = byType[t] || { n: 0, net: 0 }; byType[t].n += 1; byType[t].net += d; });
   const inSum = filtered.reduce((t, m) => t + Math.max(0, Number(m.delta) || 0), 0);
   const outSum = filtered.reduce((t, m) => t + Math.max(0, -(Number(m.delta) || 0)), 0);
+  const inVal = filtered.reduce((t, m) => t + Math.max(0, Number(m.delta) || 0) * costOf(m), 0);
+  const outVal = filtered.reduce((t, m) => t + Math.max(0, -(Number(m.delta) || 0)) * costOf(m), 0);
+  const net = inSum - outSum;
+  const touched = new Set(filtered.map((m) => m.productId || m.productName)).size;
+  const flow = inSum + outSum;
   const groups = [];
   filtered.slice(0, limit).forEach((m) => {
     const key = new Date(m.date).toDateString();
     let g = groups[groups.length - 1];
-    if (!g || g.key !== key) { g = { key, date: new Date(m.date), items: [], net: 0 }; groups.push(g); }
-    g.items.push(m); g.net += Number(m.delta) || 0;
+    if (!g || g.key !== key) { g = { key, date: new Date(m.date), items: [], net: 0, inn: 0, out: 0 }; groups.push(g); }
+    const d = Number(m.delta) || 0;
+    g.items.push(m); g.net += d; if (d > 0) g.inn += d; else g.out -= d;
   });
   const yKey = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString(); })();
-  const dayName = (g) => (g.key === new Date().toDateString() ? "Aujourd'hui" : g.key === yKey ? "Hier" : g.date.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }));
-  const firstName = (n) => (n || "").trim().split(/\s+/).slice(-1)[0] || "";
-  const sel = "gb-focus w-full rounded-[12px] h-10 px-2.5 text-[12.5px] font-bold border";
+  const dayName = (g) => (g.key === new Date().toDateString() ? "Aujourd'hui" : g.key === yKey ? "Hier" : g.date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }));
+  const pLabel = { today: "Aujourd'hui", "7j": "7 derniers jours", "30j": "30 derniers jours", all: "Depuis le début", custom: "Période choisie" }[period];
+  const signed = (n) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n)}`;
+  const unitWord = (n) => (Math.abs(n) > 1 ? V.units : V.unit);
+
   return (
     <div className="pb-16">
-      <label className="flex items-center gap-2 h-10 px-3 rounded-[12px] mb-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-        <Search size={15} className="opacity-50 shrink-0" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un produit…" className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px]" />
-        {q && <button onClick={() => setQ("")} className="gb-focus p-0.5" aria-label="Effacer"><X size={13} /></button>}
-      </label>
-      <div className="grid grid-cols-2 gap-1.5">
-        <select value={period} onChange={(e) => setPeriod(e.target.value)} className={sel} style={{ borderColor: "var(--line)", background: "var(--card)" }} aria-label="Période">
-          <option value="today">Aujourd'hui</option><option value="7j">7 jours</option><option value="30j">30 jours</option><option value="all">Tout</option><option value="custom">Dates…</option>
-        </select>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} className={sel} style={filter === "all" ? { borderColor: "var(--line)", background: "var(--card)" } : { borderColor: "var(--glass)", background: "var(--glass)", color: "#fff" }} aria-label="Type">
-          <option value="all">Tous types</option>
-          {Object.entries(TYPES).map(([id, m]) => <option key={id} value={id}>{m.label}{counts[id] ? ` (${counts[id]})` : ""}</option>)}
-        </select>
+      {/* Bilan de la période */}
+      <div className="rounded-[22px] p-4 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, #16202A 0%, #1F2F3D 60%, #24394A 100%)", boxShadow: "0 14px 30px -18px rgba(22,32,42,0.8)" }}>
+        <div className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.05)" }} />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] opacity-65">Mouvements de stock · {pLabel}</p>
+            <p className="font-display font-bold text-[30px] leading-tight mt-1" style={{ color: net > 0 ? "#7BE0B0" : net < 0 ? "#FFB4AB" : "#fff" }}>{signed(net)} <span className="text-[15px] font-semibold text-white opacity-70">{unitWord(net)} net</span></p>
+            <p className="text-[12px] opacity-70 mt-0.5">{filtered.length} mouvement{filtered.length > 1 ? "s" : ""} · {touched} produit{touched > 1 ? "s" : ""} concerné{touched > 1 ? "s" : ""}</p>
+          </div>
+          <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }}><ArrowUpDown size={20} /></span>
+        </div>
+        <div className="relative mt-3.5 h-2.5 rounded-full overflow-hidden flex" style={{ background: "rgba(255,255,255,0.12)" }}>
+          {flow > 0 && <span style={{ width: `${(inSum / flow) * 100}%`, background: "#2FBF7F" }} />}
+          {flow > 0 && <span style={{ width: `${(outSum / flow) * 100}%`, background: "#E5574B" }} />}
+        </div>
+        <div className="relative grid grid-cols-2 gap-2 mt-3">
+          <div className="rounded-[14px] px-3 py-2" style={{ background: "rgba(47,191,127,0.14)" }}>
+            <p className="text-[11px] font-semibold opacity-80 flex items-center gap-1"><ArrowDownCircle size={13} color="#7BE0B0" /> Entrées</p>
+            <p className="font-display font-bold text-[19px]" style={{ color: "#7BE0B0" }}>+{inSum}</p>
+            <p className="text-[10.5px] opacity-65">{inVal ? `${fmt(inVal)} au prix d'achat` : " "}</p>
+          </div>
+          <div className="rounded-[14px] px-3 py-2" style={{ background: "rgba(229,87,75,0.15)" }}>
+            <p className="text-[11px] font-semibold opacity-80 flex items-center gap-1"><ArrowUpCircle size={13} color="#FFB4AB" /> Sorties</p>
+            <p className="font-display font-bold text-[19px]" style={{ color: "#FFB4AB" }}>−{outSum}</p>
+            <p className="text-[10.5px] opacity-65">{outVal ? `${fmt(outVal)} au prix d'achat` : " "}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Période */}
+      <div className="flex gap-1 p-1 rounded-[14px] mb-2" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        {[["today", "Aujourd'hui"], ["7j", "7 j"], ["30j", "30 j"], ["all", "Tout"], ["custom", "Dates"]].map(([id, l]) => (
+          <button key={id} onClick={() => setPeriod(id)} className="gb-focus flex-1 h-9 rounded-[10px] text-[12px] font-bold whitespace-nowrap" style={period === id ? { background: "var(--glass)", color: "#fff" } : {}}>{l}</button>
+        ))}
       </div>
       {period === "custom" && (
-        <div className="flex items-center gap-2 mt-2 gb-slide-up">
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
+        <div className="flex items-center gap-2 mb-2 gb-slide-up">
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
           <span className="text-xs opacity-50">au</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)" }} />
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
         </div>
       )}
-      <div className="grid grid-cols-3 rounded-[14px] overflow-hidden mt-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-        <div className="px-3 py-2"><p className="text-[10.5px] opacity-60">Mouvements</p><p className="font-display font-bold text-[15px]">{filtered.length}</p></div>
-        <div className="px-3 py-2" style={{ borderLeft: "1px solid var(--line)" }}><p className="text-[10.5px] opacity-60">Entrées</p><p className="font-display font-bold text-[15px]" style={{ color: "#1E7A46" }}>+{inSum}</p></div>
-        <div className="px-3 py-2" style={{ borderLeft: "1px solid var(--line)" }}><p className="text-[10.5px] opacity-60">Sorties</p><p className="font-display font-bold text-[15px]" style={{ color: "#B3261E" }}>−{outSum}</p></div>
+
+      {/* Répartition par type (sert aussi de filtre) */}
+      <div className="grid grid-cols-2 gap-1.5 mb-2">
+        <button onClick={() => setFilter("all")} className="gb-focus col-span-2 h-10 rounded-[12px] px-3 flex items-center justify-between text-[12.5px] font-bold" style={filter === "all" ? { background: "#16202A", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>
+          <span className="flex items-center gap-1.5"><Layers size={14} /> Tous les mouvements</span><span className="opacity-80">{base.length}</span>
+        </button>
+        {Object.entries(byType).sort((x, y) => y[1].n - x[1].n).map(([t, v]) => {
+          const T = typeOf(t);
+          const on = filter === t;
+          return (
+            <button key={t} onClick={() => setFilter(on ? "all" : t)} className="gb-focus rounded-[12px] px-2.5 py-2 flex items-center gap-2 text-left min-w-0" style={on ? { background: T.color, color: "#fff" } : { background: T.bg, color: T.color }}>
+              <span className="w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: on ? "rgba(255,255,255,0.22)" : "#fff" }}><T.Icon size={14} /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11.5px] font-bold truncate">{T.plural}</span>
+                <span className="block text-[10.5px] font-semibold opacity-80">{v.n} · {signed(v.net)}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
+
+      <label className="flex items-center gap-2 h-10 px-3 rounded-[12px] mb-1" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <Search size={15} className="opacity-50 shrink-0" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un produit ou une personne…" className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px]" />
+        {q && <button onClick={() => setQ("")} className="gb-focus p-0.5" aria-label="Effacer"><X size={13} /></button>}
+      </label>
+
       {filtered.length === 0 && <p className="text-sm opacity-50 text-center py-8 mt-2.5 rounded-[16px]" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>Aucun mouvement pour cette période.</p>}
       {groups.map((g) => (
-        <div key={g.key} className="rounded-[16px] overflow-hidden mt-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-          <div className="flex justify-between px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.06em] opacity-60" style={{ background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
-            <span>{dayName(g)}</span><span>{g.items.length} mouv. · net {g.net > 0 ? "+" : ""}{g.net}</span>
+        <div key={g.key} className="rounded-[18px] overflow-hidden mt-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 14px -10px rgba(22,32,42,0.25)" }}>
+          <div className="flex items-center justify-between gap-2 px-3.5 py-2.5" style={{ background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+            <span className="text-[12.5px] font-bold first-letter:uppercase">{dayName(g)}</span>
+            <span className="flex items-center gap-1.5 text-[11px] font-bold">
+              <span className="opacity-55">{g.items.length} mouv.</span>
+              {g.inn > 0 && <span className="px-1.5 py-0.5 rounded-md" style={{ background: "#E3F4EC", color: "#1E7A46" }}>+{g.inn}</span>}
+              {g.out > 0 && <span className="px-1.5 py-0.5 rounded-md" style={{ background: "#FCEBEA", color: "#B3261E" }}>−{g.out}</span>}
+            </span>
           </div>
           {g.items.map((m, i) => {
-            const meta = TYPES[m.type] || { label: m.type, color: "#66707A" };
+            const T = typeOf(m.type);
             const d = Number(m.delta) || 0;
-            const open = openId === m.id;
+            const open = openId === (m.id || i);
+            const before = Number(m.before);
+            const after = Number(m.after);
+            const maxBA = Math.max(1, before || 0, after || 0);
+            const val = Math.abs(d) * costOf(m);
             return (
               <div key={m.id || i} style={{ borderTop: i ? "1px solid var(--line)" : "none", background: open ? "var(--paper)" : "transparent" }}>
-                <button onClick={() => setOpenId(open ? null : m.id)} className="gb-focus w-full grid items-center gap-2 px-3 py-2 text-left" style={{ gridTemplateColumns: "40px 1fr auto" }}>
-                  <span className="text-[11.5px] opacity-55" style={{ fontVariantNumeric: "tabular-nums" }}>{new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-bold truncate">{m.productName}</span>
-                    <span className="block text-[11px] opacity-60 truncate"><span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: meta.color }} />{meta.label}{m.author ? ` · ${firstName(m.author)}` : ""}</span>
+                <button onClick={() => setOpenId(open ? null : (m.id || i))} className="gb-focus w-full flex items-center gap-3 px-3.5 py-2.5 text-left">
+                  <span className="relative w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: T.bg, color: T.color }}>
+                    <T.Icon size={17} />
                   </span>
-                  <span className="text-right">
-                    <span className="block font-display font-bold text-[14px]" style={{ color: d > 0 ? "#1E7A46" : d < 0 ? "#B3261E" : "#66707A", fontVariantNumeric: "tabular-nums" }}>{d > 0 ? "+" : ""}{d}</span>
-                    <span className="block text-[10.5px] font-mono opacity-50">{m.before ?? "—"} → {m.after ?? "—"}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[14px] font-bold truncate">{m.productName}</span>
+                    <span className="block text-[11.5px] truncate"><span className="font-semibold" style={{ color: T.color }}>{T.label}</span><span className="opacity-55"> · {new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{m.author ? ` · ${m.author}` : ""}</span></span>
+                  </span>
+                  <span className="text-right shrink-0">
+                    <span className="inline-block min-w-[44px] text-center px-2 py-0.5 rounded-[8px] font-display font-bold text-[14px]" style={{ background: d > 0 ? "#E3F4EC" : d < 0 ? "#FCEBEA" : "#EEF0F2", color: d > 0 ? "#1E7A46" : d < 0 ? "#B3261E" : "#66707A", fontVariantNumeric: "tabular-nums" }}>{signed(d)}</span>
+                    <span className="block text-[10.5px] opacity-55 mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>{m.before ?? "—"} → <b className="opacity-100">{m.after ?? "—"}</b></span>
                   </span>
                 </button>
                 {open && (
-                  <div className="px-3 pb-2.5 text-[11.5px] opacity-75 leading-relaxed gb-slide-up" style={{ paddingLeft: 60 }}>
-                    {meta.label} du {new Date(m.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}<br />
-                    Stock avant {m.before ?? "—"} · après {m.after ?? "—"} · variation {d > 0 ? "+" : ""}{d}<br />
-                    {m.note ? <>{m.note}<br /></> : null}
-                    Par {m.author || "—"}
+                  <div className="px-3.5 pb-3 gb-slide-up" style={{ paddingLeft: 66 }}>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[["Avant", m.before ?? "—", "var(--ink)"], ["Variation", signed(d), d > 0 ? "#1E7A46" : d < 0 ? "#B3261E" : "var(--ink)"], ["Après", m.after ?? "—", "var(--ink)"]].map(([l, v, c]) => (
+                        <div key={l} className="rounded-[10px] px-2 py-1.5 text-center" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                          <p className="text-[9.5px] font-bold uppercase tracking-wide opacity-55">{l}</p>
+                          <p className="font-bold text-[15px]" style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{v}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {Number.isFinite(before) && Number.isFinite(after) && (
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <span className="h-1.5 rounded-full" style={{ width: `${(before / maxBA) * 45}%`, background: "#C7CDD4" }} />
+                        <ChevronRight size={11} className="opacity-50 shrink-0" />
+                        <span className="h-1.5 rounded-full" style={{ width: `${(after / maxBA) * 45}%`, background: T.color }} />
+                      </div>
+                    )}
+                    <div className="mt-2 text-[11.5px] leading-relaxed">
+                      <p><span className="opacity-55">Date :</span> {new Date(m.date).toLocaleString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                      <p><span className="opacity-55">Par :</span> {m.author || "—"}</p>
+                      {val > 0 && <p><span className="opacity-55">Valeur :</span> {fmt(val)} au prix d'achat</p>}
+                      {m.note && <p><span className="opacity-55">Note :</span> {m.note}</p>}
+                    </div>
                   </div>
                 )}
               </div>
@@ -10038,25 +10268,51 @@ function MovementsLedger({ movements, categories }) {
 }
 
 function StockCountSection({ products, saveProducts, movements, saveMovements, categories, author, pushToast, pushNotification, avoirs = [] }) {
+  const fmt = useFmt();
+  const V = useVocab();
   const [counts, setCounts] = useState({});
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [cat, setCat] = useState("all");
+  const [helpOpen, setHelpOpen] = useState(true);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const setCount = (id, v) => setCounts((c) => ({ ...c, [id]: v }));
+  const clearCount = (id) => setCounts((c) => { const n = { ...c }; delete n[id]; return n; });
   const reserved = reservedByProduct(avoirs);
   const reservedTotal = Object.values(reserved).reduce((t, r) => t + r.qty, 0);
+  const unitOf = (p, n) => { const u = p.unit || V.unit; return Math.abs(n) > 1 && !/s$/.test(u) ? `${u}s` : u; };
 
-  // On compte ce qui est PHYSIQUEMENT sur place : stock disponible + bouteilles
+  // On compte ce qui est PHYSIQUEMENT sur place : stock disponible + articles
   // en réserve (avoirs produit). Le nouveau stock disponible = compté − réserve.
-  const filtered = products.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()));
-  const rows = filtered.map((p) => {
+  const countable = products.filter((p) => !p.stockFrom);
+  const allRows = countable.map((p) => {
     const res = reserved[p.id]?.qty || 0;
     const expected = (Number(p.stock) || 0) + res;
     const raw = counts[p.id];
     const hasEntry = raw !== undefined && raw !== "";
-    const countedNum = hasEntry ? Number(raw) : expected;
+    const countedNum = hasEntry ? Math.max(0, Number(raw) || 0) : expected;
     const newStock = Math.max(0, countedNum - res);
-    return { p, res, expected, hasEntry, countedNum, newStock, diff: countedNum - expected };
+    const diff = countedNum - expected;
+    const cost = Number(p.costPrice) || Number(p.price) || 0;
+    return { p, res, expected, hasEntry, countedNum, newStock, diff, value: diff * cost, status: !hasEntry ? "todo" : diff === 0 ? "ok" : diff < 0 ? "short" : "over" };
   });
-  const changed = rows.filter((r) => r.hasEntry && r.diff !== 0);
+  const changed = allRows.filter((r) => r.hasEntry && r.diff !== 0);
+  const done = allRows.filter((r) => r.hasEntry).length;
+  const okN = allRows.filter((r) => r.status === "ok").length;
+  const shortRows = allRows.filter((r) => r.status === "short");
+  const overRows = allRows.filter((r) => r.status === "over");
+  const shortUnits = shortRows.reduce((t, r) => t + r.diff, 0);
+  const overUnits = overRows.reduce((t, r) => t + r.diff, 0);
+  const shortValue = shortRows.reduce((t, r) => t + r.value, 0);
+  const overValue = overRows.reduce((t, r) => t + r.value, 0);
+  const pct = countable.length ? Math.round((done / countable.length) * 100) : 0;
+
+  const catIds = [...new Set(countable.map((p) => p.category).filter(Boolean))];
+  const q = query.trim().toLowerCase();
+  const rows = allRows.filter((r) => (!q || r.p.name.toLowerCase().includes(q)) && (cat === "all" || r.p.category === cat)
+    && (filter === "all" || (filter === "todo" ? r.status === "todo" : filter === "done" ? r.status !== "todo" : r.status === "short" || r.status === "over")));
+
+  const markAllOk = () => setCounts((c) => { const n = { ...c }; rows.forEach((r) => { if (!r.hasEntry) n[r.p.id] = String(r.expected); }); return n; });
 
   const validate = () => {
     if (changed.length === 0) { pushToast("Aucun écart à valider", "error"); return; }
@@ -10070,62 +10326,188 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
     pushToast(`Comptage validé — ${changed.length} écart${changed.length > 1 ? "s" : ""} ajusté${changed.length > 1 ? "s" : ""}`, "ok");
     pushNotification?.({ type: "stock_movement", movementType: "comptage", count: changed.length });
     setCounts({});
+    setConfirmOpen(false);
   };
 
+  const ST = {
+    todo: { label: "À compter", bg: "#F1F3F6", fg: "#5B6573", ring: "var(--line)" },
+    ok: { label: "Conforme", bg: "#E3F4EC", fg: "#0F6E56", ring: "#9BD3B8" },
+    short: { label: "Manquant", bg: "#FCEBEA", fg: "#B3261E", ring: "#F2B8B2" },
+    over: { label: "Surplus", bg: "#E8F0FB", fg: "#1D5FA8", ring: "#B7CDEE" },
+  };
+  const signed = (n) => `${n > 0 ? "+" : ""}${n}`;
+
   return (
-    <div className="pb-16">
-      <div className="rounded-2xl p-3.5 mb-4 flex items-start gap-2.5" style={{ background: "var(--paper-dim)" }}>
-        <ClipboardCheck size={16} className="shrink-0 mt-0.5" />
-        <p className="text-xs opacity-70">Saisis la quantité physiquement comptée pour chaque produit, <b>bouteilles en réserve comprises</b>. Seuls les écarts seront appliqués au stock, avec traçabilité dans les mouvements.</p>
+    <div style={{ paddingBottom: changed.length ? 260 : 64 }}>
+      {/* En-tête : progression et bilan des écarts */}
+      <div className="rounded-[22px] p-4 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, #0F3D2E 0%, #155A43 55%, #1F7A5A 100%)", boxShadow: "0 14px 30px -16px rgba(15,61,46,0.7)" }}>
+        <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.07)" }} />
+        <div className="flex items-start justify-between gap-3 relative">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] opacity-70">Comptage du stock</p>
+            <p className="font-display font-bold text-[26px] leading-tight mt-0.5">{done} <span className="text-[16px] opacity-70">/ {countable.length} produits</span></p>
+            <p className="text-[12px] opacity-75 mt-0.5 truncate first-letter:uppercase">{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {author || "—"}</p>
+          </div>
+          <div className="relative w-[62px] h-[62px] shrink-0">
+            <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90"><circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="3.5" /><circle cx="18" cy="18" r="15.5" fill="none" stroke="#7BE0B0" strokeWidth="3.5" strokeLinecap="round" strokeDasharray={`${(pct / 100) * 97.4} 97.4`} /></svg>
+            <span className="absolute inset-0 flex items-center justify-center text-[13px] font-bold">{pct}%</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-3.5 relative">
+          {[["Conformes", okN, "", "#7BE0B0"], ["Manquants", shortUnits ? signed(shortUnits) : 0, shortValue ? fmt(shortValue) : "", "#FFB4AB"], ["Surplus", overUnits ? signed(overUnits) : 0, overValue ? `+${fmt(overValue)}` : "", "#A9C8FF"]].map(([l, v, sub, c]) => (
+            <div key={l} className="rounded-[14px] px-2.5 py-2" style={{ background: "rgba(255,255,255,0.09)" }}>
+              <p className="text-[10.5px] font-semibold opacity-75">{l}</p>
+              <p className="font-display font-bold text-[18px] leading-tight" style={{ color: c }}>{v}</p>
+              <p className="text-[10px] opacity-70 truncate min-h-[14px]">{sub}</p>
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* Mode d'emploi */}
+      <div className="rounded-[18px] mb-3 overflow-hidden" style={{ background: "#FFF8EC", border: "1px solid #F3DDB3" }}>
+        <button onClick={() => setHelpOpen((o) => !o)} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
+          <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#F6C453" }}><ClipboardCheck size={16} color="#5A3B00" /></span>
+          <span className="flex-1 text-[13.5px] font-bold" style={{ color: "#5A3B00" }}>Comment faire le comptage ?</span>
+          <ChevronDown size={17} color="#8A5A00" style={{ transform: helpOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+        </button>
+        {helpOpen && (
+          <div className="px-3.5 pb-3 grid gap-2 gb-slide-up">
+            {[["1", "Comptez sur place", `Tout ce qui est physiquement présent, ${V.units} en réserve comprises (avoirs produit).`], ["2", "Saisissez le nombre", "Tapez le chiffre, ou utilisez − / +. « Conforme » si le compte est juste."], ["3", "Vérifiez puis validez", "Seuls les écarts sont appliqués au stock, avec une trace dans « Mouvements »."]].map(([n, t, d]) => (
+              <div key={n} className="flex items-start gap-2.5">
+                <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11.5px] font-bold text-white" style={{ background: "#B7791F" }}>{n}</span>
+                <p className="text-[12px] leading-snug" style={{ color: "#5A3B00" }}><b>{t}</b> — {d}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {reservedTotal > 0 && (
-        <div className="rounded-2xl p-3.5 mb-3" style={{ background: "#EEEDFE", color: "#26215C" }}>
+        <div className="rounded-[18px] p-3.5 mb-3" style={{ background: "#EEEDFE", color: "#26215C", border: "1px solid #D6D3FA" }}>
           <p className="text-[13px] font-bold flex items-center gap-1.5"><PackageX size={15} /> {reservedTotal} article{reservedTotal > 1 ? "s" : ""} en réserve (avoirs produit)</p>
-          <p className="text-[11.5px] mt-0.5 opacity-80">Déjà payés et sortis du stock disponible, mais toujours sur place : ils sont ajoutés au stock attendu pour le comptage.</p>
+          <p className="text-[11.5px] mt-0.5 opacity-80">Déjà payés et sortis du stock disponible, mais toujours sur place : ils sont ajoutés au stock attendu.</p>
           <div className="mt-2 flex flex-col gap-1">
             {Object.entries(reserved).map(([pid, r]) => { const p = products.find((x) => x.id === pid); return <div key={pid} className="flex justify-between text-[12px]"><span className="truncate">{p?.name || "Produit"} · {r.clients.join(", ")}</span><span className="font-mono font-bold shrink-0 ml-2">{r.qty}</span></div>; })}
           </div>
         </div>
       )}
-      <div className="flex items-center gap-2 rounded-xl px-3 py-2 mb-3" style={{ background: "var(--paper-dim)" }}>
+
+      {/* Recherche et filtres */}
+      <div className="flex items-center gap-2 rounded-[14px] px-3 h-11 mb-2" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
         <Search size={15} className="opacity-50" />
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un produit" className="gb-focus bg-transparent outline-none text-sm flex-1 min-w-0" />
+        {query && <button onClick={() => setQuery("")} className="gb-focus w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Effacer"><X size={12} /></button>}
       </div>
-      <div className="flex flex-col gap-2">
-        {rows.map(({ p, diff, hasEntry, res, expected, newStock }) => (
-          <div key={p.id} className="rounded-xl p-3 border flex items-center gap-3" style={{ borderColor: hasEntry && diff !== 0 ? "var(--cap)" : "var(--line)", background: "var(--card)" }}>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><CategoryIcon cat={p.category} categories={categories} size={14} /></div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{p.name}</div>
-              {res > 0 ? (
-                <>
-                  <div className="text-[11px] font-mono"><span className="opacity-50">Disponible {p.stock} + </span><span className="font-bold" style={{ color: "#534AB7" }}>{res} en réserve</span><span className="opacity-50"> = {expected} attendus</span></div>
-                  {hasEntry && <div className="text-[11px] font-mono mt-0.5" style={{ color: "#1E7A46" }}>Stock réel disponible → {newStock}</div>}
-                </>
-              ) : (
-                <div className="text-[11px] opacity-50 font-mono">Système : {p.stock} {p.unit}s</div>
-              )}
-            </div>
-            <input
-              type="number"
-              value={counts[p.id] ?? ""}
-              onChange={(e) => setCount(p.id, e.target.value)}
-              placeholder={String(expected)}
-              className="gb-focus w-16 text-center rounded-lg px-2 py-1.5 text-sm border font-mono shrink-0"
-              style={{ borderColor: "var(--line)" }}
-            />
-            {hasEntry && diff !== 0 && (
-              <span className="text-xs font-mono font-bold shrink-0 w-10 text-right" style={{ color: diff > 0 ? "#1CA857" : "var(--danger)" }}>{diff > 0 ? "+" : ""}{diff}</span>
-            )}
-          </div>
+      <div className="flex gap-1.5 overflow-x-auto gb-scroll pb-1 mb-1.5" style={{ scrollbarWidth: "none" }}>
+        {[["all", "Tous", allRows.length], ["todo", "À compter", allRows.length - done], ["done", "Comptés", done], ["gap", "Écarts", changed.length]].map(([id, l, n]) => (
+          <button key={id} onClick={() => setFilter(id)} className="gb-focus shrink-0 h-9 px-3 rounded-full text-[12.5px] font-bold flex items-center gap-1.5" style={filter === id ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>
+            {l}<span className="min-w-[20px] h-5 px-1.5 rounded-full text-[10.5px] flex items-center justify-center" style={{ background: filter === id ? "rgba(255,255,255,0.22)" : "var(--paper-dim)" }}>{n}</span>
+          </button>
         ))}
       </div>
+      {catIds.length > 1 && (
+        <div className="flex gap-1.5 overflow-x-auto gb-scroll pb-1 mb-2" style={{ scrollbarWidth: "none" }}>
+          {[["all", "Toutes catégories", null], ...catIds.map((c) => [c, getCategory(categories, c).label, getCategory(categories, c).color])].map(([id, l, c]) => (
+            <button key={id} onClick={() => setCat(id)} className="gb-focus shrink-0 h-8 px-2.5 rounded-[10px] text-[11.5px] font-bold flex items-center gap-1.5" style={cat === id ? { background: c || "var(--ink)", color: "#fff" } : { background: "var(--paper-dim)", color: c || "var(--ink)" }}>
+              {id !== "all" && <CategoryIcon cat={id} categories={categories} size={12} />}{l}
+            </button>
+          ))}
+        </div>
+      )}
+      {rows.some((r) => !r.hasEntry) && (
+        <button onClick={markAllOk} className="gb-focus w-full h-9 mb-2.5 rounded-[12px] text-[12px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#E3F4EC", color: "#0F6E56" }}><Check size={14} strokeWidth={3} /> Tous les autres sont conformes</button>
+      )}
 
+      {/* Produits */}
+      <div className="flex flex-col gap-2.5">
+        {rows.map((r) => {
+          const { p, diff, hasEntry, res, expected, newStock, status, value } = r;
+          const st = ST[status];
+          const c = getCategory(categories, p.category);
+          const cur = hasEntry ? r.countedNum : expected;
+          return (
+            <div key={p.id} className="rounded-[18px] p-3" style={{ background: "var(--card)", border: `1.5px solid ${st.ring}`, boxShadow: status !== "todo" ? `0 6px 16px -12px ${st.fg}` : "none" }}>
+              <div className="flex items-center gap-3">
+                <span className="w-11 h-11 rounded-[13px] overflow-hidden flex items-center justify-center shrink-0" style={{ background: `${c.color}1F` }}>
+                  {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={19} />}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[14.5px] font-bold truncate">{p.name}</p>
+                  <p className="text-[11.5px] opacity-60 truncate">{c.label}{res > 0 ? ` · dont ${res} en réserve` : ""}</p>
+                </div>
+                <span className="shrink-0 text-[10.5px] font-bold px-2 py-1 rounded-full flex items-center gap-1" style={{ background: st.bg, color: st.fg }}>
+                  {status === "ok" && <Check size={11} strokeWidth={3} />}{status === "todo" ? st.label : status === "ok" ? st.label : `${st.label} ${signed(diff)}`}
+                </span>
+              </div>
+              <div className="flex items-center gap-2.5 mt-2.5">
+                <div className="flex-1 min-w-0 rounded-[12px] px-2.5 py-1.5" style={{ background: "var(--paper-dim)" }}>
+                  <p className="text-[10px] font-bold uppercase tracking-wide opacity-55">Attendu</p>
+                  <p className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{expected} <span className="text-[11px] font-semibold opacity-60">{unitOf(p, expected)}</span></p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => setCount(p.id, String(Math.max(0, cur - 1)))} className="gb-focus w-9 h-10 rounded-[11px] flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label={`Moins ${p.name}`}><Minus size={15} /></button>
+                  <input type="number" inputMode="numeric" min="0" value={counts[p.id] ?? ""} onChange={(e) => setCount(p.id, e.target.value)} placeholder={String(expected)} className="gb-focus w-[64px] h-10 text-center rounded-[11px] text-[17px] font-bold" style={{ border: `1.5px solid ${hasEntry ? st.fg : "var(--line)"}`, color: hasEntry ? st.fg : "var(--ink)", background: "var(--card)", fontVariantNumeric: "tabular-nums" }} aria-label={`Quantité comptée ${p.name}`} />
+                  <button onClick={() => setCount(p.id, String(cur + 1))} className="gb-focus w-9 h-10 rounded-[11px] flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label={`Plus ${p.name}`}><Plus size={15} /></button>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-2">
+                {!hasEntry ? (
+                  <button onClick={() => setCount(p.id, String(expected))} className="gb-focus h-8 px-3 rounded-[10px] text-[11.5px] font-bold flex items-center gap-1" style={{ background: "#E3F4EC", color: "#0F6E56" }}><Check size={13} strokeWidth={3} /> Conforme ({expected})</button>
+                ) : (
+                  <p className="text-[11.5px] font-semibold min-w-0" style={{ color: st.fg }}>
+                    {status === "ok" ? "Compte juste, rien à ajuster" : <>Stock {p.stock} → <b>{newStock}</b>{value ? ` · ${value > 0 ? "+" : ""}${fmt(value)}` : ""}</>}
+                  </p>
+                )}
+                {hasEntry && <button onClick={() => clearCount(p.id)} className="gb-focus h-8 px-2.5 rounded-[10px] text-[11px] font-bold opacity-70 shrink-0" style={{ background: "var(--paper-dim)" }}>Effacer</button>}
+              </div>
+            </div>
+          );
+        })}
+        {rows.length === 0 && <p className="text-[12.5px] opacity-55 text-center py-8">Aucun produit pour ce filtre.</p>}
+      </div>
+
+      {/* Barre de validation */}
       {changed.length > 0 && (
-        <div className="fixed left-1/2 -translate-x-1/2 z-30 w-[calc(100%-2rem)] max-w-[380px] no-print gb-slide-up" style={{ bottom: "calc(5rem + env(safe-area-inset-bottom))" }}>
-          <button onClick={validate} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm shadow-xl flex items-center justify-center gap-2 text-white" style={{ background: "var(--glass)" }}>
-            <ClipboardCheck size={16} /> Valider {changed.length} écart{changed.length > 1 ? "s" : ""}
-          </button>
+        <div className="fixed left-1/2 -translate-x-1/2 z-[31] w-[calc(100%-2rem)] max-w-[420px] no-print gb-slide-up" style={{ bottom: "calc(10.2rem + env(safe-area-inset-bottom))" }}>
+          <div className="rounded-[20px] p-2.5 shadow-2xl" style={{ background: "#16202A", color: "#fff" }}>
+            <div className="flex items-center justify-between gap-2 px-1.5 pb-2">
+              <p className="text-[13px] font-bold">{changed.length} écart{changed.length > 1 ? "s" : ""} à appliquer</p>
+              <p className="text-[11.5px] font-semibold truncate"><span style={{ color: "#FFB4AB" }}>{shortUnits ? `${shortUnits}` : ""}</span>{shortUnits && overUnits ? <span className="opacity-50"> · </span> : ""}<span style={{ color: "#A9C8FF" }}>{overUnits ? `+${overUnits}` : ""}</span><span className="opacity-75">{shortValue + overValue ? ` · ${fmt(shortValue + overValue)}` : ""}</span></p>
+            </div>
+            <button onClick={() => setConfirmOpen(true)} className="gb-focus w-full h-11 rounded-[14px] text-[14px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#2FBF7F", color: "#06301F" }}><ClipboardCheck size={16} /> Vérifier et valider le comptage</button>
+          </div>
+        </div>
+      )}
+
+      {/* Récapitulatif avant validation */}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setConfirmOpen(false)}>
+          <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up max-h-[88vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 18px))" }} onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+            <div className="flex items-center gap-3 mb-3">
+              <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "#E3F4EC", color: "#0F6E56" }}><ClipboardCheck size={21} /></span>
+              <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px] leading-tight">Valider le comptage</p><p className="text-[12px] opacity-60">{changed.length} produit{changed.length > 1 ? "s" : ""} seront ajustés · {okN} conforme{okN > 1 ? "s" : ""}</p></div>
+              <button onClick={() => setConfirmOpen(false)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+            </div>
+            <div className="rounded-[16px] overflow-hidden mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+              <div className="grid px-3 py-2 text-[10.5px] font-bold uppercase tracking-wide opacity-55" style={{ gridTemplateColumns: "1fr 54px 54px 58px", borderBottom: "1px solid var(--line)" }}><span>Produit</span><span className="text-right">Avant</span><span className="text-right">Après</span><span className="text-right">Écart</span></div>
+              {changed.map((r, i) => (
+                <div key={r.p.id} className="grid items-center px-3 py-2 text-[13px]" style={{ gridTemplateColumns: "1fr 54px 54px 58px", borderTop: i ? "1px solid var(--line)" : "none", fontVariantNumeric: "tabular-nums" }}>
+                  <span className="min-w-0 truncate font-semibold">{r.p.name}</span>
+                  <span className="text-right opacity-60">{r.p.stock}</span>
+                  <span className="text-right font-bold">{r.newStock}</span>
+                  <span className="text-right font-bold" style={{ color: r.diff < 0 ? "#B3261E" : "#1D5FA8" }}>{signed(r.diff)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="rounded-[14px] px-3 py-2" style={{ background: "#FCEBEA", color: "#B3261E" }}><p className="text-[11px] font-bold opacity-80">Manquants</p><p className="font-bold text-[15px]">{shortUnits || 0} · {fmt(shortValue)}</p></div>
+              <div className="rounded-[14px] px-3 py-2" style={{ background: "#E8F0FB", color: "#1D5FA8" }}><p className="text-[11px] font-bold opacity-80">Surplus</p><p className="font-bold text-[15px]">+{overUnits || 0} · {fmt(overValue)}</p></div>
+            </div>
+            <p className="text-[11.5px] opacity-60 mb-3">Valeur calculée au prix d'achat. Chaque ajustement est enregistré dans « Mouvements » (type Comptage, par {author || "—"}).</p>
+            <button onClick={validate} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white flex items-center justify-center gap-2" style={{ background: "var(--glass)" }}><Check size={18} strokeWidth={3} /> Appliquer {changed.length} ajustement{changed.length > 1 ? "s" : ""}</button>
+          </div>
         </div>
       )}
     </div>
@@ -10136,7 +10518,7 @@ function ProfitabilitySection({ products, sales, saveSales, movements, saveProdu
   const fmt = useFmt();
   const symbol = useCurrencySymbol();
   const [confirming, setConfirming] = useState(false);
-  const [periodFilter, setPeriodFilter] = useState("all");
+  const [periodFilter, setPeriodFilter] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
 
@@ -10251,6 +10633,15 @@ function ProfitabilitySection({ products, sales, saveSales, movements, saveProdu
 
   const [sortBy, setSortBy] = useState("profit");
   const [sinceOpen, setSinceOpen] = useState(false);
+  // Repères de la période en cours : dernier inventaire validé, début de la
+  // nouvelle période de vente et première vente enregistrée depuis.
+  const lastInv = [...(inventories || [])].sort((a, b) => new Date(b.date) - new Date(a.date))[0] || null;
+  const openingDates = stockRows.map((r) => r.L.openingDate).filter(Boolean).map((d) => new Date(d).getTime()).filter((t) => t > 0);
+  const periodStartMs = lastInv ? new Date(lastInv.date).getTime() : (openingDates.length ? Math.min(...openingDates) : null);
+  const firstSaleMs = periodStartMs == null ? null : (sales || []).reduce((m, x) => { const t = new Date(x.date).getTime(); return t > periodStartMs && (m == null || t < m) ? t : m; }, null);
+  const daysSince = periodStartMs ? Math.max(0, Math.floor((Date.now() - periodStartMs) / 864e5)) : 0;
+  const dLong = (t) => new Date(t).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "long", year: "numeric" });
+  const hShort = (t) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   const pLabel = { all: "depuis le début", today: "aujourd'hui", "7j": "7 jours", "30j": "30 jours", custom: "période choisie" }[periodFilter];
   const marginPct = periodTotals.revenue > 0 ? Math.round((periodTotals.profit / periodTotals.revenue) * 100) : 0;
   const costPct = periodTotals.revenue > 0 ? Math.min(100, Math.max(0, (periodTotals.cost / periodTotals.revenue) * 100)) : 0;
@@ -10326,12 +10717,39 @@ function ProfitabilitySection({ products, sales, saveSales, movements, saveProdu
       <div className="rounded-[18px] mt-3 mb-2.5 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
         <button onClick={() => setSinceOpen((o) => !o)} aria-expanded={sinceOpen} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-3 text-left">
           <ClipboardCheck size={17} color="var(--glass)" />
-          <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">Depuis le dernier inventaire</span><span className="block text-[11.5px] opacity-60">{stockTotals.sold} unités vendues · bénéfice {nbsp(fmt(stockTotals.profit))}</span></span>
+          <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">Depuis le dernier inventaire</span><span className="block text-[11.5px] opacity-60">{periodStartMs ? `Depuis le ${new Date(periodStartMs).toLocaleDateString("fr-FR")} · ` : ""}{stockTotals.sold} unités vendues · bénéfice {nbsp(fmt(stockTotals.profit))}</span></span>
           <ChevronDown size={17} style={{ transform: sinceOpen ? "rotate(180deg)" : "none", transition: "transform .2s", opacity: 0.6 }} />
         </button>
         {sinceOpen && (
       <div className="px-3.5 pb-3.5 gb-slide-up" style={{ borderTop: "1px solid var(--line)" }}>
-        <p className="text-[11px] opacity-50 my-2.5">Stock de départ + arrivages − ventes = stock actuel, pour chaque produit. Indépendant de la période choisie ci-dessus.</p>
+        {/* Frise de la période en cours */}
+        <div className="rounded-[16px] p-3 mt-3 mb-2.5" style={{ background: "linear-gradient(135deg, #F3F1FF 0%, #EEF8F3 55%, #FFF6EA 100%)", border: "1px solid var(--line)" }}>
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] opacity-60">Période de vente en cours</p>
+            {periodStartMs && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#16202A", color: "#fff" }}>{daysSince === 0 ? "Commencée aujourd'hui" : `${daysSince} jour${daysSince > 1 ? "s" : ""}`}</span>}
+          </div>
+          <div className="relative">
+            <div className="absolute left-[16px] top-[18px] bottom-[18px] w-[3px] rounded-full" style={{ background: "linear-gradient(180deg, #5B4FD6, #1E9E6A, #E08A1E)", opacity: 0.45 }} />
+            {[
+              { c: "#5B4FD6", bg: "#ECEAFD", Icon: ClipboardCheck, t: "Dernier inventaire", d: lastInv ? dLong(lastInv.date) : "Aucun inventaire validé", sub: lastInv ? `à ${hShort(lastInv.date)}${lastInv.author ? ` · par ${lastInv.author}` : ""}` : "Le calcul part du stock de départ de chaque produit" },
+              { c: "#1E9E6A", bg: "#E3F4EC", Icon: CalendarCheck, t: "Début de la nouvelle période de vente", d: periodStartMs ? dLong(periodStartMs) : "—", sub: firstSaleMs ? `Première vente le ${new Date(firstSaleMs).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} à ${hShort(firstSaleMs)}` : "Aucune vente enregistrée depuis" },
+              { c: "#E08A1E", bg: "#FFF1DE", Icon: TrendingUp, t: "Aujourd'hui", d: dLong(Date.now()), sub: `${stockTotals.sold} unité${stockTotals.sold > 1 ? "s" : ""} vendue${stockTotals.sold > 1 ? "s" : ""} · bénéfice ${nbsp(fmt(stockTotals.profit))}` },
+            ].map((n, i) => (
+              <div key={n.t} className="relative flex items-start gap-3" style={{ marginTop: i ? 10 : 0 }}>
+                <span className="relative z-[1] w-[35px] h-[35px] rounded-full flex items-center justify-center shrink-0" style={{ background: n.c, boxShadow: `0 0 0 4px ${n.bg}, 0 6px 12px -4px ${n.c}` }}><n.Icon size={16} color="#fff" /></span>
+                <div className="flex-1 min-w-0 rounded-[12px] px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: `1px solid ${n.bg}` }}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: n.c }}>{n.t}</p>
+                  <p className="text-[13.5px] font-bold leading-tight mt-0.5 first-letter:uppercase">{n.d}</p>
+                  <p className="text-[11px] opacity-65 mt-0.5">{n.sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {lastInv?.totals && (
+            <p className="text-[10.5px] mt-2.5 pt-2 text-center" style={{ borderTop: "1px dashed var(--line)", color: "#4A3FB8" }}>Inventaire précédent clôturé avec {lastInv.totals.sold ?? 0} unités vendues · bénéfice {nbsp(fmt(lastInv.totals.profit || 0))}</p>
+          )}
+        </div>
+        <p className="text-[11px] opacity-50 mb-2.5">Stock de départ + arrivages − ventes = stock actuel, pour chaque produit. Indépendant de la période choisie ci-dessus.</p>
 
         <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="rounded-xl px-3 py-2" style={{ background: "var(--paper)" }}><p className="text-[10px] opacity-50">Unités vendues</p><p className="font-mono font-semibold text-sm">{stockTotals.sold}</p></div>
@@ -11570,7 +11988,7 @@ function InventorySection({ shop, avoirs = [], expenses, vendors, cashRegisterEn
         ))}
       </div>
       {tab === "apercu" && <InventoryOverview products={products} categories={categories} movements={movements} />}
-      {tab === "mouvements" && <MovementsLedger movements={movements} categories={categories} />}
+      {tab === "mouvements" && <MovementsLedger movements={movements} categories={categories} products={products} />}
       {tab === "comptage" && <StockCountSection products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} categories={categories} author={author} pushToast={pushToast} pushNotification={pushNotification} avoirs={avoirs} />}
       {tab === "rentabilite" && <ProfitabilitySection products={products} sales={sales} saveSales={saveSales} movements={movements} saveProducts={saveProducts} inventories={inventories} saveInventories={saveInventories} categories={categories} author={author} pushToast={pushToast} />}
       {tab === "versements" && <VersementsSection shop={shop} sales={sales || []} expenses={expenses || []} vendors={vendors || []} cashRegisterEntries={cashRegisterEntries || []} versements={versements || []} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} onUpdateVersement={onUpdateVersement} onDeleteVersement={onDeleteVersement} author={author} pushToast={pushToast} />}
@@ -11864,6 +12282,22 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
   const catalog = supplierProducts.filter((sp) => sp.supplierId === supplier.id);
   const [crates, setCrates] = useState({});
   const [query, setQuery] = useState("");
+  // Format du lot par produit : celui du catalogue par défaut, ou Lot de 10,
+  // Lot de 20, ou « Autre » (quantité et montant saisis). { size, price, other }
+  const [lotFmt, setLotFmt] = useState({});
+  const baseUnitPrice = (sp) => (Number(sp.cratePrice) || 0) / Math.max(1, Number(sp.crateSize) || 1);
+  const lotOf = (sp) => {
+    const f = lotFmt[sp.id];
+    if (!f) return { size: Number(sp.crateSize) || 1, price: Number(sp.cratePrice) || 0, other: false, custom: false };
+    return { size: Math.max(0, Number(f.size) || 0), price: Math.max(0, Number(f.price) || 0), other: !!f.other, custom: true };
+  };
+  const pickLot = (sp, size, other = false) => setLotFmt((m) => {
+    const cat = Number(sp.crateSize) || 1;
+    if (!other && size === cat) { const n = { ...m }; delete n[sp.id]; return n; }
+    const prev = m[sp.id];
+    return { ...m, [sp.id]: { size: other ? (prev?.other ? prev.size : "") : size, price: other ? (prev?.other ? prev.price : "") : Math.round(baseUnitPrice(sp) * size), other } };
+  });
+  const editLot = (sp, patch) => setLotFmt((m) => ({ ...m, [sp.id]: { ...(m[sp.id] || { size: "", price: "", other: true }), ...patch } }));
   // Date de la commande : aujourd'hui par défaut, ou une date passée (commande oubliée).
   const todayK = cashDayKeyOf(new Date());
   const yesterdayK = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return cashDayKeyOf(d); })();
@@ -11882,8 +12316,12 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
 
   const lineItems = Object.entries(crates).map(([id, n]) => {
     const sp = catalog.find((x) => x.id === id);
-    return sp ? { productId: sp.productId, productName: sp.productName, barcode: sp.barcode || "", category: sp.category || "", crateSize: sp.crateSize, cratePrice: sp.cratePrice, salePrice: sp.salePrice || 0, crates: n } : null;
+    if (!sp) return null;
+    const lot = lotOf(sp);
+    if (!(lot.size > 0) || !(lot.price > 0)) return null;
+    return { productId: sp.productId, productName: sp.productName, barcode: sp.barcode || "", category: sp.category || "", crateSize: lot.size, cratePrice: lot.price, salePrice: sp.salePrice || 0, crates: n, ...(lot.custom ? { lotCustom: true } : {}) };
   }).filter(Boolean);
+  const incompleteLot = Object.keys(crates).some((id) => { const sp = catalog.find((x) => x.id === id); if (!sp) return false; const l = lotOf(sp); return !(l.size > 0) || !(l.price > 0); });
   const total = lineItems.reduce((sum, l) => sum + l.crates * l.cratePrice, 0);
   const totalCrates = lineItems.reduce((sum, l) => sum + l.crates, 0);
   const productOf = (sp) => products.find((x) => x.id === sp.productId) || products.find((x) => (x.name || "").trim().toLowerCase() === (sp.productName || "").trim().toLowerCase());
@@ -11957,16 +12395,20 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
                   const n = crates[sp.id] || 0;
                   const stock = prod && !prod.stockFrom ? Number(prod.stock) || 0 : null;
                   const low = stock != null && stock <= Number(prod.minStock || 0);
-                  const after = stock != null ? stock + n * (Number(sp.crateSize) || 0) : null;
+                  const lot = lotOf(sp);
+                  const after = stock != null ? stock + n * (lot.size || 0) : null;
                   const img = prod?.image || sp.image;
+                  const catSize = Number(sp.crateSize) || 1;
+                  const sizes = [...new Set([10, 20, catSize])].sort((a, b) => a - b);
                   return (
-                    <div key={sp.id} className="rounded-[16px] p-2.5 flex items-center gap-3" style={{ background: "var(--card)", border: `1.5px solid ${n > 0 ? "var(--glass)" : "var(--line)"}` }}>
+                    <div key={sp.id} className="rounded-[16px] p-2.5" style={{ background: "var(--card)", border: `1.5px solid ${n > 0 ? "var(--glass)" : "var(--line)"}` }}>
+                    <div className="flex items-center gap-3">
                       <span className="w-[52px] h-[52px] rounded-[13px] overflow-hidden flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}>
                         {img ? <img src={img} alt="" className="w-full h-full object-cover" /> : sp.category ? <CategoryIcon cat={sp.category} categories={categories} size={20} /> : <Package size={20} className="opacity-50" />}
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="text-[14px] font-bold truncate">{sp.productName}</div>
-                        <div className="text-[11.5px] opacity-60">{V.Pack} de {sp.crateSize} · {fmt(sp.cratePrice)}</div>
+                        <div className="text-[11.5px] opacity-60">{V.Pack} de {lot.size || "…"} · {lot.price ? fmt(lot.price) : "montant à saisir"}</div>
                         <div className="flex flex-wrap items-center gap-1 mt-1">
                           {stock == null ? (
                             <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#EEF1F6", color: "#46546A" }}>Pas encore en stock</span>
@@ -11975,7 +12417,7 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
                               {low ? "Stock bas · " : "En stock · "}{stock} {plural(stock, V.unit, V.units)}
                             </span>
                           )}
-                          {n > 0 && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--glass)", color: "#fff" }}>{stock != null ? `→ ${after} après livraison` : `+${n * sp.crateSize} ${V.units}`}</span>}
+                          {n > 0 && lot.size > 0 && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--glass)", color: "#fff" }}>{stock != null ? `→ ${after} après livraison` : `+${n * lot.size} ${V.units}`}</span>}
                         </div>
                       </div>
                       <div className="flex flex-col items-center gap-1 shrink-0">
@@ -11984,13 +12426,43 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
                           <span className="w-6 text-center text-[15px] font-bold">{n}</span>
                           <button onClick={() => setQty(sp.id, n + 1)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center" style={{ background: n > 0 ? "var(--glass)" : "var(--paper-dim)", color: n > 0 ? "#fff" : "inherit" }} aria-label="Plus"><Plus size={14} /></button>
                         </div>
-                        {n > 0 && <span className="text-[11px] font-bold" style={{ color: "var(--glass)" }}>{fmt(sp.cratePrice * n)}</span>}
+                        {n > 0 && lot.price > 0 && <span className="text-[11px] font-bold" style={{ color: "var(--glass)" }}>{fmt(lot.price * n)}</span>}
                       </div>
+                    </div>
+                    {/* Format du lot */}
+                    <div className="mt-2.5 pt-2.5" style={{ borderTop: "1px dashed var(--line)" }}>
+                      <p className="text-[10.5px] font-bold uppercase tracking-[0.06em] opacity-55 mb-1.5">Format du {V.pack}</p>
+                      <div className="flex gap-1.5">
+                        {sizes.map((z) => {
+                          const on = !lot.other && lot.size === z;
+                          return (
+                            <button key={z} onClick={() => pickLot(sp, z)} aria-pressed={on} className="gb-focus flex-1 min-w-0 h-9 rounded-[10px] text-[12px] font-bold whitespace-nowrap" style={on ? { background: "var(--glass)", color: "#fff" } : { background: "var(--paper-dim)" }}>{V.Pack} de {z}</button>
+                          );
+                        })}
+                        <button onClick={() => pickLot(sp, 0, true)} aria-pressed={lot.other} className="gb-focus flex-1 min-w-0 h-9 rounded-[10px] text-[12px] font-bold whitespace-nowrap flex items-center justify-center gap-1" style={lot.other ? { background: "#9A5B00", color: "#fff" } : { background: "var(--paper-dim)" }}><Pencil size={11} /> Autre</button>
+                      </div>
+                      {lot.custom && (
+                        <div className="flex gap-2 mt-2 gb-slide-up">
+                          {lot.other && (
+                            <label className="flex-1 min-w-0 rounded-[10px] px-2.5 py-1.5" style={{ background: "#FFF6E5", border: "1px solid #F3D9A4" }}>
+                              <span className="block text-[10px] font-bold opacity-70">{V.units.charAt(0).toUpperCase() + V.units.slice(1)} par {V.pack}</span>
+                              <input type="number" inputMode="numeric" min="1" value={lotFmt[sp.id]?.size ?? ""} onChange={(e) => editLot(sp, { size: e.target.value, other: true })} placeholder="ex. 15" className="gb-focus w-full bg-transparent outline-none text-[14px] font-bold" aria-label={`Quantité du lot ${sp.productName}`} />
+                            </label>
+                          )}
+                          <label className="flex-1 min-w-0 rounded-[10px] px-2.5 py-1.5" style={{ background: lot.other ? "#FFF6E5" : "var(--paper-dim)", border: `1px solid ${lot.other ? "#F3D9A4" : "var(--line)"}` }}>
+                            <span className="block text-[10px] font-bold opacity-70">Montant du {V.pack}</span>
+                            <input type="number" inputMode="numeric" min="0" value={lotFmt[sp.id]?.price ?? ""} onChange={(e) => editLot(sp, { price: e.target.value })} placeholder="ex. 750" className="gb-focus w-full bg-transparent outline-none text-[14px] font-bold" aria-label={`Montant du lot ${sp.productName}`} />
+                          </label>
+                        </div>
+                      )}
+                      {lot.custom && lot.size > 0 && lot.price > 0 && <p className="text-[10.5px] mt-1.5 opacity-60">Soit {fmt(Math.round(lot.price / lot.size))} par {V.unit} · catalogue : {V.pack} de {catSize} à {fmt(sp.cratePrice)}</p>}
+                    </div>
                     </div>
                   );
                 })}
                 {filteredCatalog.length === 0 && <p className="text-xs opacity-50 text-center py-6">Aucun produit ne correspond à la recherche.</p>}
               </div>
+              {incompleteLot && <p className="text-[12px] font-semibold mb-2 px-1" style={{ color: "#9A5B00" }}>Complète la quantité et le montant du {V.pack} « Autre » avant d'enregistrer.</p>}
               <div className="rounded-[18px] p-3.5 mb-3 flex items-center justify-between" style={{ background: "var(--glass)", color: "#fff" }}>
                 <div>
                   <p className="text-[11.5px] opacity-75">Total de la commande</p>
@@ -11998,9 +12470,9 @@ function PurchaseOrderModal({ supplier, supplierProducts, products = [], categor
                 </div>
                 <span className="font-display font-bold text-[22px]">{fmt(total)}</span>
               </div>
-              <button onClick={() => create(true)} disabled={lineItems.length === 0} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white mb-2 flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: "#25D366" }}><MessageCircle size={18} /> {backdated ? `Enregistrer au ${new Date(orderDay + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} et envoyer` : "Enregistrer et envoyer la facture"}</button>
+              <button onClick={() => create(true)} disabled={lineItems.length === 0 || incompleteLot} className="gb-focus w-full min-h-[52px] rounded-2xl text-[15px] font-bold text-white mb-2 flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: "#25D366" }}><MessageCircle size={18} /> {backdated ? `Enregistrer au ${new Date(orderDay + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} et envoyer` : "Enregistrer et envoyer la facture"}</button>
               <div className="flex gap-2">
-                <button onClick={() => create(false)} disabled={lineItems.length === 0} className="gb-focus flex-1 min-h-[46px] rounded-xl text-[13.5px] font-bold disabled:opacity-40" style={{ background: "var(--paper-dim)" }}>Enregistrer seulement</button>
+                <button onClick={() => create(false)} disabled={lineItems.length === 0 || incompleteLot} className="gb-focus flex-1 min-h-[46px] rounded-xl text-[13.5px] font-bold disabled:opacity-40" style={{ background: "var(--paper-dim)" }}>Enregistrer seulement</button>
                 <button onClick={copyText} disabled={lineItems.length === 0} className="gb-focus flex-1 min-h-[46px] rounded-xl text-[13.5px] font-bold disabled:opacity-40" style={{ background: "var(--paper-dim)" }}>Copier le texte</button>
               </div>
             </>
@@ -13167,70 +13639,529 @@ function ExpensesSection({ expenses, saveExpenses, suppliers, pushNotification, 
   );
 }
 
-function VendorsSection({ vendors, saveVendors, pushToast, adminPin, adminPinHash, backendLinked, pushNotification }) {
+// ---------- Accès vendeur sécurisés ----------
+// Le code envoyé au vendeur est une INVITATION à usage unique (15 min sur
+// WhatsApp, 2 min « en personne ») créée par le serveur (fonction
+// vendor-access). Le code PIN n'est jamais envoyé sur WhatsApp.
+const fmtInviteCode = (c) => (/^[A-Z0-9]{6}$/.test(String(c || "")) && !/^\d+$/.test(c) ? `${c.slice(0, 3)}-${c.slice(3)}` : /^\d{6}$/.test(String(c || "")) ? `${c.slice(0, 3)} ${c.slice(3)}` : String(c || ""));
+const hhmmOf = (iso) => new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+const dayTimeOf = (iso) => { const d = new Date(iso); return `${d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} à ${hhmmOf(iso)}`; };
+
+function vendorInviteText(v, shopName, code, expiresAt) {
+  return [
+    "*GestiOne — Invitation vendeur*",
+    "",
+    `Bonjour ${v.name} 👋`,
+    `Vous êtes invité(e) à rejoindre *${shopName}*.`,
+    "",
+    `🏪 Entreprise : *${shopName}*`,
+    `👤 Votre nom : *${v.name}*`,
+    `🎟️ Code d'invitation : *${fmtInviteCode(code)}*`,
+    `⏳ Valable jusqu'à *${hhmmOf(expiresAt)}*, une seule fois`,
+    "",
+    "*Comment se connecter :*",
+    "1. Ouvrez l'application GestiOne",
+    "2. Touchez « Se reconnecter à mon entreprise » puis « Vendeur »",
+    "3. Saisissez le nom de l'entreprise, votre nom, votre code PIN et ce code d'invitation",
+    "",
+    "🔒 Votre code PIN vous est remis *en personne* par votre responsable. Ne le communiquez à personne.",
+  ].join("\n");
+}
+// Ancien serveur (fonction vendor-access pas encore installée) : code de
+// liaison permanent, mais toujours SANS le code PIN.
+function vendorLegacyText(v, shopName) {
+  return [
+    "*GestiOne — Vos accès vendeur*",
+    "",
+    `Bonjour ${v.name} 👋`,
+    `🏪 Entreprise : *${shopName}*`,
+    `👤 Votre nom : *${v.name}*`,
+    v.joinCode ? `🔗 Code de liaison : *${v.joinCode}*` : null,
+    "",
+    "Dans GestiOne : « Se reconnecter à mon entreprise » › « Vendeur ».",
+    "🔒 Votre code PIN vous est remis *en personne* par votre responsable.",
+  ].filter((l) => l !== null).join("\n");
+}
+const waPreview = (text) => text.split("\n").map((l, i) => <span key={i} className="block min-h-[1em]" dangerouslySetInnerHTML={{ __html: l.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])).replace(/\*([^*]+)\*/g, "<b>$1</b>") }} />);
+const VENDOR_TINTS = [["#EEEDFE", "#534AB7"], ["#E3F1EA", "#14684A"], ["#E6EEFA", "#1D4F91"], ["#FCEFE0", "#9A5200"], ["#E4F4F6", "#136B78"], ["#FDE8E6", "#A3302A"]];
+
+// Statut lisible de la dernière invitation d'un vendeur.
+function inviteStatusOf(inv, now = Date.now()) {
+  if (!inv) return { label: "Aucune", bg: "#EDEFF2", fg: "#3D4A57" };
+  if (inv.used_at) return { label: "Utilisée", sub: dayTimeOf(inv.used_at), bg: "#E3F1EA", fg: "#14684A", used: true };
+  if (inv.revoked_at) return { label: "Annulée", bg: "#EDEFF2", fg: "#3D4A57" };
+  if (new Date(inv.expires_at).getTime() <= now) return { label: "Expirée", bg: "#EDEFF2", fg: "#3D4A57" };
+  return { label: "En attente", sub: `expire à ${hhmmOf(inv.expires_at)}`, bg: "#FCEFE0", fg: "#9A5200", pending: true };
+}
+
+function SheetFrame({ onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-t-[26px] gb-slide-up flex flex-col" style={{ background: "var(--card)", maxHeight: "92vh", paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-10 h-1 rounded-full mx-auto mt-3 mb-1 shrink-0" style={{ background: "var(--line)" }} />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function VendorInviteSheet({ vendor, shopName, call, legacy, onClose, onSavePhone, onCreated, pushToast }) {
+  const [phone, setPhone] = useState(vendor.phone || "");
+  const [inv, setInv] = useState(null);
+  const [err, setErr] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  const skew = useRef(0);
+  const create = async () => {
+    setErr(null); setInv(null);
+    try {
+      const r = await call("invite", { vendor_id: vendor.id });
+      skew.current = r.server_time ? new Date(r.server_time).getTime() - Date.now() : 0;
+      setInv(r.invite); onCreated?.();
+    } catch (e) { setErr(e?.data?.need_admin_pin ? "Confirmez d'abord votre code administrateur sur la page Vendeurs." : (api.networkErrorText(e, "créer l'invitation") || e.message)); }
+  };
+  useEffect(() => { if (!legacy) create(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const left = inv ? new Date(inv.expires_at).getTime() - (now + skew.current) : 0;
+  const expired = inv && left <= 0;
+  const text = legacy ? vendorLegacyText(vendor, shopName) : inv ? vendorInviteText(vendor, shopName, inv.code, inv.expires_at) : "";
+  const num = whatsappNumber(phone);
+  const send = async () => {
+    if ((phone || "").trim() !== (vendor.phone || "")) onSavePhone(phone.trim());
+    if (num) await openWhatsAppChat(phone, text);
+    else window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+    onClose();
+  };
+  const copy = async () => { try { await navigator.clipboard.writeText(text); pushToast("Message copié", "ok"); } catch { pushToast("Impossible de copier", "error"); } };
+  const ready = legacy || (inv && !expired);
+  return (
+    <SheetFrame onClose={onClose}>
+      <div className="px-5 pt-2 pb-3 flex items-center gap-3">
+        <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "#25D366" }}><MessageCircle size={22} color="#fff" /></span>
+        <div className="flex-1 min-w-0">
+          <p className="font-display font-bold text-[16px] leading-tight">{legacy ? "Envoyer les accès" : "Invitation sécurisée"}</p>
+          <p className="text-[12px] opacity-60 truncate">à {vendor.name} · {shopName}</p>
+        </div>
+        <button onClick={onClose} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={16} /></button>
+      </div>
+      <div className="px-5 overflow-y-auto">
+        {legacy ? (
+          <div className="rounded-[14px] p-3 mb-3 flex gap-2.5 text-[12px] leading-snug" style={{ background: "#FCEFE0", color: "#7A4100" }}>
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <span>Le serveur n'a pas encore la mise à jour « invitations ». Ce message contient le code de liaison permanent, mais <b>pas le code PIN</b>.</span>
+          </div>
+        ) : (
+          <div className="flex gap-2 mb-3">
+            <div className="flex-1 rounded-[14px] p-2.5" style={{ background: "#F6F5FE", border: "1px solid #E1DEFB" }}>
+              <p className="text-[10.5px] opacity-60">Code d'invitation</p>
+              <p className="font-mono font-bold text-[20px] tracking-[0.12em] mt-0.5" style={{ color: "#3B3392" }}>{inv ? fmtInviteCode(inv.code) : err ? "—" : "……"}</p>
+            </div>
+            <div className="flex-1 rounded-[14px] p-2.5" style={{ background: expired ? "#FDE8E6" : "#FCEFE0" }}>
+              <p className="text-[10.5px]" style={{ color: expired ? "#A3302A" : "#9A5200" }}>{expired ? "Expirée" : "Expire dans"}</p>
+              <p className="font-display font-bold text-[20px] mt-0.5" style={{ color: expired ? "#A3302A" : "#9A5200" }}>{inv ? mmss(left) : "—"}</p>
+            </div>
+          </div>
+        )}
+        {err && (
+          <div className="rounded-[14px] p-3 mb-3 text-[12.5px] flex items-start gap-2" style={{ background: "#FDE8E6", color: "#7A1F1A" }}>
+            <ShieldAlert size={16} className="shrink-0 mt-0.5" /><span className="flex-1">{err}</span>
+            <button onClick={create} className="gb-focus font-bold underline shrink-0">Réessayer</button>
+          </div>
+        )}
+        <label className="block mb-3">
+          <span className="text-[11.5px] font-bold opacity-70 mb-1 block">Numéro WhatsApp de {vendor.name}</span>
+          <span className="flex items-center gap-2.5 min-h-[48px] px-3.5 rounded-[14px]" style={{ background: "var(--paper-dim)", border: "1px solid var(--line)" }}>
+            <Phone size={16} className="opacity-50 shrink-0" />
+            <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Ex. : 07 08 09 10 11" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+          </span>
+          <span className="text-[10.5px] opacity-55 mt-1 block">{num ? `La discussion s'ouvrira avec ${whatsappDisplay(phone)}` : "Sans numéro, WhatsApp vous laissera choisir le contact"}</span>
+        </label>
+        {text && <>
+          <p className="text-[11px] font-bold uppercase tracking-wide opacity-55 mb-1.5">Aperçu du message</p>
+          <div className="rounded-[16px] p-3 mb-2" style={{ background: "#E7DED3" }}>
+            <div className="rounded-[12px] rounded-tr-[4px] px-3 py-2.5 ml-6 text-[12.5px] leading-[1.45] text-[#111B21]" style={{ background: "#D9FDD3", boxShadow: "0 1px 1px rgba(0,0,0,.08)" }}>{waPreview(text)}</div>
+          </div>
+        </>}
+        {!legacy && <p className="text-[10.5px] opacity-55 text-center mb-1">Une nouvelle invitation annule la précédente.</p>}
+      </div>
+      <div className="px-5 pt-3 flex gap-2">
+        {expired ? (
+          <button onClick={create} className="gb-focus flex-1 min-h-[50px] rounded-[14px] text-[14px] font-bold text-white flex items-center justify-center gap-2" style={{ background: "#534AB7" }}><RefreshCw size={16} /> Nouvelle invitation</button>
+        ) : <>
+          <button onClick={copy} disabled={!ready} className="gb-focus flex-1 min-h-[50px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-45" style={{ background: "var(--paper-dim)" }}><Copy size={15} /> Copier</button>
+          <button onClick={send} disabled={!ready} className="gb-focus flex-[1.8] min-h-[50px] rounded-[14px] text-[14px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45" style={{ background: "#25D366" }}><Send size={16} /> Ouvrir WhatsApp</button>
+        </>}
+      </div>
+    </SheetFrame>
+  );
+}
+
+// Code « en personne » : change toutes les 2 minutes, usage unique. L'écran
+// détecte la connexion du vendeur et l'annonce.
+function VendorLiveSheet({ vendor, call, onClose, onConnected }) {
+  const [inv, setInv] = useState(null);
+  const [err, setErr] = useState(null);
+  const [done, setDone] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  const skew = useRef(0);
+  const busy = useRef(false);
+  const fetchCode = async () => {
+    if (busy.current) return; busy.current = true;
+    try {
+      const r = await call("live", { vendor_id: vendor.id });
+      skew.current = r.server_time ? new Date(r.server_time).getTime() - Date.now() : 0;
+      setInv(r.invite); setErr(null);
+    } catch (e) { setErr(api.networkErrorText(e, "afficher le code") || e.message); }
+    busy.current = false;
+  };
+  useEffect(() => { fetchCode(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, []);
+  const left = inv ? new Date(inv.expires_at).getTime() - (now + skew.current) : 0;
+  useEffect(() => { if (inv && !done && left <= 0) fetchCode(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [inv, done, left <= 0]);
+  // Surveille l'utilisation du code (toutes les 3 s).
+  useEffect(() => {
+    if (!inv || done) return undefined;
+    const t = setInterval(async () => {
+      try {
+        const r = await call("status");
+        const st = r.vendors?.[vendor.id];
+        if (st?.last_invite?.id === inv.id && st.last_invite.used_at) {
+          setDone({ model: st.last_invite.used_device_model || "son téléphone", at: st.last_invite.used_at });
+          onConnected?.(r);
+        }
+      } catch { /* réseau : on réessaie au prochain tour */ }
+    }, 3000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inv?.id, done]);
+  const total = 120000;
+  const frac = inv ? Math.max(0, Math.min(1, left / total)) : 0;
+  const C = 2 * Math.PI * 100;
+  const close = async () => { if (inv && !done) call("revoke_invites", { vendor_id: vendor.id }).catch(() => {}); onClose(); };
+  return (
+    <SheetFrame onClose={close}>
+      <div className="px-5 pt-2 text-center overflow-y-auto">
+        <p className="font-display font-bold text-[17px]">Connexion en personne</p>
+        <p className="text-[12px] opacity-60 mt-0.5">{done ? "Connexion réussie" : `${vendor.name} tape ce code sur son téléphone`}</p>
+        {done ? (
+          <div className="my-6 flex flex-col items-center gap-3">
+            <span className="w-20 h-20 rounded-full flex items-center justify-center" style={{ background: "#E3F1EA" }}><Check size={40} color="#14684A" /></span>
+            <p className="text-[15px] font-bold">{vendor.name} est connecté(e)</p>
+            <p className="text-[12.5px] opacity-65 flex items-center gap-1.5"><Smartphone size={14} /> {done.model} · {dayTimeOf(done.at)}</p>
+          </div>
+        ) : (
+          <svg width="230" height="230" viewBox="0 0 230 230" className="mx-auto my-4 block" role="img" aria-label={inv ? `Code ${inv.code}` : "Chargement"}>
+            <circle cx="115" cy="115" r="100" fill="none" stroke="#EEEDFE" strokeWidth="12" />
+            <circle cx="115" cy="115" r="100" fill="none" stroke={left < 20000 ? "#C2410C" : "#534AB7"} strokeWidth="12" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - frac)} transform="rotate(-90 115 115)" style={{ transition: "stroke-dashoffset .5s linear" }} />
+            <text x="115" y="112" textAnchor="middle" fontFamily="ui-monospace, monospace" fontWeight="700" fontSize="36" fill="#3B3392" letterSpacing="3">{inv ? fmtInviteCode(inv.code) : "··· ···"}</text>
+            <text x="115" y="146" textAnchor="middle" fontSize="14" fill="#777">{inv ? `change dans ${mmss(left)}` : err ? "hors ligne" : "chargement…"}</text>
+          </svg>
+        )}
+        {!done && <div className="flex gap-1.5 justify-center mb-3 flex-wrap">
+          <span className="text-[10.5px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1" style={{ background: "#EEEDFE", color: "#534AB7" }}><RefreshCw size={11} /> Nouveau code toutes les 2 min</span>
+          <span className="text-[10.5px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#E3F1EA", color: "#14684A" }}>Usage unique</span>
+        </div>}
+        {err && !done && <p className="text-[12px] mb-2" style={{ color: "var(--danger)" }}>{err} <button onClick={fetchCode} className="underline font-bold">Réessayer</button></p>}
+        {!done && <div className="rounded-[14px] p-3 text-left text-[12px] leading-snug flex items-center gap-2.5" style={{ background: "#F6F5FE" }}>
+          <Hourglass size={16} color="#534AB7" className="shrink-0" />
+          <span>Dans GestiOne : « Se reconnecter à mon entreprise » › « Vendeur », puis son nom, son code PIN et ce code. En attente de <b>{vendor.name}</b>…</span>
+        </div>}
+      </div>
+      <div className="px-5 pt-3">
+        <button onClick={close} className="gb-focus w-full min-h-[50px] rounded-[14px] text-[14px] font-bold" style={done ? { background: "#14684A", color: "#fff" } : { background: "var(--paper-dim)" }}>{done ? "Terminé" : "Fermer"}</button>
+      </div>
+    </SheetFrame>
+  );
+}
+
+const SEC_EVENT = {
+  connected: { Icon: ShieldCheck, bg: "#E3F1EA", fg: "#14684A", title: (e) => `${e.vendor_name || "Un vendeur"} s'est connecté(e)` },
+  reuse_blocked: { Icon: ShieldAlert, bg: "#FDE8E6", fg: "#A3302A", title: (e) => `Tentative bloquée · ${e.vendor_name || "vendeur"}`, sub: "Invitation déjà utilisée" },
+  expired: { Icon: Hourglass, bg: "#FCEFE0", fg: "#9A5200", title: (e) => `Code expiré · ${e.vendor_name || "vendeur"}` },
+  failed: { Icon: ShieldAlert, bg: "#FDE8E6", fg: "#A3302A", title: (e) => `Échec de connexion · ${e.vendor_name || "vendeur"}` },
+  device_revoked: { Icon: Smartphone, bg: "#EDEFF2", fg: "#3D4A57", title: (e) => `Appareil retiré · ${e.vendor_name || "vendeur"}` },
+};
+
+function VendorsSection({ shop, sales = [], vendors, saveVendors, pushToast, adminPin, adminPinHash, backendLinked, pushNotification }) {
+  const fmt = useFmt();
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
-  const upsert = (v) => { const exists = vendors.some((x) => x.id === v.id); saveVendors(exists ? vendors.map((x) => (x.id === v.id ? v : x)) : [...vendors, v]); setEditing(null); setAdding(false); };
-  const del = (id, name) => { if (window.confirm(`Supprimer le vendeur "${name}" ?`)) saveVendors(vendors.filter((x) => x.id !== id)); };
+  const [sending, setSending] = useState(null);
+  const [live, setLive] = useState(null);
+  const [shownPins, setShownPins] = useState({});
+  const [help, setHelp] = useState(false);
+  // État serveur des accès : null = chargement, "missing" = serveur pas à
+  // jour, "pin" = code administrateur à confirmer, "offline", "ok".
+  const [acc, setAcc] = useState({ state: backendLinked ? null : "local", vendors: {}, events: [] });
+  const [pinDraft, setPinDraft] = useState("");
+  const adminPinRef = useRef("");
+  const shopName = shop?.name || "Mon entreprise";
+
+  const call = async (action, payload = {}) => api.vendorAccess(action, adminPinRef.current ? { ...payload, admin_pin: adminPinRef.current } : payload);
+  const refresh = async () => {
+    if (!backendLinked) return;
+    try {
+      const [st, ev] = await Promise.all([call("status"), call("events")]);
+      setAcc({ state: "ok", vendors: st.vendors || {}, events: ev.events || [] });
+    } catch (e) {
+      if (e?.missing) setAcc((a) => ({ ...a, state: "missing" }));
+      else if (e?.data?.need_admin_pin) { adminPinRef.current = ""; setAcc((a) => ({ ...a, state: "pin", pinError: !!pinDraft })); }
+      else setAcc((a) => ({ ...a, state: a.state === "ok" ? "ok" : "offline" }));
+    }
+  };
+  useEffect(() => { refresh(); const t = setInterval(refresh, 20000); return () => clearInterval(t); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [backendLinked]);
+  const confirmPin = () => { if (pinDraft.length !== 4) return; adminPinRef.current = pinDraft; refresh().then(() => setPinDraft("")); };
+
+  const upsert = (v) => { const exists = vendors.some((x) => x.id === v.id); saveVendors(exists ? vendors.map((x) => (x.id === v.id ? v : x)) : [...vendors, v]); setEditing(null); setAdding(false); pushToast(exists ? "Vendeur mis à jour" : `${v.name} ajouté`, "ok"); };
+  const del = (id, name) => { if (window.confirm(`Supprimer le vendeur "${name}" ?\n\nIl ne pourra plus se connecter. Ses ventes passées restent enregistrées.`)) saveVendors(vendors.filter((x) => x.id !== id)); };
   const toggleBlocked = (v) => {
     saveVendors(vendors.map((x) => (x.id === v.id ? { ...x, blocked: !x.blocked } : x)));
     pushToast(v.blocked ? `${v.name} débloqué` : `${v.name} bloqué`, "ok");
     pushNotification?.({ type: v.blocked ? "vendor_unblocked" : "vendor_blocked", vendorName: v.name });
+    if (!v.blocked && acc.state === "ok") call("revoke_invites", { vendor_id: v.id }).catch(() => {});
   };
-  const copyJoinCode = async (code) => {
-    try { await navigator.clipboard.writeText(code); pushToast("Code de liaison copié !", "ok"); } catch { pushToast("Impossible de copier", "error"); }
+  const copy = async (txt, msg) => { try { await navigator.clipboard.writeText(txt); pushToast(msg, "ok"); } catch { pushToast("Impossible de copier", "error"); } };
+  const savePhone = (v, phone) => saveVendors(vendors.map((x) => (x.id === v.id ? { ...x, phone } : x)));
+  const revokeDevice = async (v, d, alsoBlock = false) => {
+    if (!window.confirm(`Retirer « ${d.model} » des appareils de ${v.name} ?\n\nCe téléphone sera déconnecté de l'entreprise${alsoBlock ? ` et ${v.name} sera bloqué(e)` : ""}. Les ventes non encore synchronisées sur ce téléphone seront perdues.`)) return;
+    try {
+      await call("revoke_device", { target_device_id: d.device_id });
+      if (alsoBlock && !v.blocked) saveVendors(vendors.map((x) => (x.id === v.id ? { ...x, blocked: true } : x)));
+      pushToast("Appareil retiré", "ok"); refresh();
+    } catch (e) { pushToast(api.networkErrorText(e, "retirer l'appareil") || e.message, "error"); }
   };
+
+  const dayStart = new Date(new Date().toDateString()).getTime();
+  const statsOf = (name) => {
+    const n = normName(name);
+    let today = 0, ca = 0, last = null;
+    for (const s of sales || []) {
+      if (normName(s.vendor) !== n) continue;
+      const t = new Date(s.date).getTime();
+      if (t >= dayStart) { today += 1; ca += Number(s.total) || 0; }
+      if (!last || t > last) last = t;
+    }
+    return { today, ca, last };
+  };
+  const blocked = vendors.filter((v) => v.blocked).length;
+  const active = vendors.length - blocked;
+  const activeToday = vendors.filter((v) => !v.blocked && statsOf(v.name).today > 0).length;
+  const secure = acc.state === "ok";
+  const legacy = acc.state === "missing";
+  const alerts = acc.events.filter((e) => e.kind !== "connected" && e.kind !== "device_revoked" && Date.now() - new Date(e.created_at).getTime() < 7 * 864e5).length;
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-bold text-base flex items-center gap-2"><Users size={16} color="#534AB7" /> Vendeurs ({vendors.length})</h3>
-        <button onClick={() => { setAdding(true); setEditing(null); }} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: "var(--glass)" }}><Plus size={14} /> Ajouter</button>
+    <div className="pb-4">
+      {/* En-tête */}
+      <div className="rounded-[24px] p-4 mb-3 text-white relative overflow-hidden" style={{ background: "linear-gradient(135deg,#3B3392 0%,#534AB7 55%,#7A71D8 100%)", boxShadow: "0 10px 28px rgba(83,74,183,.28)" }}>
+        <div className="absolute -right-8 -top-10 w-36 h-36 rounded-full" style={{ background: "rgba(255,255,255,.08)" }} />
+        <div className="flex items-start gap-3 relative">
+          <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,.16)" }}><Users size={21} /></span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] opacity-70">Équipe de vente</p>
+            <p className="font-display font-bold text-[19px] leading-tight truncate">{shopName}</p>
+          </div>
+          <button onClick={() => { setAdding(true); setEditing(null); }} className="gb-focus flex items-center gap-1.5 text-[12.5px] font-bold px-3.5 min-h-[38px] rounded-full shrink-0" style={{ background: "#fff", color: "#3B3392" }}><UserPlus size={15} /> Ajouter</button>
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-4 relative">
+          {[["Vendeurs", vendors.length], ["Actifs", active], ["Bloqués", blocked]].map(([l, n]) => (
+            <div key={l} className="rounded-[14px] px-3 py-2.5" style={{ background: "rgba(255,255,255,.13)" }}>
+              <p className="font-display font-bold text-[22px] leading-none">{n}</p>
+              <p className="text-[11px] opacity-75 mt-1">{l}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-3 relative text-[11.5px]">
+          <span className="opacity-80 flex items-center gap-1.5"><Activity size={13} /> {activeToday} vendeur{activeToday > 1 ? "s" : ""} {activeToday > 1 ? "ont" : "a"} vendu aujourd'hui</span>
+          {secure && <span className="font-bold flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,.16)" }}><ShieldCheck size={12} /> Accès sécurisés</span>}
+        </div>
       </div>
-      {adding && <VendorForm onSave={upsert} onCancel={() => setAdding(false)} pushToast={pushToast} vendors={vendors} adminPin={adminPin} adminPinHash={adminPinHash} backendLinked={backendLinked} />}
-      <div className="flex flex-col gap-2.5">
-        {vendors.map((v) => editing === v.id ? (
-          <VendorForm key={v.id} initial={v} onSave={upsert} onCancel={() => setEditing(null)} pushToast={pushToast} vendors={vendors} adminPin={adminPin} adminPinHash={adminPinHash} backendLinked={backendLinked} />
-        ) : (
-          <div key={v.id} className="rounded-2xl p-3.5" style={{ border: `1px solid ${v.blocked ? "var(--danger)" : "#AFA9EC"}`, background: "var(--card)", opacity: v.blocked ? 0.75 : 1 }}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold" style={{ background: "#EEEDFE", color: "#534AB7" }}>{v.name.slice(0, 2).toUpperCase()}</div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold truncate flex items-center gap-1.5">
-                  {v.name}
-                  {v.blocked && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ background: "var(--danger)" }}>BLOQUÉ</span>}
+
+      {/* Confirmation du code administrateur (une fois par appareil) */}
+      {acc.state === "pin" && (
+        <div className="rounded-[18px] p-3.5 mb-3" style={{ background: "#F6F5FE", border: "1px solid #E1DEFB" }}>
+          <p className="text-[13.5px] font-bold flex items-center gap-2" style={{ color: "#3B3392" }}><ShieldCheck size={16} /> Confirmez votre code administrateur</p>
+          <p className="text-[11.5px] opacity-65 mt-0.5 mb-2.5">Une seule fois sur ce téléphone, pour gérer les invitations et les appareils des vendeurs.</p>
+          <div className="flex gap-2">
+            <input type="password" inputMode="numeric" maxLength={4} value={pinDraft} onChange={(e) => setPinDraft(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && confirmPin()} placeholder="••••" aria-label="Code administrateur" className="flex-1 min-w-0 min-h-[46px] px-3.5 rounded-[12px] outline-none font-mono text-[17px] tracking-[0.4em]" style={{ background: "#fff", border: `1px solid ${acc.pinError ? "var(--danger)" : "#DCD8F7"}` }} />
+            <button onClick={confirmPin} disabled={pinDraft.length !== 4} className="gb-focus px-4 min-h-[46px] rounded-[12px] text-[13.5px] font-bold text-white disabled:opacity-45" style={{ background: "#534AB7" }}>Valider</button>
+          </div>
+          {acc.pinError && <p className="text-[11.5px] mt-1.5" style={{ color: "var(--danger)" }}>Code administrateur incorrect.</p>}
+        </div>
+      )}
+      {legacy && (
+        <div className="rounded-[16px] p-3 mb-3 flex gap-2.5 text-[12px] leading-snug" style={{ background: "#FCEFE0", color: "#7A4100" }}>
+          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+          <span><b>Invitations sécurisées pas encore actives</b> : le serveur doit recevoir la mise à jour (voir LISEZ-MOI). En attendant, les messages ne contiennent plus le code PIN.</span>
+        </div>
+      )}
+
+      {/* Activité de sécurité */}
+      {secure && acc.events.length > 0 && (
+        <div className="rounded-[18px] mb-3 p-3.5" style={{ background: "var(--card)", border: `1px solid ${alerts ? "#F2B8B5" : "var(--line)"}` }}>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[13.5px] font-bold flex items-center gap-2"><ShieldCheck size={16} color="#534AB7" /> Activité de sécurité</p>
+            {alerts > 0 && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "#FDE8E6", color: "#A3302A" }}>{alerts} alerte{alerts > 1 ? "s" : ""} (7 j)</span>}
+          </div>
+          <div className="flex flex-col">
+            {acc.events.slice(0, 5).map((e, i) => {
+              const k = SEC_EVENT[e.kind] || SEC_EVENT.failed;
+              const v = vendors.find((x) => x.id === e.vendor_id);
+              const dev = e.kind === "connected" && v ? (acc.vendors[v.id]?.devices || []).find((d) => d.model === (e.device_model || "Téléphone")) : null;
+              return (
+                <div key={e.id} className="flex items-start gap-2.5 py-2" style={{ borderTop: i ? "1px dashed var(--line)" : "none" }}>
+                  <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: k.bg }}><k.Icon size={15} color={k.fg} /></span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12.5px] font-bold leading-tight">{k.title(e)}</p>
+                    <p className="text-[11px] opacity-60 truncate">{[e.device_model, e.detail || k.sub, sinceLabel(e.created_at) === "aujourd'hui" ? `à ${hhmmOf(e.created_at)}` : dayTimeOf(e.created_at)].filter(Boolean).join(" · ")}</p>
+                  </div>
+                  {dev && v && <button onClick={() => revokeDevice(v, dev, true)} className="gb-focus text-[10.5px] font-bold px-2.5 py-1.5 rounded-full shrink-0" style={{ background: "#FDE8E6", color: "#A3302A" }}>Pas lui/elle ?</button>}
                 </div>
-                <div className="mt-1">
-                  {v.pin ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] opacity-50">Code PIN</span>
-                      <span className="text-sm font-mono font-bold tracking-widest px-2 py-0.5 rounded-lg" style={{ background: "#EEEDFE", color: "#534AB7" }}>{v.pin}</span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Comment un vendeur se connecte */}
+      <div className="rounded-[18px] mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <button onClick={() => setHelp((h) => !h)} className="gb-focus w-full flex items-center gap-2.5 px-3.5 py-3 text-left">
+          <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#E6EEFA" }}><Info size={15} color="#1D4F91" /></span>
+          <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">Comment un vendeur se connecte</span><span className="block text-[11px] opacity-55">Invitation à usage unique · PIN remis en personne</span></span>
+          <ChevronDown size={16} className="opacity-50 transition-transform" style={{ transform: help ? "rotate(180deg)" : "none" }} />
+        </button>
+        {help && (
+          <div className="px-3.5 pb-3.5 flex flex-col gap-2">
+            {[["Vous lui donnez son code PIN", "De vive voix — jamais par message"], ["Vous envoyez une invitation", "Sur WhatsApp (valable 15 min) ou en personne (code de 2 min)"], ["Il se connecte une seule fois", "« Se reconnecter à mon entreprise » › « Vendeur »"], ["Le code ne sert plus", "Toute nouvelle tentative avec le même code est refusée et vous êtes alerté"]].map(([t, d], i) => (
+              <div key={i} className="flex items-start gap-2.5">
+                <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: "#1D4F91" }}>{i + 1}</span>
+                <div className="min-w-0"><p className="text-[12.5px] font-bold leading-tight">{t}</p><p className="text-[11px] opacity-60">{d}</p></div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {adding && <VendorForm onSave={upsert} onCancel={() => setAdding(false)} pushToast={pushToast} vendors={vendors} adminPin={adminPin} adminPinHash={adminPinHash} backendLinked={backendLinked} />}
+
+      <div className="flex flex-col gap-3">
+        {vendors.map((v, idx) => {
+          if (editing === v.id) return <VendorForm key={v.id} initial={v} onSave={upsert} onCancel={() => setEditing(null)} pushToast={pushToast} vendors={vendors} adminPin={adminPin} adminPinHash={adminPinHash} backendLinked={backendLinked} />;
+          const [bg, fg] = v.blocked ? ["#FDE8E6", "#A3302A"] : VENDOR_TINTS[idx % VENDOR_TINTS.length];
+          const st = statsOf(v.name);
+          const pinShown = !!shownPins[v.id];
+          const srv = acc.vendors[v.id] || {};
+          const invSt = inviteStatusOf(srv.last_invite);
+          const devices = srv.devices || [];
+          const canSend = !v.blocked && !!v.pin && (secure || legacy);
+          return (
+            <div key={v.id} className="rounded-[22px] overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${v.blocked ? "#F2B8B5" : "var(--line)"}`, boxShadow: "0 2px 10px rgba(0,0,0,.04)" }}>
+              <div className="h-1" style={{ background: v.blocked ? "var(--danger)" : fg }} />
+              <div className="p-3.5">
+                <div className="flex items-center gap-3">
+                  <span className="w-12 h-12 rounded-[16px] flex items-center justify-center shrink-0 font-display font-bold text-[16px]" style={{ background: bg, color: fg }}>{clientInitials(v.name)}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className="font-display font-bold text-[16px] truncate">{v.name}</p>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1" style={{ background: v.blocked ? "#FDE8E6" : "#E3F1EA", color: v.blocked ? "#A3302A" : "#14684A" }}>
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: v.blocked ? "#A3302A" : "#1E8E50" }} />{v.blocked ? "Bloqué" : "Actif"}
+                      </span>
                     </div>
-                  ) : (
-                    <div className="text-xs" style={{ color: "var(--danger)" }}>⚠ Aucun code — à réinitialiser</div>
+                    <p className="text-[11.5px] opacity-60 truncate flex items-center gap-1">{v.phone ? <><Phone size={11} /> {whatsappDisplay(v.phone)}</> : "Aucun numéro WhatsApp"}</p>
+                  </div>
+                  <button onClick={() => { setEditing(v.id); setAdding(false); }} className="gb-focus w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label={`Modifier ${v.name}`}><Pencil size={14} /></button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5 mt-3">
+                  {[["Ventes du jour", String(st.today)], ["CA du jour", fmt(st.ca)], ["Dernière vente", st.last ? sinceLabel(st.last) : "—"]].map(([l, val]) => (
+                    <div key={l} className="rounded-[12px] px-2.5 py-2" style={{ background: "var(--paper-dim)" }}>
+                      <p className="text-[10px] opacity-55 leading-tight">{l}</p>
+                      <p className="text-[13px] font-bold truncate mt-0.5">{val}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Accès */}
+                <div className="rounded-[16px] mt-2.5 p-3" style={{ background: "#F6F5FE", border: "1px solid #E1DEFB" }}>
+                  <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] mb-2 flex items-center gap-1.5" style={{ color: "#534AB7" }}><KeyRound size={12} /> Accès de connexion</p>
+                  <div className="flex items-center gap-2 py-1.5">
+                    <Building2 size={14} className="opacity-50 shrink-0" />
+                    <span className="text-[11.5px] opacity-60 w-[86px] shrink-0">Entreprise</span>
+                    <span className="text-[13px] font-bold truncate flex-1">{shopName}</span>
+                  </div>
+                  <div className="flex items-center gap-2 py-1.5" style={{ borderTop: "1px dashed #DCD8F7" }}>
+                    <Lock size={14} className="opacity-50 shrink-0" />
+                    <span className="text-[11.5px] opacity-60 w-[86px] shrink-0">Code PIN</span>
+                    {v.pin ? <>
+                      <span className="text-[15px] font-mono font-bold tracking-[0.3em] flex-1" style={{ color: "#3B3392" }}>{pinShown ? v.pin : "••••"}</span>
+                      <button onClick={() => setShownPins((m) => ({ ...m, [v.id]: !m[v.id] }))} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "#fff" }} aria-label={pinShown ? "Masquer le code PIN" : "Afficher le code PIN"}>{pinShown ? <EyeOff size={14} color="#534AB7" /> : <Eye size={14} color="#534AB7" />}</button>
+                    </> : <span className="text-[12px] font-semibold flex-1" style={{ color: "var(--danger)" }}>Aucun code — à réinitialiser</span>}
+                  </div>
+                  {secure ? (
+                    <div className="flex items-center gap-2 py-1.5" style={{ borderTop: "1px dashed #DCD8F7" }}>
+                      <Send size={14} className="opacity-50 shrink-0" />
+                      <span className="text-[11.5px] opacity-60 w-[86px] shrink-0">Invitation</span>
+                      <span className="flex-1 min-w-0 flex items-center gap-1.5">
+                        <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: invSt.bg, color: invSt.fg }}>{invSt.used && "✓ "}{invSt.label}</span>
+                        {invSt.sub && <span className="text-[11px] opacity-60 truncate">{invSt.sub}</span>}
+                      </span>
+                    </div>
+                  ) : backendLinked && v.joinCode && (
+                    <div className="flex items-center gap-2 py-1.5" style={{ borderTop: "1px dashed #DCD8F7" }}>
+                      <Link2 size={14} className="opacity-50 shrink-0" />
+                      <span className="text-[11.5px] opacity-60 w-[86px] shrink-0">Code de liaison</span>
+                      <span className="text-[14px] font-mono font-bold tracking-[0.12em] flex-1" style={{ color: "#3B3392" }}>{v.joinCode}</span>
+                      <button onClick={() => copy(v.joinCode, "Code de liaison copié")} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "#fff" }} aria-label="Copier le code de liaison"><Copy size={14} color="#534AB7" /></button>
+                    </div>
                   )}
                 </div>
-              </div>
-              <button onClick={() => toggleBlocked(v)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} title={v.blocked ? "Débloquer" : "Bloquer"}>
-                {v.blocked ? <Unlock size={14} color="var(--glass)" /> : <Lock size={14} />}
-              </button>
-              <button onClick={() => { setEditing(v.id); setAdding(false); }} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Pencil size={14} /></button>
-              <button onClick={() => del(v.id, v.name)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Trash2 size={14} color="var(--danger)" /></button>
-            </div>
-            {backendLinked && v.joinCode && (
-              <div className="flex items-center justify-between gap-2 mt-2.5 rounded-xl px-3 py-2" style={{ background: "#EEEDFE" }}>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#534AB7" }}>Code de liaison</p>
-                  <p className="text-sm font-mono font-bold tracking-[0.1em]" style={{ color: "#534AB7" }}>{v.joinCode}</p>
-                </div>
-                <button onClick={() => copyJoinCode(v.joinCode)} className="gb-focus flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold shrink-0" style={{ background: "var(--card)", color: "#534AB7" }}>
-                  <Download size={13} className="rotate-180" /> Copier
+
+                {/* Appareils autorisés */}
+                {secure && (
+                  <div className="mt-2.5">
+                    <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] mb-1.5 flex items-center gap-1.5" style={{ color: devices.length ? "#14684A" : "var(--ink)", opacity: devices.length ? 1 : 0.55 }}><Smartphone size={12} /> Appareil autorisé</p>
+                    {devices.length === 0 ? (
+                      <p className="text-[11.5px] opacity-55 rounded-[12px] px-3 py-2.5" style={{ background: "var(--paper-dim)" }}>Aucun téléphone autorisé pour l'instant.</p>
+                    ) : devices.map((d) => (
+                      <div key={d.device_id} className="flex items-center gap-2.5 rounded-[14px] px-3 py-2.5 mb-1.5" style={{ background: "#F3FBF6", border: "1px solid #BFE3CF" }}>
+                        <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#E3F1EA" }}><Smartphone size={15} color="#14684A" /></span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-bold truncate">{d.model}</p>
+                          <p className="text-[10.5px] opacity-60 truncate">Connecté depuis le {dayTimeOf(d.linked_at)}{d.last_seen_at ? ` · vu ${sinceLabel(d.last_seen_at)}` : ""}</p>
+                        </div>
+                        <button onClick={() => revokeDevice(v, d)} className="gb-focus text-[11px] font-bold px-2.5 py-1.5 rounded-full shrink-0" style={{ background: "#FDE8E6", color: "#A3302A" }}>Retirer</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <button disabled={!canSend} onClick={() => setSending(v)} className="gb-focus w-full mt-2.5 min-h-[48px] rounded-[14px] text-[14px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45" style={{ background: "#25D366", boxShadow: canSend ? "0 4px 14px rgba(37,211,102,.3)" : "none" }}>
+                  <MessageCircle size={18} /> {secure ? (srv.last_invite ? "Nouvelle invitation WhatsApp" : "Envoyer une invitation WhatsApp") : "Envoyer les accès sur WhatsApp"}
                 </button>
+                {secure && (
+                  <button disabled={!canSend} onClick={() => setLive(v)} className="gb-focus w-full mt-2 min-h-[44px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-2 disabled:opacity-45" style={{ background: "#EEEDFE", color: "#3B3392" }}>
+                    <RefreshCw size={15} /> Connexion en personne
+                  </button>
+                )}
+                {!canSend && <p className="text-[10.5px] text-center mt-1 opacity-60">{v.blocked ? "Débloquez ce vendeur pour lui envoyer une invitation" : !v.pin ? "Définissez d'abord un code PIN" : acc.state === "pin" ? "Confirmez votre code administrateur ci-dessus" : acc.state === null ? "Vérification du serveur…" : "Connexion au serveur impossible pour l'instant"}</p>}
+                <div className="grid grid-cols-2 gap-1.5 mt-2">
+                  <button onClick={() => toggleBlocked(v)} className="gb-focus min-h-[40px] rounded-[12px] text-[12px] font-semibold flex items-center justify-center gap-1.5" style={{ background: v.blocked ? "#E3F1EA" : "#FCEFE0", color: v.blocked ? "#14684A" : "#9A5200" }}>{v.blocked ? <><Unlock size={13} /> Débloquer</> : <><Lock size={13} /> Bloquer</>}</button>
+                  <button onClick={() => del(v.id, v.name)} className="gb-focus min-h-[40px] rounded-[12px] text-[12px] font-semibold flex items-center justify-center gap-1.5" style={{ background: "#FDE8E6", color: "#A3302A" }}><Trash2 size={13} /> Supprimer</button>
+                </div>
               </div>
-            )}
+            </div>
+          );
+        })}
+        {vendors.length === 0 && !adding && (
+          <div className="rounded-[20px] p-6 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+            <span className="w-12 h-12 rounded-full mx-auto mb-2 flex items-center justify-center" style={{ background: "#EEEDFE" }}><UserCheck size={22} color="#534AB7" /></span>
+            <p className="text-[14px] font-bold">Aucun vendeur pour l'instant</p>
+            <p className="text-[12px] opacity-60 mt-0.5">Ajoutez votre premier vendeur puis envoyez-lui une invitation.</p>
           </div>
-        ))}
-        {vendors.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun vendeur enregistré.</p>}
+        )}
       </div>
+      {sending && <VendorInviteSheet vendor={sending} shopName={shopName} call={call} legacy={!secure} onClose={() => setSending(null)} onCreated={refresh} onSavePhone={(p) => savePhone(sending, p)} pushToast={pushToast} />}
+      {live && <VendorLiveSheet vendor={live} call={call} onClose={() => { setLive(null); refresh(); }} onConnected={refresh} />}
     </div>
   );
 }
@@ -15413,6 +16344,14 @@ function notifMeta(n, fmtM) {
     case "support_inbox": return T(MessageCircle, "#1D4F91", "#E6EEFA", "compte", n.count > 1 ? `${n.count} nouveaux messages des boutiques` : "Nouveau message d'une boutique", "Espace propriétaire › Messages (déverrouillage requis).");
     case "vendor_blocked": return T(Lock, "#B3261E", "#FCEBEA", "compte", "Vendeur bloqué", n.vendorName);
     case "vendor_unblocked": return T(Unlock, "#1E7A46", "#E6F4EC", "compte", "Vendeur débloqué", n.vendorName);
+    case "vendor_security": {
+      const who = n.vendorName || "Un vendeur";
+      const dev = n.deviceModel ? ` · ${n.deviceModel}` : "";
+      if (n.kind === "connected") return T(ShieldCheck, "#14684A", "#E3F1EA", "compte", `${who} s'est connecté(e)`, `Nouvel appareil autorisé${dev}. Ce n'est pas lui/elle ? Admin › Vendeurs › Retirer.`);
+      if (n.kind === "reuse_blocked") return T(ShieldAlert, "#B3261E", "#FCEBEA", "compte", "Tentative bloquée", `Quelqu'un a essayé d'utiliser l'invitation déjà utilisée de ${who}${dev}.`);
+      if (n.kind === "expired") return T(Hourglass, "#9A5B00", "#FFF1D6", "compte", `Code expiré · ${who}`, `${n.detail || "Invitation expirée"}${dev}`);
+      return T(ShieldAlert, "#B3261E", "#FCEBEA", "compte", `Échec de connexion · ${who}`, `${n.detail || "Informations incorrectes"}${dev}`);
+    }
     default: return T(Bell, "#3B5B7A", "#EDF2F7", "compte", "Notification", n.text || "");
   }
 }
@@ -16100,7 +17039,7 @@ function AdminScreen({
       {section === "actionnaires" && <ShareholdersSection shop={shop} saveShopMeta={saveShopMeta} sales={sales || []} products={products || []} expenses={expenses || []} pushToast={pushToast} onOpenExpenses={() => { setSection("depenses"); onSectionChange?.("depenses"); }} />}
       {section === "depenses" && <ExpensesSection expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} pushNotification={pushNotification} shop={shop} />}
       {section === "performance" && <VendorPerformanceSection shop={shop} sales={sales} vendors={vendors} saveShopMeta={saveShopMeta} />}
-      {section === "vendeurs" && <VendorsSection vendors={vendors} saveVendors={saveVendors} pushToast={pushToast} adminPin={shop.adminPin} adminPinHash={shop.adminPinHash} backendLinked={shop.backendLinked} pushNotification={pushNotification} />}
+      {section === "vendeurs" && <VendorsSection shop={shop} sales={sales} vendors={vendors} saveVendors={saveVendors} pushToast={pushToast} adminPin={shop.adminPin} adminPinHash={shop.adminPinHash} backendLinked={shop.backendLinked} pushNotification={pushNotification} />}
       {section === "clients" && <ClientsSection clients={clients} saveClients={saveClients} sales={sales} avoirs={avoirs} shop={shop} pushToast={pushToast} />}
       {section === "donnees" && (
         <DataSection
@@ -19373,6 +20312,35 @@ function AppInner() {
     else if (entry.type === "sale_returned") announce("cancel", `Retour client sur la vente ${entry.receiptNumber}, ${money(entry.amount)}${entry.refund > 0 ? `, ${money(entry.refund)} remboursés en ${REFUND_LABELS[entry.refundMode] || ""}` : ""}.`);
   };
 
+  // Alertes de sécurité des accès vendeur (connexions, tentatives refusées) :
+  // vérifiées toutes les 2 minutes sur le téléphone de l'administrateur.
+  useEffect(() => {
+    if (role !== "admin" || !shop?.backendLinked || !activeShopId) return undefined;
+    const key = `secEventSeen:${activeShopId}`;
+    let stop = false;
+    const check = async () => {
+      if (document.visibilityState === "hidden") return;
+      let seen = null;
+      try { seen = Number(localStorage.getItem(key)) || null; } catch { /* ignore */ }
+      try {
+        const r = await api.vendorAccess("events", { since_id: seen || 0 });
+        if (stop) return;
+        const evs = (r.events || []).slice().reverse();
+        const maxId = evs.reduce((m, e) => Math.max(m, e.id), seen || 0);
+        // Premier passage : on ne rappelle que les 30 dernières minutes.
+        const fresh = seen ? evs : evs.filter((e) => Date.now() - new Date(e.created_at).getTime() < 30 * 60000);
+        fresh.filter((e) => e.kind !== "device_revoked").forEach((e) => pushNotification({ type: "vendor_security", kind: e.kind, vendorName: e.vendor_name, deviceModel: e.device_model, detail: e.detail }));
+        try { localStorage.setItem(key, String(maxId)); } catch { /* ignore */ }
+      } catch { /* serveur pas à jour / code admin à confirmer / hors ligne : silencieux */ }
+    };
+    check();
+    const t = setInterval(check, 120000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, shop?.backendLinked, activeShopId]);
+
   // Encaisse un remboursement de crédit — total ou partiel. `amount` est le
   // montant reçu maintenant (pas forcément le solde total) ; il est ajouté à
   // l'historique des paiements de la vente et à la recette du jour même
@@ -19685,9 +20653,27 @@ function AppInner() {
     const paymentChangedToCredit = newPaymentMethod === "credit" && sale.paymentMethod !== "credit";
     const paymentChangedFromCredit = newPaymentMethod !== "credit" && sale.paymentMethod === "credit";
     const dateMoved = !!newDate && newDate !== sale.date;
+    // Montant reçu et monnaie recalculés avec le nouveau total : un article
+    // ajouté = le client paie la différence en plus ; un article retiré = la
+    // différence lui est rendue. La monnaie déjà rendue reste la même.
+    const oldTotal = Number(sale.total) || 0;
+    const delta = newTotal - oldTotal;
+    const payFix = {};
+    if (newPaymentMethod === "credit") {
+      if (paymentChangedToCredit) { payFix.amountReceived = null; payFix.changeDue = null; }
+    } else if (sale.amountReceived != null && !paymentChangedFromCredit) {
+      const others = (Number(sale.mobilePaid) || 0) + (Number(sale.avoirPaid) || 0);
+      const recv = Math.max(Math.max(0, newTotal - others), (Number(sale.amountReceived) || 0) + delta);
+      payFix.amountReceived = Math.round(recv);
+      if (!(sale.avoirMonnaie && Number(sale.avoirAmount) > 0)) payFix.changeDue = Math.max(0, Math.round(recv + others - newTotal));
+      if (Number(sale.mobilePaid) > newTotal) payFix.mobilePaid = newTotal;
+    } else if (paymentChangedFromCredit) {
+      payFix.amountReceived = newTotal; payFix.changeDue = 0;
+    }
     const nextSale = {
       ...sale, items: newItems, total: newTotal, paymentMethod: newPaymentMethod,
       paid: paymentChangedToCredit ? false : paymentChangedFromCredit ? true : sale.paid,
+      ...payFix,
       ...(dateMoved ? { date: newDate, originalDate: sale.originalDate || sale.date } : {}),
     };
     saveProducts(nextProducts);
@@ -20004,7 +20990,7 @@ function AppInner() {
                   />
                 )}
                 {adminGuard && <AdminCodeModal label={adminGuard.label} onSubmit={handleAdminGuard} onCancel={() => { setAdminGuard(null); pushToast("Action annulée", "error"); }} />}
-                {licenseStatus !== "expired" && <ScrollTopBubble key={view} />}
+                {licenseStatus !== "expired" && <ScrollTopBubble key={view} bottom={role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" ? 168 : view === "sell" ? 156 : 92} />}
                 {licenseStatus !== "expired" && (
                 <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 pt-2 z-30 no-print" style={{ background: "linear-gradient(to top, var(--paper) 60%, transparent)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
                   <div className="rounded-2xl flex items-stretch shadow-lg overflow-hidden" style={{ background: "var(--glass)" }}>

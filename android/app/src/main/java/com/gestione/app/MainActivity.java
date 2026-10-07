@@ -18,6 +18,9 @@ public class MainActivity extends BridgeActivity {
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    // Plugin maison : envoi d'un PDF directement dans la discussion WhatsApp
+    // du fournisseur (sans passer par le menu de partage).
+    registerPlugin(WhatsAppSharePlugin.class);
     super.onCreate(savedInstanceState);
     fixTextZoom();
   }

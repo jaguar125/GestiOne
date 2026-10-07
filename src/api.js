@@ -51,7 +51,13 @@ async function callFunction(name, body, timeoutMs = REQUEST_TIMEOUT_MS) {
   // (typiquement un projet en cours de redémarrage après une mise en pause).
   if (res.status >= 500) throw new Error(`SERVER_DOWN (HTTP ${res.status})`);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Erreur (${name})`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Erreur (${name})`);
+    err.status = res.status; err.data = data;
+    // Fonction absente du serveur (pas encore déployée).
+    err.missing = res.status === 404 && !data.error;
+    throw err;
+  }
   return data;
 }
 
@@ -204,10 +210,34 @@ export async function joinShopBackend({ joinCode }) {
 export async function reconnectShopBackend({ role, shopName, adminPin, vendorPin, vendorName, joinCode }) {
   const data = await callFunction("reconnect-shop", {
     role, shop_name: shopName, admin_pin: adminPin, vendor_pin: vendorPin, vendor_name: vendorName, join_code: joinCode,
-    device_id: getDeviceId(),
+    device_id: getDeviceId(), device_model: await getDeviceModel(),
   });
   linkShop(data.shop_id, data.device_secret);
   return data;
+}
+
+// Nom lisible du téléphone (« TECNO Spark 10 ») — affiché à l'administrateur
+// dans la liste des appareils autorisés et dans les alertes de sécurité.
+export async function getDeviceModel() {
+  try {
+    if (navigator.userAgentData?.getHighEntropyValues) {
+      const v = await navigator.userAgentData.getHighEntropyValues(["model"]);
+      if (v.model) return String(v.model).slice(0, 60);
+    }
+  } catch { /* ignore */ }
+  const ua = String(navigator.userAgent || "");
+  const m = ua.match(/Android [\d.]+; ([^;)]+?)(?: Build\/|\))/);
+  if (m && m[1] && m[1] !== "K") return m[1].trim().slice(0, 60);
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/Android/.test(ua)) return "Téléphone Android";
+  return "Ordinateur";
+}
+
+// Accès vendeur sécurisés (invitations à usage unique, appareils autorisés,
+// journal de sécurité). Réservé à l'administrateur ; `adminPin` n'est demandé
+// qu'une fois si le serveur ne reconnaît pas encore cet appareil comme admin.
+export async function vendorAccess(action, payload = {}, shopId) {
+  return callFunction("vendor-access", { ...shopAuthFields(shopId), action, ...payload });
 }
 
 export async function getShopInfo(shopId) {
@@ -291,6 +321,45 @@ export function isServerConfirmed(key, id, shopId) {
   if (!known) return null;
   return known.has(String(id));
 }
+/* ---------- Stock : fusion « à trois » ----------
+   Pour chaque produit, l'appareil retient la dernière valeur de stock dont
+   le serveur a déjà tenu compte (« base »). À l'envoi, il joint cette base
+   (_sb, _sbb pour les variantes) : le serveur n'applique que la DIFFÉRENCE
+   faite ici (stock local − base) à son propre stock. Un téléphone resté
+   hors ligne ne peut donc plus effacer une livraison, un inventaire ou une
+   vente enregistrés entre-temps sur un autre appareil. */
+const stockBaseKey = (shopId) => `stock_base:${shopId}`;
+function getStockBase(shopId) {
+  try { return JSON.parse(localStorage.getItem(stockBaseKey(shopId)) || "{}"); } catch { return {}; }
+}
+function setStockBase(shopId, base) {
+  try { localStorage.setItem(stockBaseKey(shopId), JSON.stringify(base)); } catch { /* quota : non bloquant */ }
+}
+function stockOf(p) { const n = Number(p && p.stock); return Number.isFinite(n) ? n : null; }
+function stockByOf(p) { const sb = p && p.boutique && p.boutique.stockBy; return sb && typeof sb === "object" && !Array.isArray(sb) ? sb : null; }
+// Retient comme base les produits donnés (valeurs alignées avec le serveur).
+function rememberStockBase(shopId, products, onlyIds = null) {
+  if (!Array.isArray(products)) return;
+  const base = getStockBase(shopId);
+  products.forEach((p) => {
+    if (!p || p.id == null) return;
+    const k = String(p.id);
+    if (onlyIds && !onlyIds.has(k)) return;
+    const s = stockOf(p);
+    if (s == null) return;
+    base[k] = { s, ...(stockByOf(p) ? { b: { ...stockByOf(p) } } : {}) };
+  });
+  setStockBase(shopId, base);
+}
+function withStockBase(shopId, products) {
+  const base = getStockBase(shopId);
+  return products.map((p) => {
+    const b = p && base[String(p.id)];
+    if (!b || stockOf(p) == null) return p;
+    return { ...p, _sb: b.s, ...(b.b && stockByOf(p) ? { _sbb: b.b } : {}) };
+  });
+}
+
 let mergedListener = null;
 export function onMergedValue(fn) { mergedListener = fn; return () => { if (mergedListener === fn) mergedListener = null; }; }
 
@@ -316,12 +385,17 @@ export function mergeLocalWithServer(key, local, fresh, shopId) {
   const localMap = new Map(local.map((x) => [String(x.id), x]));
   const freshIds = new Set(fresh.map((x) => String(x.id)));
   const out = [];
+  const adopted = new Set();
   fresh.forEach((x) => {
     const k = String(x.id);
     // Supprimé sur cet appareil, suppression pas encore envoyée.
     if (dirty && known && known.has(k) && !localMap.has(k)) return;
-    out.push(dirty && localMap.has(k) ? localMap.get(k) : x);
+    const useLocal = dirty && localMap.has(k);
+    if (!useLocal) adopted.add(k);
+    out.push(useLocal ? localMap.get(k) : x);
   });
+  // Stock : les produits repris du serveur deviennent la nouvelle base.
+  if (key === "products" && adopted.size) rememberStockBase(id, fresh, adopted);
   // Créés ici et jamais vus par le serveur : on les garde et on les renverra.
   const pending = local.filter((x) => !freshIds.has(String(x.id)) && !(known && known.has(String(x.id))));
   setKnown(id, key, freshIds);
@@ -335,7 +409,10 @@ async function pushOne(shopId, key, value) {
     const known = getKnown(shopId, key);
     const current = new Set(value.map((x) => String(x.id)));
     const deleted = known ? [...known].filter((k) => !current.has(k)) : [];
-    const data = await callFunction("store", { ...shopAuthFields(shopId), action: "set", key, value, deleted_ids: deleted });
+    const sent = key === "products" ? withStockBase(shopId, value) : value;
+    const data = await callFunction("store", { ...shopAuthFields(shopId), action: "set", key, value: sent, deleted_ids: deleted });
+    // Le serveur a absorbé la différence : la valeur envoyée devient la base.
+    if (key === "products") rememberStockBase(shopId, value);
     if (data && data.merged && Array.isArray(data.value)) {
       // Les ids envoyés mais absents de la réponse ont été refusés par le
       // serveur (supprimés ailleurs) : on les garde « connus » pour que la
@@ -436,6 +513,7 @@ export async function pullAll(shopId) {
   for (const key of ALL_SYNC_KEYS) {
     try {
       result[key] = await pullOne(id, key);
+      if (key === "products" && !getSyncQueue(id)[key]) rememberStockBase(id, result[key]);
     } catch {
       result[key] = undefined; // hors-ligne — on gardera les valeurs locales
     }
