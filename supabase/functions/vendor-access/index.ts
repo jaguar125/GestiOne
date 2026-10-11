@@ -2,7 +2,10 @@
 // Réservé aux appareils administrateur d'une boutique.
 //   invite        : nouveau code d'invitation WhatsApp (15 min, usage unique)
 //   live          : code « en personne » affiché à l'écran (2 min, usage unique)
-//   status        : état des invitations + appareils autorisés, par vendeur
+//   status        : état des invitations + téléphones autorisés, par vendeur
+//                   (un téléphone = une ligne, avec son état de connexion)
+//   logout_device : déconnecte un téléphone vendeur (il reste dans la liste ;
+//                   la vendeuse peut se reconnecter avec ses identifiants)
 //   revoke_device : retire l'autorisation d'un téléphone vendeur
 //   revoke_invites: annule les invitations encore valables d'un vendeur
 //   events        : journal de sécurité récent (connexions, tentatives refusées)
@@ -22,6 +25,8 @@ const json = (body: unknown, status = 200) =>
 
 const INVITE_MINUTES = 15;
 const LIVE_SECONDS = 120;
+// Un téléphone vu il y a moins de ce délai est affiché « En ligne ».
+const ONLINE_MINUTES = 10;
 // Sans I, L, O, 0, 1 : impossibles à confondre en lisant le message.
 const ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -44,6 +49,44 @@ async function storeValue(shopId: string, key: string) {
   const { data } = await supabase.from("shop_store").select("value").eq("shop_id", shopId).eq("key", key).maybeSingle();
   return data?.value;
 }
+
+const DEVICE_COLS = "device_id, vendor_id, device_model, device_name, device_brand, os_version, app_kind, label, linked_at, first_linked_at, session_started_at, session_count, last_seen_at, logged_out_at, logout_reason";
+
+// Nom lisible du téléphone : nom donné par le téléphone (« Galaxy A15 »),
+// sinon marque + modèle, sinon « Téléphone ».
+function phoneTitle(d: Record<string, any>): string {
+  if (d.device_name) {
+    const brand = d.device_brand && !String(d.device_name).toLowerCase().includes(String(d.device_brand).toLowerCase()) ? `${d.device_brand} ` : "";
+    return `${brand}${d.device_name}`;
+  }
+  const parts = [d.device_brand, d.device_model].filter(Boolean);
+  return parts.length ? parts.join(" ") : "Téléphone";
+}
+
+function deviceView(d: Record<string, any>, nowMs: number) {
+  const seen = d.last_seen_at ? new Date(d.last_seen_at).getTime() : 0;
+  const state = d.logged_out_at ? "logged_out" : seen && nowMs - seen < ONLINE_MINUTES * 60_000 ? "online" : "idle";
+  return {
+    device_id: d.device_id,
+    title: phoneTitle(d),
+    // « model » reste un libellé toujours rempli, comme avant (ancien écran).
+    model: phoneTitle(d),
+    model_code: d.device_model || null,
+    os_version: d.os_version || null,
+    app_kind: d.app_kind || null,
+    first_linked_at: d.first_linked_at || d.linked_at,
+    session_started_at: d.session_started_at || d.linked_at,
+    session_count: d.session_count || 1,
+    last_seen_at: d.last_seen_at,
+    logged_out_at: d.logged_out_at,
+    logout_reason: d.logout_reason,
+    state, // online | idle | logged_out
+    // Compatibilité avec l'ancien écran
+    linked_at: d.linked_at,
+  };
+}
+
+const STATE_ORDER: Record<string, number> = { online: 0, idle: 1, logged_out: 2 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
@@ -80,6 +123,7 @@ serve(async (req) => {
   const vendorId = String(body.vendor_id ?? "");
   const vendor = vendors.find((v) => String(v.id) === vendorId);
   const nowIso = new Date().toISOString();
+  const vendorNameOf = (id: string | null) => vendors.find((v) => String(v.id) === id)?.name ?? null;
 
   if (action === "invite" || action === "live") {
     if (!vendor) return json({ error: "Vendeur introuvable sur le serveur. Patientez quelques secondes (synchronisation) puis réessayez." }, 404);
@@ -101,34 +145,41 @@ serve(async (req) => {
     const [{ data: inv }, { data: devs }] = await Promise.all([
       supabase.from("vendor_invites").select("id, vendor_id, kind, code, expires_at, used_at, used_device_model, revoked_at, created_at")
         .eq("shop_id", shopId).order("created_at", { ascending: false }).limit(200),
-      supabase.from("devices_shop").select("device_id, vendor_id, device_model, label, linked_at, last_seen_at")
-        .eq("shop_id", shopId).eq("role", "vendeur"),
+      supabase.from("devices_shop").select(DEVICE_COLS).eq("shop_id", shopId).eq("role", "vendeur"),
     ]);
+    const nowMs = Date.now();
     const out: Record<string, unknown> = {};
     for (const v of vendors) {
       const id = String(v.id);
       const last = (inv || []).find((i) => i.vendor_id === id) || null;
+      const devices = (devs || []).filter((d) => d.vendor_id === id).map((d) => deviceView(d, nowMs))
+        .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || String(b.last_seen_at || "").localeCompare(String(a.last_seen_at || "")));
       out[id] = {
         // Le code n'est renvoyé que tant qu'il est encore utilisable.
         last_invite: last ? { ...last, code: !last.used_at && !last.revoked_at && last.expires_at > nowIso ? last.code : null } : null,
-        devices: (devs || []).filter((d) => d.vendor_id === id).map((d) => ({
-          device_id: d.device_id, model: d.device_model || "Téléphone", linked_at: d.linked_at, last_seen_at: d.last_seen_at,
-        })),
+        devices,
+        online_count: devices.filter((d) => d.state === "online").length,
       };
     }
     return json({ vendors: out, uses_invites: (inv || []).length > 0, server_time: nowIso });
   }
 
-  if (action === "revoke_device") {
+  if (action === "logout_device" || action === "revoke_device") {
     const target = String(body.target_device_id ?? "");
     if (!target || target === deviceId) return json({ error: "Appareil invalide" }, 400);
-    const { data: d } = await supabase.from("devices_shop").select("device_model, role, vendor_id")
+    const { data: d } = await supabase.from("devices_shop").select("device_model, device_name, device_brand, role, vendor_id")
       .eq("device_id", target).eq("shop_id", shopId).maybeSingle();
     if (!d || d.role === "admin") return json({ error: "Appareil introuvable" }, 404);
-    await supabase.from("devices_shop").delete().eq("device_id", target).eq("shop_id", shopId);
-    const vName = vendors.find((v) => String(v.id) === d.vendor_id)?.name ?? null;
+
+    if (action === "logout_device") {
+      await supabase.from("devices_shop").update({ logged_out_at: nowIso, logout_reason: "admin" })
+        .eq("device_id", target).eq("shop_id", shopId).is("logged_out_at", null);
+    } else {
+      await supabase.from("devices_shop").delete().eq("device_id", target).eq("shop_id", shopId);
+    }
     await supabase.from("shop_security_events").insert({
-      shop_id: shopId, vendor_id: d.vendor_id, vendor_name: vName, kind: "device_revoked", device_model: d.device_model,
+      shop_id: shopId, vendor_id: d.vendor_id, vendor_name: vendorNameOf(d.vendor_id),
+      kind: action === "logout_device" ? "device_logged_out" : "device_revoked", device_model: phoneTitle(d),
     });
     return json({ ok: true });
   }
