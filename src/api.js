@@ -264,6 +264,8 @@ const ALL_SYNC_KEYS = [
   "shopMeta", "vendors", "products", "sales", "categories",
   "suppliers", "expenses", "movements", "inventories", "clients", "orders", "supplierProducts",
   "avoirs", "cashRegisterEntries", "versements", "auditLog", "snackLots", "heldSales",
+  // Hôtel : chambres, forfaits, séjours, réservations
+  "hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests",
 ];
 
 // Une file par boutique : deux boutiques peuvent avoir la clé "products"
@@ -303,6 +305,7 @@ export function getPendingCount(shopId) {
 export const MERGE_KEYS = new Set([
   "sales", "avoirs", "movements", "clients", "expenses", "suppliers", "orders",
   "supplierProducts", "inventories", "snackLots", "products", "categories", "heldSales",
+  "hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests",
 ]);
 const allHaveIds = (list) => Array.isArray(list) && list.every((x) => x && typeof x === "object" && x.id != null && x.id !== "");
 const knownKey = (shopId, key) => `synced_ids:${shopId}:${key}`;
@@ -593,4 +596,18 @@ export async function ownerSupportIssueToken({ email, secret }) {
 }
 export async function ownerSupportCount({ token, since }) {
   return callRead("support-owner", { action: "count", token, since });
+}
+
+/* ---------- Hôtel : photos des pièces d'identité ----------
+   Envoyées une par une (hors synchronisation générale, trop lourde). */
+export async function hotelPhotoPut({ id, guestId, side, data }, shopId) {
+  return callFunction("hotel-photos", { ...shopAuthFields(shopId), action: "put", id, guest_id: guestId, side, data }, 45000);
+}
+export async function hotelPhotoGet(ids, shopId) {
+  const d = await callFunction("hotel-photos", { ...shopAuthFields(shopId), action: "get", ids }, 30000);
+  return Array.isArray(d?.photos) ? d.photos : [];
+}
+export function hotelShopLinked(shopId) {
+  const id = resolveShop(shopId);
+  return !!(id && isShopLinked(id));
 }

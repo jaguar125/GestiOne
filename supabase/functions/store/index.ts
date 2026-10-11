@@ -17,6 +17,8 @@ const ALLOWED_KEYS = new Set([
   "shopMeta", "vendors", "products", "sales", "categories",
   "suppliers", "expenses", "movements", "inventories", "clients", "shopLicense", "orders", "supplierProducts", "avoirs", "cashRegisterEntries",
   "versements", "auditLog", "snackLots", "heldSales",
+  // Hôtel
+  "hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests",
 ]);
 
 // Listes fusionnées côté serveur (par id) au lieu d'être écrasées : une vente
@@ -25,6 +27,7 @@ const ALLOWED_KEYS = new Set([
 const MERGE_KEYS = new Set([
   "sales", "avoirs", "movements", "clients", "expenses", "suppliers", "orders",
   "supplierProducts", "inventories", "snackLots", "products", "categories", "heldSales",
+  "hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests",
 ]);
 
 // Listes remplacées en entier, mais dont les lignes annulées restent annulées.
@@ -81,7 +84,9 @@ function isRateLimited(ip: string): boolean {
     return false;
   }
   entry.count += 1;
-  return entry.count > 200;
+  // Plusieurs téléphones d'une même entreprise partagent souvent la même
+  // connexion (Wi-Fi de l'hôtel) : la limite est par adresse IP.
+  return entry.count > 600;
 }
 
 async function verifyDevice(

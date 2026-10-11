@@ -1,0 +1,58 @@
+GestiOne – Module HÔTEL complet (version à installer)
+======================================================
+
+Ce dossier contient TOUS les fichiers complets à copier dans le projet,
+par-dessus la « Version actuelle » (branche refonte-ecrans-caisse-voix).
+Copiez chaque fichier à son emplacement en gardant les mêmes dossiers
+(remplacez s'il existe, créez s'il n'existe pas).
+
+1. FICHIERS À COPIER (19)
+   vite.config.js, vite-safe-area.js        marges de sécurité (barre d'état / navigation)
+   src/App.jsx, src/api.js                  type d'entreprise « Hôtel », synchronisation
+   src/HeldSales.jsx                        ventes en attente (déjà livré, inclus par sécurité)
+   src/printer.js                           impression des reçus de l'hôtel (RawBT)
+   src/hotel/  (12 fichiers)                tout le module Hôtel
+   supabase/functions/store/index.ts        clés de synchro de l'hôtel
+   supabase/functions/hotel-photos/index.ts photos des pièces d'identité
+   supabase/migrations/20261011183000_hotel_guest_photos.sql
+
+2. SERVEUR SUPABASE : DÉJÀ FAIT
+   La table des photos, la fonction « hotel-photos » et la fonction « store »
+   sont déjà en ligne sur le projet. Les fichiers supabase/ sont fournis pour
+   garder le dépôt à jour, rien à redéployer.
+
+3. AUCUN NOUVEAU PAQUET À INSTALLER
+   Les paquets utilisés sont déjà dans package.json (@capacitor/share,
+   @capacitor/filesystem, @capacitor/local-notifications, text-to-speech…).
+   Ensuite : npm run build  puis  npx cap sync android  (pour l'APK).
+
+4. CE QUE CONTIENT LE MODULE
+   - Type d'entreprise « Hôtel » à la création (propriétaire, réceptionnistes,
+     technicien de surface), essai 14 jours, licence, commande par la bulle.
+   - Chambres ventilées / climatisées, forfaits et prix réglables, nuitée
+     jusqu'à 12:30 le lendemain, prolongation, passage en nuitée, ménage.
+   - Pages Chambres › Plan et › En cours en version premium (chronos en
+     direct, couleurs par état, alertes, actions rapides).
+   - Réservations avec rappels écrits et vocaux 5 h et 2 h avant.
+   - Fiche client obligatoire (nuitée, réservation) + photo CNI / permis /
+     passeport au bon format, conservée 12 mois.
+   - Annonce écrite et vocale quand une chambre est libérée.
+   - REÇUS : à chaque location (passage ou nuitée), réservation et règlement,
+     avec logo, nom, date, heure, chambre, formule, durée, montant, somme
+     reçue, montant encaissé, monnaie rendue et message de politesse.
+     Imprimer (imprimante Bluetooth via RawBT dans l'APK, sinon impression du
+     téléphone / PDF), Partager (WhatsApp), ou Ne pas imprimer.
+   - Réglages › Logo et reçus (propriétaire) : logo (photo ou galerie, logo
+     par défaut sinon), adresse, téléphone, message, papier 58 / 80 mm / A4.
+   - Propriétaire seul : annuler un séjour en cours, annuler ou supprimer une
+     réservation (avec motif et remboursement). Le reçu reste, marqué ANNULÉ.
+   - Propriétaire seul : Caisse › Reçus, Réglages › Historique, Inventaire,
+     Bénéfices (mensuel, trimestriel, semestriel, annuel, plage de dates),
+     export PDF.
+   - Fonctionne hors connexion, synchronisation auto toutes les 10 min et
+     bouton « Synchroniser maintenant ».
+
+5. À VÉRIFIER SUR LE TÉLÉPHONE
+   - Photo de la pièce (caméra arrière) et photo du logo.
+   - Impression : la première fois, choisir RawBT dans la fenêtre de partage
+     (cocher « Toujours »).

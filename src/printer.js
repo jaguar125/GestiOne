@@ -100,6 +100,11 @@ async function sendToRawBt(bytes, fileName) {
   await Share.share({ title: fileName, url: uri });
 }
 
+// Envoi d'octets ESC/POS déjà construits (reçus du module Hôtel).
+export async function printRawEscPos(bytes, fileName = "recu.prn") {
+  await sendToRawBt(bytes, fileName);
+}
+
 // Les imprimantes tickets bon marché gèrent rarement l'UTF-8 correctement —
 // on retire les accents pour le texte imprimé afin d'éviter des caractères
 // illisibles, quel que soit le modèle. L'écran, lui, garde les accents.

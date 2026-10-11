@@ -18,6 +18,8 @@ import { phoneNotify, preparePhoneNotifications } from "./phoneNotify.js";
 import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber, openWhatsAppChat, whatsappDisplay } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
 import { HoldSaleSheet, HeldSalesBanner, HistoryTabs, HeldSalesList, heldStockProblems } from "./HeldSales.jsx";
+import HotelApp from "./hotel/HotelApp.jsx";
+import { flushPhotos as flushHotelPhotos } from "./hotel/hotelPhotos.js";
 import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder } from "./printer.js";
 
 const GESTIONE_ICON_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJpY29uVGl0bGUiPgogIDx0aXRsZSBpZD0iaWNvblRpdGxlIj5HZXN0aU9uZSDigJQgaWPDtG5lIGRlIGwnYXBwbGljYXRpb248L3RpdGxlPgogIDxkZWZzPgogICAgPCEtLSA9PT09PT09PT09PT09PT09PSBEw4lHUkFEw4lTIChtb2RpZmlhYmxlKSA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdHcmFkIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDYzQjczIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTUlIiBzdG9wLWNvbG9yPSIjMDYxQjQ1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2MUI0NSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxyYWRpYWxHcmFkaWVudCBpZD0iZ2xvd0dyYWQiIGN4PSIxNSUiIGN5PSIxMCUiIHI9Ijc1JSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDBEOUE1IiBzdG9wLW9wYWNpdHk9IjAuNTUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0NSUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMC4xMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYXduaW5nT3JhbmdlIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjhBMDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjRkY2QjAwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJhd25pbmdXaGl0ZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZGRkZGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0U4RUNGNSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZmFjYWRlR3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZEMjFGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZG93R3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDBCOEQ5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2M0I3MyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ2VhckdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJhckdyYWQiIHgxPSIwIiB5MT0iMSIgeDI9IjAiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRkQyMUYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im9uZUdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJzb2Z0U2hhZG93IiB4PSItNDAlIiB5PSItNDAlIiB3aWR0aD0iMTgwJSIgaGVpZ2h0PSIxODAlIj4KICAgICAgPGZlRHJvcFNoYWRvdyBkeD0iMCIgZHk9IjEwIiBzdGREZXZpYXRpb249IjE0IiBmbG9vZC1jb2xvcj0iIzA2MUI0NSIgZmxvb2Qtb3BhY2l0eT0iMC40NSIvPgogICAgPC9maWx0ZXI+CiAgICA8ZmlsdGVyIGlkPSJzbWFsbFNoYWRvdyIgeD0iLTYwJSIgeT0iLTYwJSIgd2lkdGg9IjIyMCUiIGhlaWdodD0iMjIwJSI+CiAgICAgIDxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSI0IiBzdGREZXZpYXRpb249IjYiIGZsb29kLWNvbG9yPSIjMDYxQjQ1IiBmbG9vZC1vcGFjaXR5PSIwLjM1Ii8+CiAgICA8L2ZpbHRlcj4KCiAgICA8Y2xpcFBhdGggaWQ9Imljb25DbGlwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiByeD0iMjI0Ii8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPGcgY2xpcC1wYXRoPSJ1cmwoI2ljb25DbGlwKSI+CiAgICA8IS0tID09PT09PT09PT09PT09PT09IGcjYmFja2dyb3VuZCA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxnIGlkPSJiYWNrZ3JvdW5kIj4KICAgICAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNiZ0dyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9InVybCgjZ2xvd0dyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik0gLTYwLDUxMiBBIDU2MCw1NjAgMCAwIDAgNjAsOTYwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMEQ5QTUiIHN0cm9rZS1vcGFjaXR5PSIwLjM1IiBzdHJva2Utd2lkdGg9IjM0Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNjIgMTQ4KSBzY2FsZSgxKSI+CiAgICAgIAogIDxnIGlkPSJicmFuZE1hcmsiPgogICAgPCEtLSA9PT09PSBnI3N0b3JlIDogYm91dGlxdWUgKGF1dmVudCwgZmHDp2FkZSwgdml0cmluZSwgcG9ydGUpID09PT09IC0tPgogICAgPGcgaWQ9InN0b3JlIiBmaWx0ZXI9InVybCgjc29mdFNoYWRvdykiPgogICAgICA8IS0tIGJhbmRlYXUgaGF1dCBkZSBsJ2F1dmVudCAtLT4KICAgICAgPHJlY3QgeD0iODAiIHk9Ijg2IiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjQ0IiByeD0iMTYiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICA8IS0tIGxhbWJyZXF1aW4gcmF5w6kgKHJheXVyZXMgb3JhbmdlIC8gYmxhbmMsIGJhcyBhcnJvbmRpIGZhw6dvbiBzdG9yZSBiYW5uZSkgLS0+CiAgICAgIDxnIGlkPSJhd25pbmctc3RyaXBlcyI+CiAgICAgICAgPHBhdGggZD0iTTgwLDEzMCBoNjggdjc4IHEwLDI2IC0zNCwyNiBxLTM0LDAgLTM0LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgICA8cGF0aCBkPSJNMTQ4LDEzMCBoNjggdjg4IHEwLDI0IC0zNCwyNCBxLTM0LDAgLTM0LC0yNCBaIiBmaWxsPSJ1cmwoI2F3bmluZ1doaXRlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yMTYsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yODQsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nV2hpdGUpIi8+CiAgICAgICAgPHBhdGggZD0iTTM1MiwxMzAgaDY4IHY4OCBxMCwyNCAtMzQsMjQgcS0zNCwwIC0zNCwtMjQgWiIgZmlsbD0idXJsKCNhd25pbmdPcmFuZ2UpIi8+CiAgICAgICAgPHBhdGggZD0iTTQyMCwxMzAgaDY4IHY3OCBxMCwyNiAtMzQsMjYgcS0zNCwwIC0zNCwtMjYgWiIgZmlsbD0idXJsKCNhd25pbmdXaGl0ZSkiLz4KICAgICAgICA8cGF0aCBkPSJNNDg4LDEzMCBoNzIgdjcwIHEwLDI2IC0zNiwyNiBxLTM2LDAgLTM2LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgPC9nPgogICAgICA8IS0tIGZhw6dhZGUgLS0+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJ1cmwoI2ZhY2FkZUdyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMwNjFCNDUiIHN0cm9rZS1vcGFjaXR5PSIwLjE1IiBzdHJva2Utd2lkdGg9IjQiLz4KICAgICAgPCEtLSB2aXRyaW5lIGJsZXVlIGF2ZWMgcGFuaWVyIC0tPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0idXJsKCN3aW5kb3dHcmFkKSIvPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utb3BhY2l0eT0iMC4zNSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICAgIDxnIGlkPSJiYXNrZXQiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIj4KICAgICAgICA8cGF0aCBkPSJNMjIzLDM1MiBxMzAsLTQ2IDYwLDAiIC8+CiAgICAgICAgPHBhdGggZD0iTTIwMywzNTIgaDE2MCBsLTE2LDc4IHEtMywxNCAtMTgsMTQgaC05MiBxLTE1LDAgLTE4LC0xNCBaIiBmaWxsPSIjRkZGRkZGIiBzdHJva2U9Im5vbmUiLz4KICAgICAgICA8cGF0aCBkPSJNMjI4LDM2NiB2NTYgTTI1MywzNjYgdjYyIE0yNzgsMzY2IHY1NiIgc3Ryb2tlPSIjMDBCOEQ5IiBzdHJva2Utd2lkdGg9IjgiLz4KICAgICAgPC9nPgogICAgICA8IS0tIHBvcnRlIC0tPgogICAgICA8cmVjdCB4PSIzOTIiIHk9IjMyMiIgd2lkdGg9IjExMiIgaGVpZ2h0PSIxODgiIHJ4PSIxMCIgZmlsbD0iIzA2MUI0NSIvPgogICAgICA8Y2lyY2xlIGN4PSI0NzIiIGN5PSI0MTYiIHI9IjciIGZpbGw9IiNGRkQyMUYiLz4KICAgIDwvZz4KCiAgICA8IS0tID09PT09IGcjZ3Jvd3RoIDogZ3JhcGhpcXVlIGVuIGJhcnJlcyArIGZsw6hjaGUgYXNjZW5kYW50ZSA9PT09PSAtLT4KICAgIDxnIGlkPSJncm93dGgiPgogICAgICA8cmVjdCB4PSI1NDAiIHk9IjM2OCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjkyIiByeD0iNiIgZmlsbD0idXJsKCNiYXJHcmFkKSIvPgogICAgICA8cmVjdCB4PSI1ODQiIHk9IjMzMCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjEzMCIgcng9IjYiIGZpbGw9InVybCgjYmFyR3JhZCkiLz4KICAgICAgPHJlY3QgeD0iNjI4IiB5PSIyODYiIHdpZHRoPSIzNCIgaGVpZ2h0PSIxNzQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2JhckdyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik01NTYsMjcyIEw2NTAsMTc4IE02NTAsMTc4IGgtNDYgTTY1MCwxNzggdjQ2IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkQyMUYiIHN0cm9rZS13aWR0aD0iMTYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogICAgPC9nPgoKICAgIDwhLS0gPT09PT0gZyNtYW5hZ2VtZW50IDogZW5ncmVuYWdlIChnZXN0aW9uKSA9PT09PSAtLT4KICAgIDxnIGlkPSJtYW5hZ2VtZW50IiBmaWx0ZXI9InVybCgjc21hbGxTaGFkb3cpIj4KICAgICAgPGcgZmlsbD0idXJsKCNnZWFyR3JhZCkiPgogICAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoMC4wKSIvPgogICAgICA8cmVjdCB4PSItMTUuMCIgeT0iLTEwOC4wIiB3aWR0aD0iMzAuMCIgaGVpZ2h0PSIzNC4wIiByeD0iNiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTYwIDQ4MCkgcm90YXRlKDM2LjApIi8+CiAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoNzIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxMDguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxNDQuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxODAuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyMTYuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyNTIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyODguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgzMjQuMCkiLz4KICAgICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9Ijg4IiAvPgogICAgICA8L2c+CiAgICAgIDxjaXJjbGUgY3g9IjU2MCIgY3k9IjQ4MCIgcj0iODgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLW9wYWNpdHk9IjAuMzUiIHN0cm9rZS13aWR0aD0iNCIvPgogICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9IjM0IiBmaWxsPSIjMDYxQjQ1Ii8+CiAgICA8L2c+CiAgPC9nPgoKICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=";
@@ -389,7 +391,7 @@ const MOVEMENT_TYPES = {
 // Réglages de l'entreprise partagés entre tous les appareils (clé shopMeta).
 // Un champ absent de cette liste reste sur le téléphone où il a été réglé.
 const SHOP_META_SYNC_FIELDS = [
-  "name", "type", "currency", "adminPinHash", "adminDisplayName", "theme", "darkMode", "soundsEnabled",
+  "name", "type", "hotelSettings", "hotelSeeded", "currency", "adminPinHash", "adminDisplayName", "theme", "darkMode", "soundsEnabled",
   "voiceNotificationsEnabled", "loyaltyThreshold", "language", "cashRegisterResetHour",
   // Sécurité
   "autoLockMinutes", "protectSensitive",
@@ -415,6 +417,7 @@ const ESTABLISHMENT_TYPES = [
   { id: "bar", label: "Bar" },
   { id: "snack", label: "Snack · pain fourré" },
   { id: "boutique", label: "Boutique" },
+  { id: "hotel", label: "Hôtel" },
   { id: "autre", label: "Autre" },
 ];
 
@@ -2210,10 +2213,10 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
     );
   }
 
-  const TYPE_ICONS = { maquis: Store, cave: Wine, buvette: GlassWater, bar: Beer, snack: Croissant, boutique: ShoppingCart };
+  const TYPE_ICONS = { maquis: Store, cave: Wine, buvette: GlassWater, bar: Beer, snack: Croissant, boutique: ShoppingCart, hotel: Building2 };
   const STEP_META = {
     1: { eyebrow: "BIENVENUE SUR GESTIONE", title: "Comment s'appelle votre établissement ?", Icon: Store },
-    2: { eyebrow: "ÉQUIPE", title: "Créez votre premier vendeur", Icon: UserPlus },
+    2: { eyebrow: "ÉQUIPE", title: type === "hotel" ? "Créez votre premier réceptionniste" : "Créez votre premier vendeur", Icon: UserPlus },
     3: { eyebrow: "DERNIÈRE ÉTAPE", title: "Choisissez votre devise", Icon: Banknote },
   };
   const meta = STEP_META[step];
@@ -2273,7 +2276,7 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
           )}
           {step === 2 && (
             <>
-              <p className="text-xs font-semibold opacity-60 mb-1.5">Nom du vendeur</p>
+              <p className="text-xs font-semibold opacity-60 mb-1.5">{type === "hotel" ? "Nom du réceptionniste" : "Nom du vendeur"}</p>
               <input autoFocus value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="Ex : Awa, Junior…" className="gb-focus w-full rounded-xl px-4 py-3 text-sm border mb-4" style={{ borderColor: "var(--line)" }} />
               <p className="text-xs font-semibold opacity-60 mb-1.5">Code d'accès (4 chiffres)</p>
               <input value={vendorPin} onChange={(e) => setVendorPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="••••" inputMode="numeric" className="gb-focus w-full rounded-xl px-4 py-3 text-lg font-mono text-center tracking-[0.4em] border mb-4" style={{ borderColor: "var(--line)" }} />
@@ -16387,6 +16390,7 @@ function notifMeta(n, fmtM) {
       if (n.kind === "expired") return T(Hourglass, "#9A5B00", "#FFF1D6", "compte", `Code expiré · ${who}`, `${n.detail || "Invitation expirée"}${dev}`);
       return T(ShieldAlert, "#B3261E", "#FCEBEA", "compte", `Échec de connexion · ${who}`, `${n.detail || "Informations incorrectes"}${dev}`);
     }
+    case "hotel": return T(Bell, "#12233D", "#FCF3E1", "compte", n.title || "Hôtel", n.body || "");
     default: return T(Bell, "#3B5B7A", "#EDF2F7", "compte", "Notification", n.text || "");
   }
 }
@@ -17127,7 +17131,20 @@ function ShopSupportPage({ shop }) {
   );
 }
 
-function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen }) {
+// Questions fréquentes de l'assistance pour un hôtel (le reste de la bulle
+// est identique à celle des autres entreprises).
+const HOTEL_SUPPORT_FAQ = [
+  { id: "delete", danger: true, group: "Compte et sécurité", q: "Comment supprimer définitivement mon compte ?" },
+  { group: "Chambres et séjours", q: "Comment ajouter ou renuméroter mes chambres ?", a: "Réglages › Chambres & numéros. Ajoutez une chambre ou une série (ex. 113 à 116) et choisissez Ventilée ou Climatisée. Touchez un numéro pour le modifier ou le mettre hors service." },
+  { group: "Chambres et séjours", q: "Jusqu'à quand dure une nuitée ?", a: "Jusqu'au lendemain à l'heure de départ (12:30 par défaut), quelle que soit l'heure d'arrivée. Elle se règle dans Réglages › Tarifs & forfaits › Nuitée." },
+  { group: "Chambres et séjours", q: "Comment fonctionne une réservation ?", a: "Chambres › Réservations › Réserver : choisissez la date, l'heure, le forfait et la chambre. Elle est bloquée sur ce créneau et le gérant reçoit un rappel vocal et écrit 5 h et 2 h avant." },
+  { group: "Tarifs, caisse et équipe", q: "Comment créer un forfait 2 heures à prix spécial ?", a: "Réglages › Tarifs & forfaits › Nouveau forfait. Choisissez la durée et le prix : la remise par rapport au prix de l'heure est calculée automatiquement." },
+  { group: "Tarifs, caisse et équipe", q: "Comment donner un accès à un réceptionniste ?", a: "Réglages › Personnel & accès › Créer l'accès. Choisissez Réception ou Technicien de surface et donnez le code PIN en main propre. Vous pouvez bloquer ou débloquer un accès à tout moment." },
+  { group: "Tarifs, caisse et équipe", q: "Les dépenses sont-elles déduites de la recette ?", a: "Oui. Chaque dépense enregistrée (Réglages › Dépenses) est retirée de la recette du jour : la Caisse affiche le net en caisse." },
+  { group: "Utilisation", q: "L'application marche-t-elle sans internet ?", a: "Oui. Tout fonctionne hors connexion et les données sont envoyées automatiquement dès que le réseau revient. Une synchronisation complète a lieu toutes les 10 minutes, et le bouton « Synchroniser maintenant » est dans Réglages › Synchronisation." },
+];
+
+function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen, variant, prefill, onBuyLicense }) {
   const [open, setOpen] = useState(!!inline);
   const [agentOnline, setAgentOnline] = useState(null);
   const noteAgent = (d) => { if (d && typeof d.agent_online === "boolean") { setAgentOnline(d.agent_online); onAgent?.(d.agent_online); } return d; };
@@ -17167,6 +17184,16 @@ function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen }) {
   }, [open, stage]);
 
   useEffect(() => { threadEndRef.current?.scrollIntoView({ block: "end" }); }, [thread.length, stage, sending]);
+  // Message pré-rempli (ex. commande de licence) : la bulle s'ouvre sur la
+  // discussion, le message est prêt, il n'y a plus qu'à l'envoyer.
+  useEffect(() => {
+    if (!prefill?.n) return;
+    setOpen(true);
+    setMessage(prefill.text || "");
+    if (prefill.name && !name.trim()) setName(prefill.name);
+    if (prefill.phone && !phone.trim()) setPhone(prefill.phone);
+    setStage(localStorage.getItem("support_started") === "true" ? "thread" : "form");
+  }, [prefill?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submitContact = async () => {
     if (!name.trim() || !phone.trim() || !message.trim()) return;
@@ -17232,7 +17259,7 @@ function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen }) {
   };
 
   const qn = faqQuery.trim().toLowerCase();
-  const faqItems = SUPPORT_FAQ.map((item, i) => ({ ...item, i })).filter((f) => !qn || f.q.toLowerCase().includes(qn) || (f.a || "supprimer suppression compte").toLowerCase().includes(qn));
+  const faqItems = (variant === "hotel" ? HOTEL_SUPPORT_FAQ : SUPPORT_FAQ).map((item, i) => ({ ...item, i })).filter((f) => !qn || f.q.toLowerCase().includes(qn) || (f.a || "supprimer suppression compte").toLowerCase().includes(qn));
   const faqGroups = [...new Set(faqItems.map((f) => f.group))];
   const fmtTime = (d) => { const t = d ? new Date(d) : null; return t && !isNaN(t) ? t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""; };
   const inputCls = "gb-focus w-full rounded-xl px-3 text-[14.5px] border min-h-[42px]";
@@ -17274,6 +17301,13 @@ function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen }) {
             {stage === "faq" && (
               <>
               <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3 pt-3 pb-4 flex flex-col gap-2.5">
+                {onBuyLicense && (
+                  <button onClick={() => { setOpen(false); onBuyLicense(); }} className="gb-focus w-full min-h-[56px] px-3 rounded-2xl flex items-center gap-3 text-left" style={{ background: "#FFFBF2", border: "1.5px solid #F0D49A" }}>
+                    <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#E0A93B" }}><KeyRound size={17} color="#12233D" /></span>
+                    <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">Acheter une licence</span><span className="block text-[11.5px]" style={{ color: "#8A5A0B" }}>Commande en 1 minute, message pré-rempli</span></span>
+                    <ChevronRight size={16} color="#8A5A0B" />
+                  </button>
+                )}
                 <label className="flex items-center gap-2 min-h-[42px] px-3 rounded-xl border" style={{ background: "#fff", borderColor: "#DAD8D0" }}>
                   <Search size={17} color="#5B6470" />
                   <input value={faqQuery} onChange={(e) => setFaqQuery(e.target.value)} placeholder="Rechercher une question" aria-label="Rechercher dans la FAQ" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
@@ -17419,7 +17453,7 @@ function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen }) {
                 </div>
                 <div className="px-3 pt-2 pb-2.5 flex items-end gap-2 shrink-0" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
                   <label className="flex-1 min-w-0 min-h-[46px] px-3.5 rounded-2xl border flex items-center" style={{ background: "#fff", borderColor: "#DAD8D0" }}>
-                    <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMore()} placeholder="Écrivez votre message…" aria-label="Votre message" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+                    <textarea rows={message.includes("\n") ? Math.min(6, message.split("\n").length) : 1} value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !message.includes("\n")) { e.preventDefault(); sendMore(); } }} placeholder="Écrivez votre message…" aria-label="Votre message" className="flex-1 min-w-0 bg-transparent outline-none text-[15px] resize-none py-2.5" />
                   </label>
                   <button onClick={() => sendMore()} disabled={!message.trim()} aria-label="Envoyer" className="gb-focus w-[46px] h-[46px] rounded-2xl flex items-center justify-center shrink-0" style={{ background: message.trim() ? "#1E8E50" : "#D9DCDF", color: message.trim() ? "#fff" : "#6B747E" }}><Send size={19} /></button>
                 </div>
@@ -18638,6 +18672,25 @@ function AppInner() {
   // Ventes en attente : préparées mais pas encore encaissées (stock et
   // caisse inchangés jusqu'à l'encaissement). Synchronisées entre appareils.
   const [heldSales, setHeldSales] = useState([]);
+  // Hôtel : chambres, forfaits, séjours et réservations (synchronisés entre
+  // tous les téléphones de l'hôtel, utilisables hors connexion).
+  const [hotelRooms, setHotelRooms] = useState([]);
+  const [hotelTariffs, setHotelTariffs] = useState([]);
+  const [hotelStays, setHotelStays] = useState([]);
+  const [hotelReservations, setHotelReservations] = useState([]);
+  const [hotelGuests, setHotelGuests] = useState([]);
+  const [hotelSync, setHotelSync] = useState({ lastAt: null, nextAt: null, busy: false });
+  const [supportPrefill, setSupportPrefill] = useState(null);
+  const [hotelRouteSignal, setHotelRouteSignal] = useState(null);
+  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine !== false));
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on); window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+  const syncFromServerRef = useRef(null);
+  const shopTypeRef = useRef(null);
   const [resumedHeldId, setResumedHeldId] = useState(null);
   const [historyTab, setHistoryTab] = useState("sales");
   const [openCartSignal, setOpenCartSignal] = useState(0);
@@ -18729,7 +18782,8 @@ function AppInner() {
         try { const r = await window.storage.get("sessionView"); storedView = JSON.parse(r.value) || "sell"; } catch { storedView = "sell"; }
         setRole(storedRole);
         setCurrentVendorName(storedVendorName);
-        setView(storedRole === "admin" ? storedView : (storedView === "admin" ? "sell" : storedView));
+        const storedShop = dedupedShops.find((s) => s.id === activeId);
+        setView(storedShop?.type === "hotel" ? "hotel" : storedRole === "admin" ? storedView : (storedView === "admin" ? "sell" : storedView));
       }
       let storedHomeActive = false;
       try { const r = await window.storage.get("homeScreenActive"); storedHomeActive = JSON.parse(r.value); } catch { storedHomeActive = false; }
@@ -18827,6 +18881,7 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [license?.expiresAt, license?.lifetime, role]);
   const shop = shops && activeShopId ? shops.find((s) => s.id === activeShopId) : null;
+  shopTypeRef.current = shop?.type || null;
   // Présence pour la messagerie du propriétaire : un administrateur qui a
   // déjà écrit au support apparaît « En ligne » tant que l'application est
   // ouverte sur sa boutique (signal toutes les 45 s, uniquement au premier plan).
@@ -18962,7 +19017,7 @@ function AppInner() {
   // la relecture périodique.
   useEffect(() => {
     if (!activeShopId) return undefined;
-    const setters = { sales: setSales, avoirs: setAvoirs, movements: setMovements, clients: setClients, expenses: setExpenses, suppliers: setSuppliers, orders: setOrders, supplierProducts: setSupplierProducts, inventories: setInventories, snackLots: setSnackLots, heldSales: setHeldSales, products: setProducts, categories: setCategories };
+    const setters = { sales: setSales, avoirs: setAvoirs, movements: setMovements, clients: setClients, expenses: setExpenses, suppliers: setSuppliers, orders: setOrders, supplierProducts: setSupplierProducts, inventories: setInventories, snackLots: setSnackLots, heldSales: setHeldSales, products: setProducts, categories: setCategories, hotelRooms: setHotelRooms, hotelTariffs: setHotelTariffs, hotelStays: setHotelStays, hotelReservations: setHotelReservations, hotelGuests: setHotelGuests };
     return api.onMergedValue((key, merged, shopId) => {
       if (shopId !== activeShopId || !setters[key]) return;
       if (key === "sales") setSyncVersion((v) => v + 1);
@@ -19015,6 +19070,7 @@ function AppInner() {
           api.pullKey("auditLog", activeShopId),
           api.pullKey("snackLots", activeShopId),
           api.pullKey("heldSales", activeShopId),
+          ...(shopTypeRef.current === "hotel" ? ["hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests"].map((k) => api.pullKey(k, activeShopId)) : []),
         ]);
         if (cancelled) return;
         // Promise.allSettled (au lieu de Promise.all) : avant, si UNE SEULE
@@ -19023,7 +19079,7 @@ function AppInner() {
         // bloquait la mise à jour de TOUTES les autres données — produits,
         // catégories, ventes, etc. — pas seulement celle en échec. Chaque
         // clé a maintenant sa propre chance indépendante de réussir.
-        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements, freshAuditLog, freshSnackLots, freshHeldSales] =
+        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements, freshAuditLog, freshSnackLots, freshHeldSales, freshHotelRooms, freshHotelTariffs, freshHotelStays, freshHotelReservations, freshHotelGuests] =
           results.map((r) => (r.status === "fulfilled" ? r.value : undefined));
         // Annonces vocales des actions faites sur les autres appareils.
         try {
@@ -19116,6 +19172,11 @@ function AppInner() {
           ["versements", Array.isArray(freshVersements) ? ownCashEntries(freshVersements, activeShopId) : freshVersements, setVersements],
           ["snackLots", freshSnackLots, setSnackLots],
           ["heldSales", freshHeldSales, setHeldSales],
+          ["hotelRooms", freshHotelRooms, setHotelRooms],
+          ["hotelTariffs", freshHotelTariffs, setHotelTariffs],
+          ["hotelStays", freshHotelStays, setHotelStays],
+          ["hotelReservations", freshHotelReservations, setHotelReservations],
+          ["hotelGuests", freshHotelGuests, setHotelGuests],
         ];
         if (Array.isArray(freshAuditLog)) {
           const localIds = new Set((auditRef.current || []).map((e) => e.id));
@@ -19131,6 +19192,7 @@ function AppInner() {
             window.storage.set(`auditLog:${activeShopId}`, JSON.stringify(merged)).catch(() => {});
           }
         }
+        if (results.some((r) => r.status === "fulfilled")) setHotelSync((h) => ({ ...h, lastAt: Date.now() }));
         SYNCED_LIST_KEYS.forEach(([key, freshValue, setter]) => {
           if (!Array.isArray(freshValue)) return;
           // Fusion (et non remplacement) : une vente faite sur cet appareil
@@ -19186,6 +19248,7 @@ function AppInner() {
     // erreurs) sert uniquement à savoir que CE premier passage est terminé,
     // pour ne plus faire attendre l'ouverture de l'app à la fenêtre de fond
     // de caisse au-delà de ce premier essai — succès ou non.
+    syncFromServerRef.current = syncFromServer;
     syncFromServer().finally(() => { if (!cancelled) setCashSyncReady(true); });
     const interval = setInterval(syncFromServer, 12000);
     return () => { cancelled = true; clearInterval(interval); };
@@ -19212,6 +19275,9 @@ function AppInner() {
     let off = false;
     loadKey(`snackLots:${activeShopId}`, []).then((v) => { if (!off) setSnackLots(Array.isArray(v) ? v : []); });
     loadKey(`heldSales:${activeShopId}`, []).then((v) => { if (!off) { setHeldSales(Array.isArray(v) ? v : []); setResumedHeldId(null); } });
+    [["hotelRooms", setHotelRooms], ["hotelTariffs", setHotelTariffs], ["hotelStays", setHotelStays], ["hotelReservations", setHotelReservations], ["hotelGuests", setHotelGuests]].forEach(([k, set]) => {
+      loadKey(`${k}:${activeShopId}`, []).then((v) => { if (!off) set(Array.isArray(v) ? v : []); });
+    });
     loadKey(`auditLog:${activeShopId}`, []).then((v) => {
       if (off) return;
       const list = Array.isArray(v) ? v : [];
@@ -19290,6 +19356,11 @@ function AppInner() {
       case "auditLog": return auditRef.current || [];
       case "snackLots": return snackLots;
       case "heldSales": return heldSales;
+      case "hotelRooms": return hotelRooms;
+      case "hotelTariffs": return hotelTariffs;
+      case "hotelStays": return hotelStays;
+      case "hotelReservations": return hotelReservations;
+      case "hotelGuests": return hotelGuests;
       case "vendors": return vendors;
       case "products": return products;
       case "sales": return sales;
@@ -19562,6 +19633,63 @@ function AppInner() {
     setVendors(next); window.storage.set(`vendors:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("vendors"); setPendingSync(api.getPendingCount()); api.syncKeyNow("vendors", next).then(() => setPendingSync(api.getPendingCount())); }
   };
   const saveSuppliers = (next) => { setSuppliers(next); window.storage.set(`suppliers:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error")); if (shop?.backendLinked) { api.markDirty("suppliers"); setPendingSync(api.getPendingCount()); api.syncKeyNow("suppliers", next).then(() => setPendingSync(api.getPendingCount())); } };
+  // ---------- Hôtel : enregistrement + synchronisation ----------
+  const saveHotelKey = (key, setter) => (next) => {
+    setter(next);
+    window.storage.set(`${key}:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error"));
+    if (shop?.backendLinked) { api.markDirty(key); setPendingSync(api.getPendingCount()); api.syncKeyNow(key, next).then(() => setPendingSync(api.getPendingCount())); }
+  };
+  const saveHotelRooms = saveHotelKey("hotelRooms", setHotelRooms);
+  const saveHotelTariffs = saveHotelKey("hotelTariffs", setHotelTariffs);
+  const saveHotelStays = saveHotelKey("hotelStays", setHotelStays);
+  const saveHotelReservations = saveHotelKey("hotelReservations", setHotelReservations);
+  const saveHotelGuests = saveHotelKey("hotelGuests", setHotelGuests);
+  // Accès du personnel de l'hôtel : même principe que les vendeurs
+  // (nom + code PIN à 4 chiffres, code d'invitation), avec un rôle en plus.
+  const buildHotelVendor = ({ name, pin, phone, hotelRole, initial }) => {
+    const rec = { ...(initial || {}), id: initial?.id || uid(), name, phone: phone || "", hotelRole: hotelRole || "reception" };
+    if (!initial) rec.createdAt = new Date().toISOString();
+    if (shop?.backendLinked) { rec.pinHash = api.hashPin(pin); rec.pin = pin; rec.joinCode = initial?.joinCode || generateShopJoinCode(); }
+    else rec.pin = pin;
+    return rec;
+  };
+  const hotelPinTaken = (pin, exceptId = null) => (shop?.backendLinked
+    ? api.verifyPin(pin, shop.adminPinHash) || (vendors || []).some((v) => v.id !== exceptId && api.verifyPin(pin, v.pinHash))
+    : pin === (shop?.adminPin || DEFAULT_ADMIN_PIN) || (vendors || []).some((v) => v.id !== exceptId && v.pin === pin));
+  // Synchronisation complète : automatique toutes les 10 minutes (réglable)
+  // et à la demande (« Synchroniser maintenant »). Les modifications partent
+  // en plus aussitôt après chaque action, et les autres téléphones les
+  // reçoivent en quelques secondes.
+  const hotelSyncNow = async (manual = true) => {
+    const mins = Number(shop?.hotelSettings?.syncMinutes) || 10;
+    if (!shop?.backendLinked || !activeShopId) {
+      if (manual) pushToast("Entreprise non reliée au serveur : les données restent sur ce téléphone", "info");
+      setHotelSync((h) => ({ ...h, nextAt: Date.now() + mins * 60000 }));
+      return;
+    }
+    setHotelSync((h) => ({ ...h, busy: true }));
+    try {
+      await api.flushSyncQueue(getLocalValueRef.current, activeShopId);
+      await syncFromServerRef.current?.();
+      await flushHotelPhotos(activeShopId);
+    } catch { /* hors ligne : on réessaiera */ }
+    setPendingSync(api.getPendingCount());
+    setHotelSync((h) => ({ ...h, busy: false, nextAt: Date.now() + mins * 60000 }));
+    if (manual) pushToast(navigator.onLine === false ? "Hors connexion : envoi dès le retour du réseau" : "Synchronisation terminée", navigator.onLine === false ? "info" : "ok");
+  };
+  const hotelSyncNowRef = useRef(null);
+  hotelSyncNowRef.current = hotelSyncNow;
+  const isHotelShop = shop?.type === "hotel";
+  const hotelSyncMinutes = Number(shop?.hotelSettings?.syncMinutes) || 10;
+  useEffect(() => {
+    if (!isHotelShop || !activeShopId) return undefined;
+    setHotelSync((h) => ({ ...h, nextAt: Date.now() + hotelSyncMinutes * 60000 }));
+    const t = setInterval(() => hotelSyncNowRef.current?.(false), hotelSyncMinutes * 60000);
+    const onOnline = () => hotelSyncNowRef.current?.(false);
+    window.addEventListener("online", onOnline);
+    return () => { clearInterval(t); window.removeEventListener("online", onOnline); };
+  }, [isHotelShop, activeShopId, hotelSyncMinutes]);
+
   const saveExpenses = (next) => {
     try {
       const known = new Map((expenses || []).map((e) => [e.id, e]));
@@ -19730,7 +19858,7 @@ function AppInner() {
   // renseigné pour aujourd'hui — pas seulement au moment de valider une vente.
   const [cashModalAfterVersement, setCashModalAfterVersement] = useState(false);
   useEffect(() => {
-    if (view === "sell" && role && shop && cashSyncReady && !todayCashEntry) {
+    if (view === "sell" && role && shop && shop.type !== "hotel" && cashSyncReady && !todayCashEntry) {
       setCashRegisterModalOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -20963,7 +21091,7 @@ function AppInner() {
     <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}`} style={themeVars}>
       <GlobalStyle />
       <div className="w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] min-h-screen relative" style={{ background: "var(--paper)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
-        {role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} />}
+        {role === "admin" && shop?.type !== "hotel" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} />}
         {homeScreenActive ? (
           <OnboardingScreen
             shops={shops}
@@ -20983,7 +21111,42 @@ function AppInner() {
           <CurrencyContext.Provider value={shop.currency}><VocabContext.Provider value={{ ...(VOCAB[shopProfile(shop)] || VOCAB.boissons), painFourre: isPainShop(shop) }}>
           <LanguageContext.Provider value={shop.language || "fr"}>
             {!role ? (
-              <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); lastActivityRef.current = Date.now(); try { localStorage.setItem("lastActivityAt", String(Date.now())); } catch { /* ignore */ } logAudit("connexion", autoLoggedOutRef.current ? `Reconnexion de ${name} après déconnexion automatique${autoLoggedOutRef.current !== name ? ` (session précédente : ${autoLoggedOutRef.current})` : ""}` : `Connexion de ${name}`, { by: name, role: r }); autoLoggedOutRef.current = ""; try { localStorage.removeItem("autoLoggedOut"); } catch { /* ignore */ } setRole(r); setCurrentVendorName(name); setView(isNuit(shop) ? "home" : "sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} notice={autoLoggedOutRef.current} />
+              <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); lastActivityRef.current = Date.now(); try { localStorage.setItem("lastActivityAt", String(Date.now())); } catch { /* ignore */ } logAudit("connexion", autoLoggedOutRef.current ? `Reconnexion de ${name} après déconnexion automatique${autoLoggedOutRef.current !== name ? ` (session précédente : ${autoLoggedOutRef.current})` : ""}` : `Connexion de ${name}`, { by: name, role: r }); autoLoggedOutRef.current = ""; try { localStorage.removeItem("autoLoggedOut"); } catch { /* ignore */ } setRole(r); setCurrentVendorName(name); setView(shop?.type === "hotel" ? "hotel" : isNuit(shop) ? "home" : "sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} notice={autoLoggedOutRef.current} />
+            ) : shop.type === "hotel" ? (
+              <>
+                {licenseStatus === "expired" ? (
+                  <LicenseLockedScreen role={role} shopName={shop?.name} onActivate={handleActivateLicense} pushToast={pushToast} onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} />
+                ) : (
+                  <HotelApp
+                    shop={shop} role={role} userName={actorName()}
+                    staff={role === "admin" ? null : (vendors || []).find((v) => normName(v.name) === normName(currentVendorName)) || null}
+                    rooms={hotelRooms} tariffs={hotelTariffs} stays={hotelStays} reservations={hotelReservations} guests={hotelGuests} expenses={expenses || []}
+                    save={{ rooms: saveHotelRooms, tariffs: saveHotelTariffs, stays: saveHotelStays, reservations: saveHotelReservations, guests: saveHotelGuests, expenses: saveExpenses, shopMeta: saveShopMeta }}
+                    fmt={(n) => formatMoney(Number(n) || 0, shop?.currency)}
+                    pushToast={pushToast}
+                    speak={(t) => speak(t, true)}
+                    notify={(title, body) => { try { phoneNotify(title, body); } catch { /* ignore */ } }}
+                    onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }}
+                    sync={{ online, pending: pendingSync, lastAt: hotelSync.lastAt, nextAt: hotelSync.nextAt, busy: hotelSync.busy, onSyncNow: () => hotelSyncNow(true) }}
+                    license={license} licenseStatus={licenseStatus} onActivateLicense={handleActivateLicense} pricing={LICENSE_PLANS_PRICING}
+                    onOrderLicense={(text, who) => setSupportPrefill({ text, n: Date.now(), ...(who || {}) })}
+                    routeSignal={hotelRouteSignal}
+                    staffApi={{ vendors: vendors || [], saveVendors, buildVendor: buildHotelVendor, isPinTaken: hotelPinTaken }}
+                    renderInvites={shop.backendLinked ? () => <VendorsSection shop={shop} sales={[]} vendors={vendors || []} saveVendors={saveVendors} pushToast={pushToast} adminPin={shop.adminPin} adminPinHash={shop.adminPinHash} backendLinked={shop.backendLinked} pushNotification={pushNotification} /> : null}
+                  />
+                )}
+                {role === "admin" && licenseStatus !== "expired" && !ownerAccess && (
+                  <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} variant="hotel" prefill={supportPrefill} onBuyLicense={() => setHotelRouteSignal({ name: "order", n: Date.now() })} />
+                )}
+                {role && locked && (
+                  <LockScreen
+                    userName={actorName()}
+                    onUnlock={handleUnlock}
+                    onSwitchUser={() => { logAudit("connexion", `Changement d'utilisateur depuis l'écran verrouillé (${actorName()})`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); }}
+                  />
+                )}
+                {adminGuard && <AdminCodeModal label={adminGuard.label} onSubmit={handleAdminGuard} onCancel={() => { setAdminGuard(null); pushToast("Action annulée", "error"); }} />}
+              </>
             ) : (
               <>
                 <div className={`fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-4 pb-2 flex items-center justify-between z-20 no-print${nuit ? " gb-nuit-bar" : ""}`} style={{ background: nuit ? "var(--glass)" : "var(--paper)", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.18)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
