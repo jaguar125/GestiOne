@@ -8,6 +8,7 @@ import {
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
   Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
   Phone, Link2, Info, UserCheck, Activity, Flame, Minimize2, Maximize2, Mail, LockKeyhole, ShieldAlert, Timer, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
+  PauseCircle,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
 import * as Tone from "tone";
@@ -16,6 +17,7 @@ import { scheduleLicenseReminders } from "./licenseNotifications.js";
 import { phoneNotify, preparePhoneNotifications } from "./phoneNotify.js";
 import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber, openWhatsAppChat, whatsappDisplay } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
+import { HoldSaleSheet, HeldSalesBanner, HistoryTabs, HeldSalesList, heldStockProblems } from "./HeldSales.jsx";
 import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder } from "./printer.js";
 
 const GESTIONE_ICON_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJpY29uVGl0bGUiPgogIDx0aXRsZSBpZD0iaWNvblRpdGxlIj5HZXN0aU9uZSDigJQgaWPDtG5lIGRlIGwnYXBwbGljYXRpb248L3RpdGxlPgogIDxkZWZzPgogICAgPCEtLSA9PT09PT09PT09PT09PT09PSBEw4lHUkFEw4lTIChtb2RpZmlhYmxlKSA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdHcmFkIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDYzQjczIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTUlIiBzdG9wLWNvbG9yPSIjMDYxQjQ1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2MUI0NSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxyYWRpYWxHcmFkaWVudCBpZD0iZ2xvd0dyYWQiIGN4PSIxNSUiIGN5PSIxMCUiIHI9Ijc1JSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDBEOUE1IiBzdG9wLW9wYWNpdHk9IjAuNTUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0NSUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMC4xMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYXduaW5nT3JhbmdlIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjhBMDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjRkY2QjAwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJhd25pbmdXaGl0ZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZGRkZGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0U4RUNGNSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZmFjYWRlR3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZEMjFGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZG93R3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDBCOEQ5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2M0I3MyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ2VhckdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJhckdyYWQiIHgxPSIwIiB5MT0iMSIgeDI9IjAiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRkQyMUYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im9uZUdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJzb2Z0U2hhZG93IiB4PSItNDAlIiB5PSItNDAlIiB3aWR0aD0iMTgwJSIgaGVpZ2h0PSIxODAlIj4KICAgICAgPGZlRHJvcFNoYWRvdyBkeD0iMCIgZHk9IjEwIiBzdGREZXZpYXRpb249IjE0IiBmbG9vZC1jb2xvcj0iIzA2MUI0NSIgZmxvb2Qtb3BhY2l0eT0iMC40NSIvPgogICAgPC9maWx0ZXI+CiAgICA8ZmlsdGVyIGlkPSJzbWFsbFNoYWRvdyIgeD0iLTYwJSIgeT0iLTYwJSIgd2lkdGg9IjIyMCUiIGhlaWdodD0iMjIwJSI+CiAgICAgIDxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSI0IiBzdGREZXZpYXRpb249IjYiIGZsb29kLWNvbG9yPSIjMDYxQjQ1IiBmbG9vZC1vcGFjaXR5PSIwLjM1Ii8+CiAgICA8L2ZpbHRlcj4KCiAgICA8Y2xpcFBhdGggaWQ9Imljb25DbGlwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiByeD0iMjI0Ii8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPGcgY2xpcC1wYXRoPSJ1cmwoI2ljb25DbGlwKSI+CiAgICA8IS0tID09PT09PT09PT09PT09PT09IGcjYmFja2dyb3VuZCA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxnIGlkPSJiYWNrZ3JvdW5kIj4KICAgICAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNiZ0dyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9InVybCgjZ2xvd0dyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik0gLTYwLDUxMiBBIDU2MCw1NjAgMCAwIDAgNjAsOTYwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMEQ5QTUiIHN0cm9rZS1vcGFjaXR5PSIwLjM1IiBzdHJva2Utd2lkdGg9IjM0Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNjIgMTQ4KSBzY2FsZSgxKSI+CiAgICAgIAogIDxnIGlkPSJicmFuZE1hcmsiPgogICAgPCEtLSA9PT09PSBnI3N0b3JlIDogYm91dGlxdWUgKGF1dmVudCwgZmHDp2FkZSwgdml0cmluZSwgcG9ydGUpID09PT09IC0tPgogICAgPGcgaWQ9InN0b3JlIiBmaWx0ZXI9InVybCgjc29mdFNoYWRvdykiPgogICAgICA8IS0tIGJhbmRlYXUgaGF1dCBkZSBsJ2F1dmVudCAtLT4KICAgICAgPHJlY3QgeD0iODAiIHk9Ijg2IiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjQ0IiByeD0iMTYiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICA8IS0tIGxhbWJyZXF1aW4gcmF5w6kgKHJheXVyZXMgb3JhbmdlIC8gYmxhbmMsIGJhcyBhcnJvbmRpIGZhw6dvbiBzdG9yZSBiYW5uZSkgLS0+CiAgICAgIDxnIGlkPSJhd25pbmctc3RyaXBlcyI+CiAgICAgICAgPHBhdGggZD0iTTgwLDEzMCBoNjggdjc4IHEwLDI2IC0zNCwyNiBxLTM0LDAgLTM0LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgICA8cGF0aCBkPSJNMTQ4LDEzMCBoNjggdjg4IHEwLDI0IC0zNCwyNCBxLTM0LDAgLTM0LC0yNCBaIiBmaWxsPSJ1cmwoI2F3bmluZ1doaXRlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yMTYsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yODQsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nV2hpdGUpIi8+CiAgICAgICAgPHBhdGggZD0iTTM1MiwxMzAgaDY4IHY4OCBxMCwyNCAtMzQsMjQgcS0zNCwwIC0zNCwtMjQgWiIgZmlsbD0idXJsKCNhd25pbmdPcmFuZ2UpIi8+CiAgICAgICAgPHBhdGggZD0iTTQyMCwxMzAgaDY4IHY3OCBxMCwyNiAtMzQsMjYgcS0zNCwwIC0zNCwtMjYgWiIgZmlsbD0idXJsKCNhd25pbmdXaGl0ZSkiLz4KICAgICAgICA8cGF0aCBkPSJNNDg4LDEzMCBoNzIgdjcwIHEwLDI2IC0zNiwyNiBxLTM2LDAgLTM2LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgPC9nPgogICAgICA8IS0tIGZhw6dhZGUgLS0+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJ1cmwoI2ZhY2FkZUdyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMwNjFCNDUiIHN0cm9rZS1vcGFjaXR5PSIwLjE1IiBzdHJva2Utd2lkdGg9IjQiLz4KICAgICAgPCEtLSB2aXRyaW5lIGJsZXVlIGF2ZWMgcGFuaWVyIC0tPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0idXJsKCN3aW5kb3dHcmFkKSIvPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utb3BhY2l0eT0iMC4zNSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICAgIDxnIGlkPSJiYXNrZXQiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIj4KICAgICAgICA8cGF0aCBkPSJNMjIzLDM1MiBxMzAsLTQ2IDYwLDAiIC8+CiAgICAgICAgPHBhdGggZD0iTTIwMywzNTIgaDE2MCBsLTE2LDc4IHEtMywxNCAtMTgsMTQgaC05MiBxLTE1LDAgLTE4LC0xNCBaIiBmaWxsPSIjRkZGRkZGIiBzdHJva2U9Im5vbmUiLz4KICAgICAgICA8cGF0aCBkPSJNMjI4LDM2NiB2NTYgTTI1MywzNjYgdjYyIE0yNzgsMzY2IHY1NiIgc3Ryb2tlPSIjMDBCOEQ5IiBzdHJva2Utd2lkdGg9IjgiLz4KICAgICAgPC9nPgogICAgICA8IS0tIHBvcnRlIC0tPgogICAgICA8cmVjdCB4PSIzOTIiIHk9IjMyMiIgd2lkdGg9IjExMiIgaGVpZ2h0PSIxODgiIHJ4PSIxMCIgZmlsbD0iIzA2MUI0NSIvPgogICAgICA8Y2lyY2xlIGN4PSI0NzIiIGN5PSI0MTYiIHI9IjciIGZpbGw9IiNGRkQyMUYiLz4KICAgIDwvZz4KCiAgICA8IS0tID09PT09IGcjZ3Jvd3RoIDogZ3JhcGhpcXVlIGVuIGJhcnJlcyArIGZsw6hjaGUgYXNjZW5kYW50ZSA9PT09PSAtLT4KICAgIDxnIGlkPSJncm93dGgiPgogICAgICA8cmVjdCB4PSI1NDAiIHk9IjM2OCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjkyIiByeD0iNiIgZmlsbD0idXJsKCNiYXJHcmFkKSIvPgogICAgICA8cmVjdCB4PSI1ODQiIHk9IjMzMCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjEzMCIgcng9IjYiIGZpbGw9InVybCgjYmFyR3JhZCkiLz4KICAgICAgPHJlY3QgeD0iNjI4IiB5PSIyODYiIHdpZHRoPSIzNCIgaGVpZ2h0PSIxNzQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2JhckdyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik01NTYsMjcyIEw2NTAsMTc4IE02NTAsMTc4IGgtNDYgTTY1MCwxNzggdjQ2IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkQyMUYiIHN0cm9rZS13aWR0aD0iMTYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogICAgPC9nPgoKICAgIDwhLS0gPT09PT0gZyNtYW5hZ2VtZW50IDogZW5ncmVuYWdlIChnZXN0aW9uKSA9PT09PSAtLT4KICAgIDxnIGlkPSJtYW5hZ2VtZW50IiBmaWx0ZXI9InVybCgjc21hbGxTaGFkb3cpIj4KICAgICAgPGcgZmlsbD0idXJsKCNnZWFyR3JhZCkiPgogICAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoMC4wKSIvPgogICAgICA8cmVjdCB4PSItMTUuMCIgeT0iLTEwOC4wIiB3aWR0aD0iMzAuMCIgaGVpZ2h0PSIzNC4wIiByeD0iNiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTYwIDQ4MCkgcm90YXRlKDM2LjApIi8+CiAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoNzIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxMDguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxNDQuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxODAuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyMTYuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyNTIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyODguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgzMjQuMCkiLz4KICAgICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9Ijg4IiAvPgogICAgICA8L2c+CiAgICAgIDxjaXJjbGUgY3g9IjU2MCIgY3k9IjQ4MCIgcj0iODgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLW9wYWNpdHk9IjAuMzUiIHN0cm9rZS13aWR0aD0iNCIvPgogICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9IjM0IiBmaWxsPSIjMDYxQjQ1Ii8+CiAgICA8L2c+CiAgPC9nPgoKICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=";
@@ -535,6 +537,12 @@ function formatMoney(n, currencyCode) {
   const meta = CURRENCIES.find((c) => c.code === currencyCode) || CURRENCIES[0];
   return new Intl.NumberFormat(meta.locale).format(Math.round(n || 0)) + " " + meta.symbol;
 }
+// Liste des ventes en attente avec le format monétaire de l'entreprise.
+function HeldSalesWithFmt(props) {
+  const fmt = useFmt();
+  return <HeldSalesList {...props} fmt={fmt} />;
+}
+
 function useFmt() {
   const currency = useContext(CurrencyContext);
   return (n) => formatMoney(n, currency);
@@ -3707,7 +3715,7 @@ function VariantStockView({ products }) {
   );
 }
 
-function SellScreen({ shop, categories, products: productsRaw, sales, clients, avoirs, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash }) {
+function SellScreen({ shop, categories, products: productsRaw, sales, clients, avoirs, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash, heldSales = [], resumedHeld = null, onHoldSale, onOpenHeld, openCartSignal = 0, onCartSignalDone }) {
   const fmt = useFmt();
   // Les produits « formule » (ex : Pain fourré) affichent le stock du produit
   // dont ils dépendent (Pain) — un seul stock partagé.
@@ -3736,7 +3744,10 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const [receipt, setReceipt] = useState(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [listening, setListening] = useState(false);
+  const [holdOpen, setHoldOpen] = useState(false);
   const inputRef = useRef(null);
+  // « Encaisser » depuis Historique › En attente : ouvre directement le panier repris.
+  useEffect(() => { if (openCartSignal > 0) { setShowCart(true); onCartSignalDone?.(); } }, [openCartSignal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -3977,6 +3988,11 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     // Le fond de caisse du jour doit être renseigné avant toute vente —
     // vérifié ici en tout premier, avant n'importe quelle autre validation.
     if (!hasCashToday) { onRequireCash?.(); return; }
+    // Vente reprise d'une mise en attente : le stock a pu être vendu entre-temps.
+    if (resumedHeld) {
+      const probs = heldStockProblems(cart, products, stockTargetId, (tid) => Number(products.find((x) => x.id === tid)?.stock) || 0);
+      if (probs.length) { pushToast(`Stock insuffisant : ${probs.map((p) => `${p.name} (reste ${p.left})`).join(", ")}`, "error"); playSound("error", shop.soundsEnabled); return; }
+    }
     if (payAvoir) {
       // L'avoir ne couvre pas tout : le client DOIT compléter — le montant
       // reçu est obligatoire et doit couvrir le complément.
@@ -4259,6 +4275,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       {scannerOpen && <CameraScanner onDetect={handleCameraDetect} onClose={() => setScannerOpen(false)} />}
 
       {/* Touches rapides supprimées : les produits favoris s'affichent en premier dans la liste. */}
+      <HeldSalesBanner heldSales={heldSales} fmt={fmt} nuit={nuit} onOpen={() => onOpenHeld?.()} />
       {nuit ? (
         <div role="tablist" aria-label="Catégories" className="flex gap-2 overflow-x-auto gb-scroll px-4 mt-4 pb-1">
           {["all", ...categories.map((c) => c.id)].map((c) => {
@@ -4272,13 +4289,15 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           })}
         </div>
       ) : (
-      <div role="tablist" aria-label="Catégories" className="mx-4 mt-4 p-1.5 rounded-[18px] grid gap-1" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(58px, 1fr))", background: "var(--card)", border: "1px solid var(--line)" }}>
+      // Catégories TOUJOURS sur une seule ligne : jusqu'à 6 elles se partagent
+      // la largeur, au-delà la ligne défile au doigt (même taille de pastille).
+      <div role="tablist" aria-label="Catégories" className="mx-4 mt-4 p-1.5 rounded-[18px] flex gap-1 overflow-x-auto gb-scroll" style={{ background: "var(--card)", border: "1px solid var(--line)", scrollbarWidth: "none", ...(categories.length + 1 > 6 ? { maskImage: "linear-gradient(90deg, #000 calc(100% - 28px), transparent)", WebkitMaskImage: "linear-gradient(90deg, #000 calc(100% - 28px), transparent)" } : {}) }}>
         {["all", ...categories.map((c) => c.id)].map((c) => {
           const on = cat === c;
           return (
-            <button key={c} onClick={() => setCat(c)} role="tab" aria-selected={on} className="gb-focus min-w-0 min-h-[56px] px-0.5 py-1.5 rounded-[13px] flex flex-col items-center justify-center gap-1" style={on ? { background: "#1F2A33", color: "#fff" } : { color: c === "all" ? "var(--ink)" : catColor(c) }}>
+            <button key={c} onClick={() => setCat(c)} role="tab" aria-selected={on} className="gb-focus min-w-0 min-h-[56px] px-0.5 py-1.5 rounded-[13px] flex flex-col items-center justify-center gap-1" style={{ flex: categories.length + 1 > 6 ? "0 0 60px" : "1 1 0", ...(on ? { background: "#1F2A33", color: "#fff" } : { color: c === "all" ? "var(--ink)" : catColor(c) }) }}>
               {c === "all" ? <Layers size={18} /> : <CategoryIcon cat={c} categories={on ? [{ ...getCategory(categories, c), color: "#FFFFFF" }] : categories} size={18} />}
-              <span className="text-[10.5px] font-bold leading-tight text-center break-words w-full">{c === "all" ? "Tout" : getCategory(categories, c).label}</span>
+              <span className="text-[10.5px] font-bold leading-tight text-center w-full whitespace-nowrap overflow-hidden text-ellipsis">{c === "all" ? "Tout" : getCategory(categories, c).label}</span>
             </button>
           );
         })}
@@ -4371,12 +4390,15 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
             {nuit ? (
               <div className="-mx-4 px-4 pb-3 mb-3 flex items-center gap-3 text-white shrink-0" style={{ background: "var(--glass)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
                 <button onClick={() => setShowCart(false)} className="gb-focus w-10 h-10 -ml-1 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Retour"><ArrowLeft size={19} /></button>
-                <h2 className="font-display font-bold text-[18px] flex-1">Paiement</h2>
+                <h2 className="font-display font-bold text-[18px] flex-1 truncate">{resumedHeld ? `Paiement · ${resumedHeld.label}` : "Paiement"}</h2>
                 {cartItems.length > 0 && <button onClick={() => { setCart([]); setShowCart(false); pushToast("Panier vidé", "ok"); }} className="gb-focus min-h-[36px] px-3 rounded-xl text-[12.5px] font-bold" style={{ background: "rgba(255,255,255,0.12)" }}>Vider</button>}
               </div>
             ) : (
             <div className="flex items-center justify-between gap-2 mb-3">
-              <h2 className="font-display font-bold text-[20px]">Panier · {count} article{count > 1 ? "s" : ""}</h2>
+              <div className="min-w-0">
+                <h2 className="font-display font-bold text-[20px] truncate">{resumedHeld ? resumedHeld.label : "Panier"} · {count} article{count > 1 ? "s" : ""}</h2>
+                {resumedHeld && <p className="text-[12.5px] font-semibold flex items-center gap-1" style={{ color: "#8A4B05" }}><Clock size={13} /> En attente depuis {new Date(resumedHeld.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>}
+              </div>
               <div className="flex items-center gap-2 shrink-0">
                 {cartItems.length > 0 && <button onClick={() => { setCart([]); setShowCart(false); pushToast("Panier vidé", "ok"); }} className="gb-focus min-h-[38px] px-3 rounded-xl text-[13px] font-bold" style={{ border: "1px solid #EBB3AA", color: "#8A2419" }}>Vider</button>}
                 <button onClick={() => setShowCart(false)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Fermer le panier"><X size={18} /></button>
@@ -4741,13 +4763,26 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                 <span className="text-sm opacity-60">Total{payAvoir ? <span className="ml-1.5 text-[12px] font-semibold" style={{ color: "#854F0B" }}>· avoir - {fmt(payAvoirUsed)}</span> : null}</span>
                 <span className="font-display font-bold text-xl">{fmt(total)}</span>
               </div>
-              <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus w-full min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : nuit ? "var(--cap)" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : nuit ? "0 10px 22px rgba(242,122,26,0.35)" : "0 10px 22px rgba(30,142,80,0.3)" }}>
-                <Check size={19} />
-                {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit && !avoirMonnaie && (payment === "credit" || cashShortfall) ? (payment === "credit" || !(Number(amountReceived) > 0) ? `Crédit ${fmt(total)} · avoir produit` : `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))} · avoir produit`) : avoirProduit ? `Encaisser ${fmt(total)} · articles en réserve${avoirMonnaie ? " + monnaie en avoir" : ""}` : (payment === "mixte" ? `Encaisser ${fmt(total)} · espèces + mobile` : cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
+              <div className="flex gap-2.5">
+              <button onClick={() => setHoldOpen(true)} disabled={cartItems.length === 0} className="gb-focus shrink-0 w-[104px] min-h-[56px] rounded-2xl px-1.5 flex flex-col items-center justify-center gap-0.5 text-[12px] font-bold leading-tight text-center disabled:opacity-40" style={{ background: "#FFF6E5", border: "1.5px solid #E8A33D", color: "#8A4B05" }} aria-label={resumedHeld ? "Remettre la vente en attente" : "Mettre la vente en attente"}>
+                <PauseCircle size={18} />
+                {resumedHeld ? "Remettre en attente" : "Mettre en attente"}
               </button>
+              <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus flex-1 min-w-0 min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : nuit ? "var(--cap)" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : nuit ? "0 10px 22px rgba(242,122,26,0.35)" : "0 10px 22px rgba(30,142,80,0.3)" }}>
+                  <Check size={19} />
+                  {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit && !avoirMonnaie && (payment === "credit" || cashShortfall) ? (payment === "credit" || !(Number(amountReceived) > 0) ? `Crédit ${fmt(total)} · avoir produit` : `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))} · avoir produit`) : avoirProduit ? `Encaisser ${fmt(total)} · articles en réserve${avoirMonnaie ? " + monnaie en avoir" : ""}` : (payment === "mixte" ? `Encaisser ${fmt(total)} · espèces + mobile` : cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
+                </button>
+              </div>
             </div>
           </div>
         </div>
+      )}
+
+      {holdOpen && (
+        <HoldSaleSheet count={count} total={total} fmt={fmt} isUpdate={!!resumedHeld}
+          initialLabel={resumedHeld?.label || ""} initialClient={resumedHeld?.clientName || clientName || ""}
+          onClose={() => setHoldOpen(false)}
+          onConfirm={({ label, clientName: cn }) => { onHoldSale?.({ label, clientName: cn, lines: cart, total, count }); setHoldOpen(false); setShowCart(false); resetCheckoutFields(); }} />
       )}
 
       {detailFor && (() => {
@@ -18600,6 +18635,13 @@ function AppInner() {
   const [inventories, setInventories] = useState(null);
   const [clients, setClients] = useState(null);
   const [cart, setCart] = useState([]);
+  // Ventes en attente : préparées mais pas encore encaissées (stock et
+  // caisse inchangés jusqu'à l'encaissement). Synchronisées entre appareils.
+  const [heldSales, setHeldSales] = useState([]);
+  const [resumedHeldId, setResumedHeldId] = useState(null);
+  const [historyTab, setHistoryTab] = useState("sales");
+  const [openCartSignal, setOpenCartSignal] = useState(0);
+  useEffect(() => { if (cart.length === 0) setResumedHeldId(null); }, [cart.length]);
   const [toast, setToast] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [saleToasts, setSaleToasts] = useState([]);
@@ -18920,7 +18962,7 @@ function AppInner() {
   // la relecture périodique.
   useEffect(() => {
     if (!activeShopId) return undefined;
-    const setters = { sales: setSales, avoirs: setAvoirs, movements: setMovements, clients: setClients, expenses: setExpenses, suppliers: setSuppliers, orders: setOrders, supplierProducts: setSupplierProducts, inventories: setInventories, snackLots: setSnackLots, products: setProducts, categories: setCategories };
+    const setters = { sales: setSales, avoirs: setAvoirs, movements: setMovements, clients: setClients, expenses: setExpenses, suppliers: setSuppliers, orders: setOrders, supplierProducts: setSupplierProducts, inventories: setInventories, snackLots: setSnackLots, heldSales: setHeldSales, products: setProducts, categories: setCategories };
     return api.onMergedValue((key, merged, shopId) => {
       if (shopId !== activeShopId || !setters[key]) return;
       if (key === "sales") setSyncVersion((v) => v + 1);
@@ -18972,6 +19014,7 @@ function AppInner() {
           api.pullKey("versements", activeShopId),
           api.pullKey("auditLog", activeShopId),
           api.pullKey("snackLots", activeShopId),
+          api.pullKey("heldSales", activeShopId),
         ]);
         if (cancelled) return;
         // Promise.allSettled (au lieu de Promise.all) : avant, si UNE SEULE
@@ -18980,7 +19023,7 @@ function AppInner() {
         // bloquait la mise à jour de TOUTES les autres données — produits,
         // catégories, ventes, etc. — pas seulement celle en échec. Chaque
         // clé a maintenant sa propre chance indépendante de réussir.
-        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements, freshAuditLog, freshSnackLots] =
+        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements, freshAuditLog, freshSnackLots, freshHeldSales] =
           results.map((r) => (r.status === "fulfilled" ? r.value : undefined));
         // Annonces vocales des actions faites sur les autres appareils.
         try {
@@ -19072,6 +19115,7 @@ function AppInner() {
           ["cashRegisterEntries", Array.isArray(freshCashRegisterEntries) ? ownCashEntries(freshCashRegisterEntries, activeShopId) : freshCashRegisterEntries, setCashRegisterEntries],
           ["versements", Array.isArray(freshVersements) ? ownCashEntries(freshVersements, activeShopId) : freshVersements, setVersements],
           ["snackLots", freshSnackLots, setSnackLots],
+          ["heldSales", freshHeldSales, setHeldSales],
         ];
         if (Array.isArray(freshAuditLog)) {
           const localIds = new Set((auditRef.current || []).map((e) => e.id));
@@ -19167,6 +19211,7 @@ function AppInner() {
     if (!activeShopId) return undefined;
     let off = false;
     loadKey(`snackLots:${activeShopId}`, []).then((v) => { if (!off) setSnackLots(Array.isArray(v) ? v : []); });
+    loadKey(`heldSales:${activeShopId}`, []).then((v) => { if (!off) { setHeldSales(Array.isArray(v) ? v : []); setResumedHeldId(null); } });
     loadKey(`auditLog:${activeShopId}`, []).then((v) => {
       if (off) return;
       const list = Array.isArray(v) ? v : [];
@@ -19244,6 +19289,7 @@ function AppInner() {
       case "shopMeta": return shop ? pickShopMeta(shop) : {};
       case "auditLog": return auditRef.current || [];
       case "snackLots": return snackLots;
+      case "heldSales": return heldSales;
       case "vendors": return vendors;
       case "products": return products;
       case "sales": return sales;
@@ -19547,6 +19593,15 @@ function AppInner() {
       api.markDirty("snackLots");
       setPendingSync(api.getPendingCount());
       api.syncKeyNow("snackLots", next).then(() => setPendingSync(api.getPendingCount())).catch(() => {});
+    }
+  };
+  const saveHeldSales = (next) => {
+    setHeldSales(next);
+    window.storage.set(`heldSales:${activeShopId}`, JSON.stringify(next)).catch(() => pushToast("Erreur de sauvegarde", "error"));
+    if (shop?.backendLinked) {
+      api.markDirty("heldSales");
+      setPendingSync(api.getPendingCount());
+      api.syncKeyNow("heldSales", next).then(() => setPendingSync(api.getPendingCount())).catch(() => {});
     }
   };
   const saveAvoirs = (next) => {
@@ -20113,6 +20168,73 @@ function AppInner() {
   // encaissé est enregistré comme premier règlement du crédit (voir
   // SellScreen.confirmCheckout), le solde restant apparaissant dans
   // CreditsScreen comme pour tout crédit partiellement réglé.
+  // ---------- Ventes en attente ----------
+  // Mise en attente : le panier est rangé avec un nom (Table 3, À emporter…)
+  // puis vidé pour servir un autre client. Rien n'est vendu : ni stock, ni
+  // caisse, ni ventes du jour ne bougent avant l'encaissement.
+  const holdCurrentCart = (list, { label, clientName, lines, total, count }) => {
+    const now = new Date().toISOString();
+    const existing = resumedHeldId && list.find((h) => h.id === resumedHeldId);
+    if (existing) {
+      return { next: list.map((h) => (h.id === existing.id ? { ...h, label, clientName: clientName || "", lines, total, count, updatedAt: now } : h)), label };
+    }
+    const held = { id: uid(), date: now, updatedAt: now, label, clientName: clientName || "", lines, total, count, author: currentVendorName || "" };
+    return { next: [...list, held], label };
+  };
+  const handleHoldSale = (payload) => {
+    if (!payload?.lines?.length) return;
+    const { next, label } = holdCurrentCart(heldSales, payload);
+    saveHeldSales(next);
+    setCart([]);
+    setResumedHeldId(null);
+    logAudit("vente", `Vente mise en attente : ${label} · ${payload.count} article${payload.count > 1 ? "s" : ""} · ${Math.round(payload.total)} F`);
+    pushToast(`« ${label} » mise en attente — panier libre`, "ok");
+  };
+  // Reprendre une vente en attente dans le panier. Si un autre panier est en
+  // cours, il est d'abord mis en attente automatiquement (rien n'est perdu).
+  const resumeHeldSale = (id, { pay = false } = {}) => {
+    const h = heldSales.find((x) => x.id === id);
+    if (!h) return;
+    let list = heldSales;
+    if (cart.length > 0 && resumedHeldId !== id) {
+      const lineTotal = cart.reduce((t, l) => { const p = products.find((x) => x.id === l.id); return t + (p ? computeItemTotal(p, l.qty) : 0); }, 0);
+      const count = cart.reduce((t, l) => t + (Number(l.qty) || 0), 0);
+      const t = new Date();
+      const prev = resumedHeldId && list.find((x) => x.id === resumedHeldId);
+      const auto = holdCurrentCart(list, { label: prev?.label || `Vente de ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`, clientName: prev?.clientName || "", lines: cart, total: lineTotal, count });
+      list = auto.next;
+      saveHeldSales(list);
+      pushToast(`Panier en cours mis en attente (« ${auto.label} »)`, "info");
+    }
+    const fresh = list.find((x) => x.id === id) || h;
+    // Produits supprimés du catalogue entre-temps : retirés de la vente.
+    const lines = (fresh.lines || []).filter((l) => products.some((p) => p.id === l.id));
+    if (lines.length < (fresh.lines || []).length) pushToast("Certains articles n'existent plus et ont été retirés", "error");
+    const probs = heldStockProblems(lines, products, stockTargetId, (tid) => Number(products.find((x) => x.id === tid)?.stock) || 0);
+    if (probs.length) pushToast(`Attention, stock insuffisant : ${probs.map((p) => `${p.name} (reste ${p.left})`).join(", ")}`, "error");
+    setCart(lines);
+    setResumedHeldId(id);
+    setView("sell");
+    if (pay) setOpenCartSignal((n) => n + 1);
+  };
+  const deleteHeldSale = (id) => {
+    const h = heldSales.find((x) => x.id === id);
+    saveHeldSales(heldSales.filter((x) => x.id !== id));
+    if (resumedHeldId === id) { setResumedHeldId(null); setCart([]); }
+    if (h) logAudit("vente", `Vente en attente supprimée : ${h.label} · ${Math.round(h.total)} F`);
+    pushToast("Vente en attente supprimée", "ok");
+  };
+  // Encaissement : si le panier venait d'une vente en attente, celle-ci
+  // disparaît de la liste au moment où la vraie vente est enregistrée.
+  const checkoutWithHeld = (...args) => {
+    const sale = handleCheckout(...args);
+    if (sale && resumedHeldId) {
+      saveHeldSales(heldSales.filter((x) => x.id !== resumedHeldId));
+      setResumedHeldId(null);
+    }
+    return sale;
+  };
+
   const handleCheckout = (cartItemsIn, total, paymentMethod, clientId, clientName, amountReceived, initialCashPayment, avoirPay, mobilePaid, extra) => {
     // Chaque ligne retire son stock du produit qui porte réellement le stock
     // (pour un Pain fourré : le Pain). On garde aussi la « part de base »
@@ -20934,7 +21056,7 @@ function AppInner() {
                         onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} />
                     )}
                     {view === "sell" && (
-                      <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={handleCheckout} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
+                      <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={checkoutWithHeld} heldSales={heldSales} resumedHeld={heldSales.find((h) => h.id === resumedHeldId) || null} onHoldSale={handleHoldSale} onOpenHeld={() => { setHistoryTab("held"); setView("history"); }} openCartSignal={openCartSignal} onCartSignalDone={() => setOpenCartSignal(0)} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
                     )}
                     {view === "stock" && nuit && (
                       <NuitStockScreen products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"}
@@ -20955,7 +21077,14 @@ function AppInner() {
                       onDeleteAvoirs={role === "admin" ? (ids, restock) => requireAdmin("Supprimer un avoir", () => handleDeleteAvoirs(ids, restock)) : undefined}
                       onWriteOffCredit={role === "admin" ? (id) => requireAdmin("Annuler une dette", () => handleWriteOffCredit(id)) : undefined}
                       onDeleteCreditSale={role === "admin" ? (id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id)) : undefined} />}
-                    {view === "history" && <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method, date) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method, date))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
+                    {view === "history" && (
+                      <>
+                        {(heldSales.length > 0 || historyTab === "held") && <HistoryTabs tab={historyTab} setTab={setHistoryTab} heldCount={heldSales.length} />}
+                        {historyTab === "held"
+                          ? <HeldSalesWithFmt heldSales={heldSales} products={products} resumedId={resumedHeldId} onResume={(id) => resumeHeldSale(id)} onPay={(id) => resumeHeldSale(id, { pay: true })} onDelete={deleteHeldSale} />
+                          : <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method, date) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method, date))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
+                      </>
+                    )}
                     {view === "expenses" && role === "vendeur" && (
                       <VendorExpensesScreen expenses={expenses} saveExpenses={saveExpenses} suppliers={suppliers} vendorName={currentVendorName} />
                     )}
@@ -21000,6 +21129,7 @@ function AppInner() {
                         <button key={t.id} onClick={() => { setAdminMenuOpen(false); setView(t.id); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2" aria-current={on ? "page" : undefined}>
                           <span className="relative flex flex-col items-center gap-1 px-2.5 py-1 rounded-[12px]" style={{ background: on ? "rgba(242,122,26,0.16)" : "transparent" }}>
                             <t.Icon size={19} color={on ? "var(--cap)" : "#9FB0C8"} />
+                            {t.id === "history" && heldSales.length > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "#E8771E" }}>{heldSales.length}</span>}
                             {t.id === "stock" && lowStockCount > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{lowStockCount}</span>}
                             {t.id === "more" && creditCount > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{creditCount}</span>}
                             <span className="text-[10.5px] font-semibold" style={{ color: on ? "#FF9A3D" : "#9FB0C8" }}>{t.id === "sell" && shopProfile(shop) === "boutique" ? "Boutique" : t.label}</span>
@@ -21011,6 +21141,9 @@ function AppInner() {
                       <button key={t.id} onClick={() => { setView(t.id); if (t.id === "admin") setAdminMenuOpen(true); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2.5" style={{ background: view === t.id ? "var(--glass-light)" : "transparent" }}>
                         <div className="relative">
                           <t.Icon size={17} color={view === t.id ? "var(--cap)" : "#ffffff90"} />
+                          {t.id === "history" && heldSales.length > 0 && (
+                            <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-[3px] rounded-full text-[8px] font-bold flex items-center justify-center text-white" style={{ background: "#E8771E" }}>{heldSales.length}</span>
+                          )}
                           {t.id === "stock" && lowStockCount > 0 && (
                             <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-[3px] rounded-full text-[8px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{lowStockCount}</span>
                           )}

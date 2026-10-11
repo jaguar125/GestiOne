@@ -263,7 +263,7 @@ export async function startTrialBackend() {
 const ALL_SYNC_KEYS = [
   "shopMeta", "vendors", "products", "sales", "categories",
   "suppliers", "expenses", "movements", "inventories", "clients", "orders", "supplierProducts",
-  "avoirs", "cashRegisterEntries", "versements", "auditLog", "snackLots",
+  "avoirs", "cashRegisterEntries", "versements", "auditLog", "snackLots", "heldSales",
 ];
 
 // Une file par boutique : deux boutiques peuvent avoir la clé "products"
@@ -302,7 +302,7 @@ export function getPendingCount(shopId) {
      confirmés par le serveur sont CONSERVÉS (et renvoyés). */
 export const MERGE_KEYS = new Set([
   "sales", "avoirs", "movements", "clients", "expenses", "suppliers", "orders",
-  "supplierProducts", "inventories", "snackLots", "products", "categories",
+  "supplierProducts", "inventories", "snackLots", "products", "categories", "heldSales",
 ]);
 const allHaveIds = (list) => Array.isArray(list) && list.every((x) => x && typeof x === "object" && x.id != null && x.id !== "");
 const knownKey = (shopId, key) => `synced_ids:${shopId}:${key}`;
