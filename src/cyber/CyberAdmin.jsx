@@ -327,8 +327,8 @@ export function AnnounceScreen({ ctx, onBack }) {
       <div className="cy-a cy-d1 mt-3 -mx-1 rounded-[22px] p-4 text-white relative overflow-hidden" style={{ background: C.navy }}>
         <span className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(34,211,238,0.32) 0%, rgba(0,0,0,0) 70%)" }} />
         <p className="relative text-[10.5px] font-extrabold tracking-[0.14em]" style={{ color: "#67E8F9" }}>VOIX DE L'APPLICATION</p>
-        <p className="relative mt-1.5 text-[13px] leading-relaxed italic" style={{ color: "#E2E8F0" }}>« {shop?.name || "Cyber café"}. Awa vient de faire une prestation de 3500 francs CFA. »</p>
-        <p className="relative mt-1 text-[13px] leading-relaxed italic" style={{ color: "#E2E8F0" }}>« {shop?.name || "Cyber café"}. César vient de faire une vente de 300 francs CFA. »</p>
+        <p className="relative mt-1.5 text-[13px] leading-relaxed italic" style={{ color: "#E2E8F0" }}>« Awa vient de faire une prestation de 3500 francs CFA. »</p>
+        <p className="relative mt-1 text-[13px] leading-relaxed italic" style={{ color: "#E2E8F0" }}>« César vient de faire une vente de 300 francs CFA. »</p>
         <div className="relative mt-3 flex items-center gap-3"><Btn kind="cyan" icon="play" onClick={test} style={{ minHeight: 42, fontSize: 13 }}>Écouter un exemple</Btn>{playing && <Waves color="#67E8F9" h={24} />}</div>
         <div className="relative mt-3"><Seg dark small options={[["0.85", "Lente"], ["1", "Normale"], ["1.15", "Rapide"]]} value={String(settings.voiceRate || 1)} onChange={(v) => actions.setSettings({ voiceRate: Number(v) })} /></div>
       </div>

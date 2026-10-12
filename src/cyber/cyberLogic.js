@@ -246,6 +246,6 @@ export function saleEvent(sale, shop, fmt) {
   const title = credit ? `${Word} à crédit de ${sale.by} · ${fmt(total)}` : `${Word} de ${sale.by} · ${fmt(total)}`;
   const pay = credit ? (salePaid(sale) > 0 ? `Payé ${fmt(salePaid(sale))}, reste ${fmt(due)}` : "À crédit") : (sale.payments || []).some((p) => p.mode === "momo") ? `Payé par ${momoName((sale.payments || []).find((p) => p.mode === "momo").op) || "Mobile Money"}` : "Payé en espèces";
   const body = `${saleSummary(sale)}. ${pay}${sale.client?.name ? ` · client ${sale.client.name}` : ""}.`;
-  const voice = `${shop?.name || "Cyber café"}. ${sale.by} vient de faire une ${word}${credit ? " à crédit" : ""} de ${sayAmount(total, shop?.currency)}${credit && sale.client?.name ? `, pour ${sale.client.name}` : ""}.`;
+  const voice = `${sale.by} vient de faire une ${word}${credit ? " à crédit" : ""} de ${sayAmount(total, shop?.currency)}${credit && sale.client?.name ? `, pour ${sale.client.name}` : ""}.`;
   return { type, title, body, voice, amount: total };
 }

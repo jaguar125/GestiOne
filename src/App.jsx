@@ -16535,7 +16535,7 @@ function notifAgo(d) {
   if (sameDay) return t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   return t.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + " · " + t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
-function NotificationPanel({ notifications, currency, onClear, onClose, voice, onOpenSupport }) {
+function NotificationPanel({ notifications, currency, onClear, onRemove, onClose, voice, onOpenSupport }) {
   const [fam, setFam] = useState("all");
   const fmtM = (v) => formatMoney(Number(v) || 0, currency);
   const items = notifications.map((n) => ({ n, m: notifMeta(n, fmtM) }));
@@ -16602,6 +16602,7 @@ function NotificationPanel({ notifications, currency, onClear, onClose, voice, o
                       {m.text && <p className="text-[12px] leading-snug mt-0.5" style={{ color: "#66707A" }}>{m.text}</p>}
                       {n.type === "support_reply" && onOpenSupport && <button onClick={() => { onOpenSupport(); onClose?.(); }} className="gb-focus mt-2 h-8 px-3 rounded-[10px] text-[12px] font-bold flex items-center gap-1.5 text-white" style={{ background: "#14684A" }}><Headphones size={13} /> Ouvrir l'Assistance</button>}
                     </div>
+                    {onRemove && <button onClick={() => onRemove(n)} aria-label={`Effacer : ${m.title}`} className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)", color: "#66707A" }}><X size={14} /></button>}
                   </div>
                 ))}
               </div>
@@ -21436,6 +21437,7 @@ function AppInner() {
                             notifications={notifications}
                             currency={shop.currency}
                             onClear={() => setNotifications([])}
+                            onRemove={(n) => setNotifications((cur) => cur.filter((x) => x !== n && (!n.id || x.id !== n.id)))}
                             onClose={() => setNotifPanelOpen(false)}
                             voice={{ prefs: voicePrefs, onChange: saveVoicePrefs, expanded: voiceSettingsOpen, onToggle: () => setVoiceSettingsOpen((v) => !v) }}
                             onOpenSupport={role === "admin" ? () => goAdminSection("assistance") : undefined}

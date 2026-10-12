@@ -86,7 +86,23 @@ export default function CyberApp(props) {
   const bellKey = `cyber:bell:${shop?.id}`;
   const [bellSeenAt, setBellSeenAt] = useState(() => { try { return Number(localStorage.getItem(bellKey)) || 0; } catch { return 0; } });
   const markBellSeen = () => { const t = Date.now(); setBellSeenAt(t); try { localStorage.setItem(bellKey, String(t)); } catch { /* ignore */ } };
-  const unread = events.filter((e) => e.at > bellSeenAt && (levelFor(e) > 0 || e.by === by)).length;
+  // Lu / effacé : propre à chaque téléphone (le journal partagé n'est pas touché).
+  const loadJ = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
+  const readKey = `cyber:read:${shop?.id}`; const hideKey = `cyber:hide:${shop?.id}`;
+  const [readIds, setReadIds] = useState(() => new Set(loadJ(readKey, [])));
+  const [hidden, setHidden] = useState(() => loadJ(hideKey, { before: 0, ids: [] }));
+  const saveRead = (set) => { setReadIds(set); try { localStorage.setItem(readKey, JSON.stringify([...set].slice(-500))); } catch { /* ignore */ } };
+  const saveHidden = (h) => { setHidden(h); try { localStorage.setItem(hideKey, JSON.stringify({ before: h.before || 0, ids: (h.ids || []).slice(-500) })); } catch { /* ignore */ } };
+  const myFeed = events.filter((e) => (levelFor(e) > 0 || e.by === by) && e.at > (hidden.before || 0) && !(hidden.ids || []).includes(e.id));
+  const isUnread = (e) => e.at > bellSeenAt && !readIds.has(e.id);
+  const unread = myFeed.filter(isUnread).length;
+  const feed = {
+    list: myFeed.slice(0, 120), isUnread,
+    read: (id) => { if (!readIds.has(id)) saveRead(new Set([...readIds, id])); },
+    readAll: () => markBellSeen(),
+    remove: (id) => saveHidden({ ...hidden, ids: [...(hidden.ids || []), id] }),
+    clearAll: () => { saveHidden({ before: Date.now(), ids: [] }); markBellSeen(); },
+  };
   const present = (ev, local) => {
     const lvl = levelFor(ev);
     if (lvl <= 0) return;
@@ -108,7 +124,7 @@ export default function CyberApp(props) {
 
   // ---------- Actions ----------
   const lowCrossings = (before, after) => stock.filter((s) => s.active !== false && !isLow(s, before[s.id] || 0) && isLow(s, after[s.id] || 0))
-    .map((s) => ({ type: "stock", title: `Stock bas · ${s.name}`, body: `Il ne reste que ${qtyLabel(s, after[s.id])} (seuil d'alerte : ${qtyLabel(s, s.alert)}). Pensez à réapprovisionner.`, voice: `${shop?.name || "Cyber café"}. Stock bas. Il ne reste que ${qtyLabel(s, Math.max(0, after[s.id]))} de ${s.name}.` }));
+    .map((s) => ({ type: "stock", title: `Stock bas · ${s.name}`, body: `Il ne reste que ${qtyLabel(s, after[s.id])} (seuil d'alerte : ${qtyLabel(s, s.alert)}). Pensez à réapprovisionner.`, voice: `Stock bas. Il ne reste que ${qtyLabel(s, Math.max(0, after[s.id]))} de ${s.name}.` }));
   const sell = ({ lines, client: cl, payments }) => {
     if (!lines?.length) return null;
     const at = Date.now();
@@ -140,7 +156,7 @@ export default function CyberApp(props) {
     if (!patch.size) return null;
     save.sales(sales.map((s) => patch.get(s.id) || s));
     const paid = amount - left;
-    addEvents([{ type: "paiement", title: `Paiement de crédit reçu par ${by} · ${fmt(paid)}`, body: `${cl.name} a payé ${fmt(paid)} (${mode === "momo" ? momoLabel(op) : "espèces"}).`, voice: `${shop?.name || "Cyber café"}. ${by} vient d'encaisser un paiement de crédit de ${sayAmount(paid, shop?.currency)}, de ${cl.name}.`, amount: paid }]);
+    addEvents([{ type: "paiement", title: `Paiement de crédit reçu par ${by} · ${fmt(paid)}`, body: `${cl.name} a payé ${fmt(paid)} (${mode === "momo" ? momoLabel(op) : "espèces"}).`, voice: `${by} vient d'encaisser un paiement de crédit de ${sayAmount(paid, shop?.currency)}, de ${cl.name}.`, amount: paid }]);
     pushToast(`${fmt(paid)} encaissé · ${cl.name}`, "ok");
     return grp;
   };
@@ -149,7 +165,7 @@ export default function CyberApp(props) {
     const at = Date.now(); const paid = salePaid(sale);
     const next = { ...sale, status: "cancelled", cancel: { at, by, reason }, refund: refund && paid > 0 ? { at, by, amount: paid, mode: "cash" } : null, updatedAt: nowIso() };
     save.sales(sales.map((s) => (s.id === sale.id ? next : s)));
-    addEvents([{ type: "annulation", title: `Annulation par ${by} · ${fmt(saleToPay(sale))}`, body: `Ticket ${sale.no} (${sale.by}) annulé. Motif : ${reason}.${next.refund ? ` Remboursé ${fmt(paid)}.` : ""}`, voice: `${shop?.name || "Cyber café"}. Attention. ${by} vient d'annuler une ${(sale.lines || []).some((l) => l.kind === "article") ? "vente" : "prestation"} de ${sayAmount(saleToPay(sale), shop?.currency)}.`, amount: saleToPay(sale) }]);
+    addEvents([{ type: "annulation", title: `Annulation par ${by} · ${fmt(saleToPay(sale))}`, body: `Ticket ${sale.no} (${sale.by}) annulé. Motif : ${reason}.${next.refund ? ` Remboursé ${fmt(paid)}.` : ""}`, voice: `Attention. ${by} vient d'annuler une ${(sale.lines || []).some((l) => l.kind === "article") ? "vente" : "prestation"} de ${sayAmount(saleToPay(sale), shop?.currency)}.`, amount: saleToPay(sale) }]);
     pushToast(`Ticket ${sale.no} annulé${next.refund ? ` · ${fmt(paid)} remboursé` : ""}`, "ok");
   };
   const saveClient = ({ name, phone }) => {
@@ -175,7 +191,7 @@ export default function CyberApp(props) {
     const txt = lines.map((l) => { const s = stock.find((x) => x.id === l.stockId); return s ? `${qtyLabel(s, l.qty)} de ${s.name}` : ""; }).filter(Boolean);
     const said = txt.length > 1 ? `${txt.slice(0, -1).join(", ")} et ${txt[txt.length - 1]}` : txt[0];
     const total = lines.reduce((t, l) => t + l.lots * l.lotCost, 0);
-    addEvents([{ type: "reappro", title: `Réapprovisionnement par ${by}`, body: `+ ${txt.join(", + ")}${supplier ? ` · ${supplier}` : ""}${total ? ` · achat de ${fmt(total)}` : ""}.`, voice: `${shop?.name || "Cyber café"}. Réapprovisionnement. ${by} vient d'ajouter ${said}.`, amount: total }]);
+    addEvents([{ type: "reappro", title: `Réapprovisionnement par ${by}`, body: `+ ${txt.join(", + ")}${supplier ? ` · ${supplier}` : ""}${total ? ` · achat de ${fmt(total)}` : ""}.`, voice: `Réapprovisionnement. ${by} vient d'ajouter ${said}.`, amount: total }]);
     pushToast("Entrée en stock enregistrée", "ok");
   };
   const inventory = (list) => {
@@ -187,14 +203,14 @@ export default function CyberApp(props) {
   const addExpense = ({ amount, category, label, source }) => {
     const at = Date.now();
     save.expenses([{ id: rid(), date: localDayKey(at), at, amount, label, category, source, by, cyber: true, createdAt: nowIso() }, ...expenses]);
-    addEvents([{ type: "depense", title: `Dépense de ${by} · ${fmt(amount)}`, body: `${label} (${source === "momo" ? "Mobile Money" : "payé en caisse"}).`, voice: `${shop?.name || "Cyber café"}. ${by} vient d'enregistrer une dépense de ${sayAmount(amount, shop?.currency)}, pour ${label.toLowerCase()}.`, amount }]);
+    addEvents([{ type: "depense", title: `Dépense de ${by} · ${fmt(amount)}`, body: `${label} (${source === "momo" ? "Mobile Money" : "payé en caisse"}).`, voice: `${by} vient d'enregistrer une dépense de ${sayAmount(amount, shop?.currency)}, pour ${label.toLowerCase()}.`, amount }]);
     pushToast(`Dépense de ${fmt(amount)} enregistrée`, "ok");
   };
   const closeDay = (d) => {
     const at = Date.now();
     const id = rid();
     save.closes([{ id, day: localDayKey(at), at, by, ...d }, ...closes]);
-    addEvents([{ type: "cloture", title: `Caisse clôturée par ${by}`, body: `Compté ${fmt(d.counted)} · attendu ${fmt(d.expected)} · ${d.gap === 0 ? "caisse juste" : `${d.gap < 0 ? "manquant" : "excédent"} de ${fmt(Math.abs(d.gap))}`}.`, voice: `${shop?.name || "Cyber café"}. ${by} vient de clôturer la caisse. ${d.gap === 0 ? "La caisse est juste." : `${d.gap < 0 ? "Manquant" : "Excédent"} de ${sayAmount(Math.abs(d.gap), shop?.currency)}.`}`, amount: d.counted }]);
+    addEvents([{ type: "cloture", title: `Caisse clôturée par ${by}`, body: `Compté ${fmt(d.counted)} · attendu ${fmt(d.expected)} · ${d.gap === 0 ? "caisse juste" : `${d.gap < 0 ? "manquant" : "excédent"} de ${fmt(Math.abs(d.gap))}`}.`, voice: `${by} vient de clôturer la caisse. ${d.gap === 0 ? "La caisse est juste." : `${d.gap < 0 ? "Manquant" : "Excédent"} de ${sayAmount(Math.abs(d.gap), shop?.currency)}.`}`, amount: d.counted }]);
     pushToast("Journée clôturée", "ok");
     return id;
   };
@@ -212,11 +228,11 @@ export default function CyberApp(props) {
     pushToast(added ? `Restauré · ${added} élément${added > 1 ? "s" : ""} remis en place` : "Rien à restaurer : tout est déjà présent", "ok");
     return added;
   };
-  const announceTest = () => announceVoice(`${shop?.name || "Cyber café"}. ${by} vient de faire une prestation de ${sayAmount(3500, shop?.currency)}.`, { rate: settings.voiceRate || 1, withChime: settings.chime !== false });
-  const notifyOwner = () => { addEvents([{ type: "demande", title: `${by} demande l'assistance`, body: `${by} a besoin d'aide : contactez l'assistance GestiOne depuis le menu.`, voice: `${shop?.name || "Cyber café"}. ${by} vous demande de contacter l'assistance GestiOne.` }]); pushToast("Le propriétaire est prévenu", "ok"); };
+  const announceTest = () => announceVoice(`${by} vient de faire une prestation de ${sayAmount(3500, shop?.currency)}.`, { rate: settings.voiceRate || 1, withChime: settings.chime !== false });
+  const notifyOwner = () => { addEvents([{ type: "demande", title: `${by} demande l'assistance`, body: `${by} a besoin d'aide : contactez l'assistance GestiOne depuis le menu.`, voice: `${by} vous demande de contacter l'assistance GestiOne.` }]); pushToast("Le propriétaire est prévenu", "ok"); };
 
   const actions = { sell, payCredit, cancelSale, saveClient, saveStockItem, restock, inventory, addExpense, closeDay, saveService, setSettings, restoreBackup, announceTest, notifyOwner };
-  const ctx = { unread, onLogout, shop, settings, role: r, can, userName: by, staffNames, services, sales, clients, stock, moves, events, closes, expenses, levels, fmt, pushToast, actions, sync, now, H: C };
+  const ctx = { unread, feed, onLogout, shop, settings, role: r, can, userName: by, staffNames, services, sales, clients, stock, moves, events, closes, expenses, levels, fmt, pushToast, actions, sync, now, H: C };
   const go = (name, extra = {}) => setRoute({ name, back: route, ...extra });
   const back = () => setRoute(route?.back || null);
   const openReceipt = (s) => go("receipt", { saleId: s.id });
@@ -248,7 +264,7 @@ export default function CyberApp(props) {
     else if (n === "order" && can.licence) screen = <OrderLicenceScreen ctx={ctx} onBack={back} pricing={pricing} planId={route.planId} onSend={(msg, who) => { onOrderLicense?.(msg, who); setRoute(null); }} />;
     else if (n === "faq") screen = <FaqScreen faq={faq} onBack={back} onSupport={can.support && onOpenSupport ? () => onOpenSupport() : null} />;
     else if (n === "support") screen = <SupportLocked onBack={back} onNotify={() => { notifyOwner(); back(); }} />;
-    else if (n === "activite") screen = <ActivityScreen key="act" onSeen={markBellSeen} ctx={ctx} levelFor={levelFor} onBack={back} />;
+    else if (n === "activite") screen = <ActivityScreen key="act" onSeen={markBellSeen} ctx={ctx} onBack={back} />;
   }
   const isFullBleed = ["receipt", "payreceipt", "closereceipt"].includes(route?.name);
   const showNav = !route;
@@ -430,28 +446,48 @@ function HomeScreen({ ctx, go, openMenu, onTab }) {
 }
 
 // ---------- Activité en direct ----------
-function ActivityScreen({ ctx, levelFor, onBack, onSeen }) {
-  const { events } = ctx;
-  useEffect(() => { onSeen?.(); return () => onSeen?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const list = events.filter((e) => levelFor(e) > 0 || e.by === ctx.userName).slice(0, 80);
+function ActivityScreen({ ctx, onBack, onSeen }) {
+  const { feed, unread } = ctx;
+  const [open, setOpen] = useState(null);
+  const [confirm, setConfirm] = useState(false);
+  // En quittant l'écran, toutes les notifications sont considérées comme vues.
+  useEffect(() => () => onSeen?.(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = feed.list;
   return (
     <div style={{ paddingBottom: 40 }}>
       <Hero>
         <div className="cy-a flex items-center gap-2.5">
-          <button type="button" onClick={onBack} aria-label="Retour" className="gb-focus cy-tap w-11 h-11 rounded-[14px] flex items-center justify-center" style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.18)" }}><Icon name="back" size={20} stroke={2.4} /></button>
-          <span className="flex-1"><span className="block text-[10.5px] font-extrabold tracking-[0.14em]" style={{ color: "#67E8F9" }}>TOUS LES TÉLÉPHONES</span><span className="block text-[21px] font-extrabold" style={{ fontFamily: FONT_D }}>Activité en direct</span></span>
-          <span className="h-[30px] px-2.5 rounded-full flex items-center gap-1.5 text-[11.5px] font-extrabold" style={{ background: "rgba(52,211,153,0.14)", color: "#A7F3D0" }}><span className="cy-live w-2 h-2 rounded-full" style={{ background: "#34D399" }} />En direct</span>
+          <button type="button" onClick={onBack} aria-label="Retour" className="gb-focus cy-tap w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.18)" }}><Icon name="back" size={20} stroke={2.4} /></button>
+          <span className="flex-1 min-w-0"><span className="block text-[10.5px] font-extrabold tracking-[0.14em]" style={{ color: "#67E8F9" }}>TOUS LES TÉLÉPHONES</span><span className="block text-[21px] font-extrabold" style={{ fontFamily: FONT_D }}>Notifications</span></span>
+          <span className="h-[30px] px-2.5 rounded-full flex items-center gap-1.5 text-[11.5px] font-extrabold shrink-0" style={{ background: unread ? "rgba(239,68,68,0.18)" : "rgba(52,211,153,0.14)", color: unread ? "#FECACA" : "#A7F3D0" }}>{unread ? `${unread} non lue${unread > 1 ? "s" : ""}` : "Tout est lu"}</span>
         </div>
       </Hero>
-      <Card className="cy-a cy-d1 mt-3 px-3">
-        {list.map((e, i) => { const [ic, bg] = EV_ICON[e.type] || EV_ICON.prestation; return (
-          <div key={e.id} className="flex items-center gap-2.5 min-h-[60px] py-1.5" style={{ borderTop: i ? `1px solid ${C.line2}` : "none" }}>
-            <span className="w-9 h-9 rounded-[12px] flex items-center justify-center text-white shrink-0" style={{ background: bg }}><Icon name={ic} size={16} stroke={2.4} /></span>
-            <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold truncate">{e.title}</span><span className="block text-[11.5px] leading-snug" style={{ color: C.muted }}>{dayLabel(e.at)} {hmOf(e.at)} · {e.body}</span></span>
-          </div>
-        ); })}
-        {!list.length && <p className="py-5 text-center text-[12.5px]" style={{ color: C.muted }}>Aucune activité pour l'instant.</p>}
+      {list.length > 0 && (
+        <div className="cy-a cy-d1 mt-3 grid grid-cols-2 gap-2">
+          <Btn kind="ghost" icon="check" disabled={!unread} onClick={feed.readAll} style={{ minHeight: 44, fontSize: 13 }}>Tout marquer lu</Btn>
+          <Btn kind="danger" icon="trash" onClick={() => { if (confirm) { feed.clearAll(); setConfirm(false); ctx.pushToast("Notifications effacées sur ce téléphone", "ok"); } else { setConfirm(true); setTimeout(() => setConfirm(false), 4000); } }} style={{ minHeight: 44, fontSize: 13 }}>{confirm ? "Confirmer l'effacement" : "Tout effacer"}</Btn>
+        </div>
+      )}
+      <Card className="cy-a cy-d2 mt-3 px-2.5">
+        {list.map((e, i) => {
+          const [ic, bg] = EV_ICON[e.type] || EV_ICON.prestation; const un = feed.isUnread(e); const isOpen = open === e.id;
+          return (
+            <div key={e.id} className="flex items-start gap-2 py-2" style={{ borderTop: i ? `1px solid ${C.line2}` : "none" }}>
+              <button type="button" onClick={() => { feed.read(e.id); setOpen(isOpen ? null : e.id); }} aria-expanded={isOpen} className="gb-focus flex-1 min-w-0 flex items-start gap-2.5 text-left rounded-[14px] px-1.5 py-1" style={{ background: un ? "#ECFEFF" : "transparent" }}>
+                <span className="relative w-9 h-9 rounded-[12px] flex items-center justify-center text-white shrink-0" style={{ background: bg }}><Icon name={ic} size={16} stroke={2.4} />{un && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: "#EF4444", border: "2px solid #fff" }} />}</span>
+                <span className="flex-1 min-w-0">
+                  <span className={`block text-[13.5px] leading-snug ${un ? "font-extrabold" : "font-bold"}`} style={{ color: un ? C.ink : C.ink2 }}>{e.title}</span>
+                  <span className="block text-[11.5px] leading-snug mt-0.5" style={{ color: C.muted }}>{dayLabel(e.at)} {hmOf(e.at)}{e.by ? ` · ${e.by}` : ""}</span>
+                  {(isOpen || un) && e.body && <span className="block text-[12.5px] leading-snug mt-1" style={{ color: C.ink2 }}>{e.body}</span>}
+                </span>
+              </button>
+              <button type="button" onClick={() => feed.remove(e.id)} aria-label={`Effacer : ${e.title}`} className="gb-focus cy-tap w-9 h-9 mt-1 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: C.ground, color: C.muted }}><Icon name="x" size={15} stroke={2.6} /></button>
+            </div>
+          );
+        })}
+        {!list.length && <div className="py-8 flex flex-col items-center gap-2 text-center"><span className="w-12 h-12 rounded-[16px] flex items-center justify-center" style={{ background: C.cyanSoft, color: C.cyanInk }}><Icon name="bell" size={22} /></span><p className="text-[14px] font-extrabold">Aucune notification</p><p className="text-[12px] px-6" style={{ color: C.muted }}>Les ventes, prestations, alertes de stock et paiements apparaîtront ici.</p></div>}
       </Card>
+      <p className="mt-2.5 px-1 text-[11.5px]" style={{ color: C.muted }}>Lire et effacer ne concerne que ce téléphone : l'historique des ventes n'est jamais supprimé.</p>
     </div>
   );
 }
