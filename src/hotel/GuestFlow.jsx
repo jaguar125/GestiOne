@@ -310,7 +310,7 @@ export default function GuestFlow({ ctx, info, mode = "night", initialGuest = nu
   // ----- Étape 3 -----
   const initials = `${(g.lastName || "?")[0] || ""}${(g.firstName || "")[0] || ""}`.toUpperCase();
   const withPhotos = allShots;
-  const cta = mode === "photos" ? "Enregistrer les photos" : mode === "arrival" ? "Valider l'arrivée" : mode === "resa" ? "Valider la réservation" : `Valider la nuitée · ${fmt(info?.price || 0)}`;
+  const cta = mode === "photos" ? "Enregistrer les photos" : mode === "arrival" ? "Continuer · paiement" : mode === "resa" ? "Valider la réservation" : `Valider la nuitée · ${fmt(info?.price || 0)}`;
   return (
     <div>
       <TopBar title="Vérification" sub="Relisez avant de valider" onBack={() => setStep(2)} />

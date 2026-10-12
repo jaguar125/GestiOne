@@ -217,11 +217,23 @@ export function printHtml(html) {
   });
 }
 
+async function isNativeApp() {
+  try { const { Capacitor } = await import("@capacitor/core"); return Capacitor.isNativePlatform(); } catch { return false; }
+}
+
+// Imprimante Bluetooth (RawBT) si disponible ; sinon, dans l'application,
+// un vrai fichier PDF (la fenêtre d'impression n'existe pas sur Android) ;
+// dans un navigateur, la fenêtre d'impression.
 export async function printHotelReceipt(r, info, fmt) {
   if (isPrinterFeatureAvailable() && info.paper !== "a4") {
     const bytes = await buildHotelEscPos(r, info, fmt);
     await printRawEscPos(bytes, `recu-${r.no}.prn`);
     return "printer";
+  }
+  if (await isNativeApp()) {
+    const { exportReceiptPdf } = await import("./hotelPdf.js");
+    await exportReceiptPdf(r, info, fmt);
+    return "pdf";
   }
   await printHtml(receiptHtml(r, info, fmt));
   return "browser";

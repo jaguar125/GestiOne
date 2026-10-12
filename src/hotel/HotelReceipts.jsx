@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { H, Icon, Btn, Card, Label, GroupTitle, Chip, Toggle, TopBar, RoomBadge, Field, inputStyle, Sheet, Empty } from "./HotelUI.jsx";
 import { allReceipts, dayBounds, hmOf, toMs, DAY, stayPaid } from "./hotelLogic.js";
 import { receiptInfo, receiptModel, logoSrc, fileToLogo, printHotelReceipt, shareHotelReceipt, PAY_TXT } from "./hotelReceipts.js";
+import { exportReceiptPdf } from "./hotelPdf.js";
 
 const MONO = "ui-monospace, 'JetBrains Mono', 'Courier New', monospace";
 
@@ -59,8 +60,13 @@ export function ReceiptScreen({ ctx, receipt, onDone, onBack, fresh }) {
   const [busy, setBusy] = useState(false);
   const print = async () => {
     setBusy(true);
-    try { const how = await printHotelReceipt(live, info, fmt); if (how === "printer") pushToast("Reçu envoyé à l'imprimante", "ok"); }
+    try { const how = await printHotelReceipt(live, info, fmt); if (how === "printer") pushToast("Reçu envoyé à l'imprimante", "ok"); else if (how === "pdf") pushToast("PDF du reçu prêt : choisissez où l'enregistrer ou l'imprimer", "ok"); }
     catch (e) { pushToast(e?.message || "Impression impossible", "error"); }
+    setBusy(false);
+  };
+  const pdf = async () => {
+    setBusy(true);
+    try { await exportReceiptPdf(live, info, fmt); } catch (e) { pushToast(e?.message || "PDF impossible", "error"); }
     setBusy(false);
   };
   return (
@@ -71,9 +77,10 @@ export function ReceiptScreen({ ctx, receipt, onDone, onBack, fresh }) {
         <ReceiptTicket r={live} info={info} fmt={fmt} />
       </div>
       {live.status === "cancelled" && live.cancel && <p className="mt-2 text-[12px] font-bold text-center" style={{ color: "#BE123C" }}>Annulé par {live.cancel.by || "—"} · {new Date(toMs(live.cancel.at)).toLocaleDateString("fr-FR")} {hmOf(toMs(live.cancel.at))}{live.cancel.reason ? ` · ${live.cancel.reason}` : ""}</p>}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <Btn kind="ghost" onClick={() => shareHotelReceipt(live, info, fmt)} className="!text-[13.5px]"><Icon name="share" size={17} stroke={2.3} />Partager</Btn>
-        <Btn kind="ghost" onClick={onDone} className="!text-[13.5px]">{fresh || Date.now() - toMs(receipt.at) < 60000 ? "Ne pas imprimer" : "Fermer"}</Btn>
+      <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,0.75fr) minmax(0,1.35fr)" }}>
+        <Btn kind="ghost" onClick={() => shareHotelReceipt(live, info, fmt)} className="!px-2 !text-[13px]"><Icon name="share" size={16} stroke={2.3} />Partager</Btn>
+        <Btn kind="ghost" disabled={busy} onClick={pdf} className="!px-2 !text-[13px]"><Icon name="download" size={16} stroke={2.3} />PDF</Btn>
+        <Btn kind="ghost" onClick={onDone} className="!px-2 !text-[13px]">{fresh || Date.now() - toMs(receipt.at) < 60000 ? "Ne pas imprimer" : "Fermer"}</Btn>
       </div>
       <Btn kind="navy" full disabled={busy} onClick={print} className="mt-2 !min-h-[56px] !text-[16px]" style={{ background: "linear-gradient(135deg,#17305A,#0E1C33)" }}><Icon name="printer" size={20} color={H.gold} stroke={2.3} />{busy ? "Impression…" : "Imprimer le reçu"}</Btn>
     </div>

@@ -19,11 +19,12 @@ import {
 } from "./hotelLogic.js";
 import { ReceiptScreen, ReceiptsScreen, ReceiptSettingsScreen, PaySheet, CancelSheet, CashGiven } from "./HotelReceipts.jsx";
 import { HistoryScreen, InventoryScreen, ProfitScreen } from "./HotelReports.jsx";
+import { HotelMenuDrawer, RulesScreen, AnnounceScreen, FaqScreen, BackupScreen } from "./HotelMenu.jsx";
 import { scheduleHotelReminders } from "./hotelNotifications.js";
 import GuestFlow, { GuestView } from "./GuestFlow.jsx";
 import { flushPhotos, purgeOldPhotos, guestFullName } from "./hotelPhotos.js";
 import {
-  CashScreen, SettingsScreen, TarifsScreen, FormuleScreen, RoomsConfigScreen, SyncScreen, ExpensesScreen, StaffScreen,
+  CashScreen, TarifsScreen, FormuleScreen, RoomsConfigScreen, SyncScreen, ExpensesScreen, StaffScreen,
   LicenceScreen, OrderLicenceScreen, NewResaScreen,
 } from "./HotelAdmin.jsx";
 
@@ -36,7 +37,8 @@ export default function HotelApp(props) {
   const {
     shop, role, userName, staff, rooms = [], tariffs = [], stays = [], reservations = [], guests = [], expenses = [], save, fmt,
     pushToast, speak, notify, onLogout, sync, license, licenseStatus, onActivateLicense, pricing, onOrderLicense,
-    staffApi, renderInvites, routeSignal,
+    staffApi, renderInvites, routeSignal, editorOn = false, onEditorOpen,
+    verifyOwnerPin, onOpenSupport, onOpenLegal, faq = [],
   } = props;
   const settings = hotelSettingsOf(shop);
   const isOwner = role === "admin";
@@ -46,6 +48,7 @@ export default function HotelApp(props) {
   const [route, setRoute] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [rentPreset, setRentPreset] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Photos des pièces : envoi de celles en attente, purge des plus de 12 mois.
@@ -60,7 +63,7 @@ export default function HotelApp(props) {
   }, [shop?.id]);
   useEffect(() => { try { window.scrollTo(0, 0); } catch { /* ignore */ } }, [tab, route?.name, roomsTab]);
   // Ouverture d'un écran depuis l'extérieur (ex. « Acheter une licence » dans la bulle d'assistance).
-  useEffect(() => { if (routeSignal?.n && isOwner) { setTab("settings"); setRoute({ name: routeSignal.name, back: { name: "licence" } }); } }, [routeSignal?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (routeSignal?.n && isOwner) { setMenuOpen(false); setRoute({ name: routeSignal.name, back: { name: "licence" } }); } }, [routeSignal?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Forfaits de départ, une seule fois, à la première ouverture par le propriétaire.
   useEffect(() => {
@@ -201,8 +204,21 @@ export default function HotelApp(props) {
   };
 
   const cleaningStart = (room) => patchRoom(room.id, { cleaning: { ...(room.cleaning || {}), state: "doing", by, startedAt: Date.now() } });
-  const cleaningDone = (room) => { patchRoom(room.id, { cleaning: null, lastCleanedAt: Date.now(), lastCleanedBy: by }); pushToast(`Chambre ${room.num} prête`, "ok"); };
-  const setOutOfService = (room, on, note = "") => { patchRoom(room.id, { outOfService: on, hsNote: on ? note : "", hsSince: on ? Date.now() : null, hsBy: on ? by : null }); pushToast(on ? `Chambre ${room.num} hors service` : `Chambre ${room.num} remise en service`, "ok"); };
+  // Historique du ménage : chaque chambre garde ses 200 derniers passages.
+  const cleaningDone = (room) => {
+    const t = Date.now();
+    const c = room.cleaning || {};
+    const entry = { id: rid(), since: c.since || null, startedAt: c.startedAt || null, doneAt: t, by, stayId: c.stayId || null };
+    patchRoom(room.id, { cleaning: null, lastCleanedAt: t, lastCleanedBy: by, cleanLog: [entry, ...(room.cleanLog || [])].slice(0, 200) });
+    pushToast(`Chambre ${room.num} prête`, "ok");
+  };
+  const setOutOfService = (room, on, note = "") => {
+    const t = Date.now();
+    const log = room.issueLog || [];
+    const issueLog = on ? [{ id: rid(), at: t, note: note || "Problème signalé", by, fixedAt: null }, ...log].slice(0, 100) : log.map((x, i) => (i === 0 && !x.fixedAt ? { ...x, fixedAt: t, fixedBy: by } : x));
+    patchRoom(room.id, { outOfService: on, hsNote: on ? note : "", hsSince: on ? t : null, hsBy: on ? by : null, issueLog, ...(on ? { cleaning: null } : {}) });
+    pushToast(on ? `Chambre ${room.num} hors service` : `Chambre ${room.num} remise en service`, "ok");
+  };
 
   const saveReservation = (resa) => {
     const conflicts = roomConflicts(resa.roomId, toMs(resa.start), toMs(resa.end), { stays, reservations, now: Date.now(), excludeResaId: resa.id });
@@ -228,7 +244,7 @@ export default function HotelApp(props) {
     });
     pushToast(del ? "Réservation supprimée · la chambre est de nouveau libre" : "Réservation annulée · la chambre est de nouveau libre", "ok");
   };
-  const arriveReservation = (resa, { skipGuest } = {}) => {
+  const arriveReservation = (resa, { skipGuest, payMode, given, print } = {}) => {
     const room = roomById(resa.roomId);
     const guest = resa.guestId ? guests.find((x) => x.id === resa.guestId) : null;
     // Fiche du client complète (photos de la pièce comprises) avant d'entrer.
@@ -238,9 +254,11 @@ export default function HotelApp(props) {
     }
     const tariff = tariffs.find((t) => t.id === resa.tariffId) || { id: resa.tariffId, name: resa.tariffName, hours: resa.hours, price: resa.price };
     if (!room) { pushToast("Chambre introuvable", "error"); return; }
-    const stay = startStay({ room, tariff: { ...tariff, price: Number(resa.price) || Number(tariff.price) || 0 }, client: resa.client || "", phone: resa.phone || "", payMode: resa.payMode || "later", resa, guestId: resa.guestId });
+    // Fiche complète : on passe au paiement avant d'ouvrir la chambre.
+    if (!payMode) { setRoute({ name: "arrivalPay", resaId: resa.id, guestId: resa.guestId, client: resa.client || "", phone: resa.phone || "" }); return; }
+    const stay = startStay({ room, tariff: { ...tariff, price: Number(resa.price) || Number(tariff.price) || 0 }, client: resa.client || "", phone: resa.phone || "", payMode, given, resa, guestId: resa.guestId });
     if (stay) {
-      if (settings.receipt.ask) setRoute({ name: "receipt", receipt: stay.receipts[0], fresh: true, back: { name: "stay", id: stay.id } });
+      if (print) setRoute({ name: "receipt", receipt: stay.receipts[0], fresh: true, back: { name: "stay", id: stay.id } });
       else setRoute({ name: "stay", id: stay.id });
     }
   };
@@ -293,6 +311,23 @@ export default function HotelApp(props) {
     scheduleHotelReminders(reservations, { hotelName: shop?.name || "Hôtel", hours: settings.reminderHours }).catch?.(() => {});
   }, [reservations, isTech]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---------- Rappel de sauvegarde : le dimanche à partir de 20:00 ----------
+  useEffect(() => {
+    if (!isOwner || settings.backupRemind === false) return undefined;
+    const check = () => {
+      const d = new Date();
+      if (d.getDay() !== 0 || d.getHours() < 20) return;
+      const last = (settings.backupLog || []).find((x) => x.kind === "backup");
+      if (last && Date.now() - last.at < 6 * DAY) return;
+      if (!once(`backup:${localDayKey(Date.now())}`)) return;
+      notify?.("Sauvegarde de l'hôtel", "Pensez à télécharger la sauvegarde de la semaine : Menu › Réglages de l'entreprise › Sauvegarde.");
+      pushToast("Pensez à faire la sauvegarde de la semaine (Menu › Sauvegarde)", "info");
+    };
+    check();
+    const t = setInterval(check, 10 * 60000);
+    return () => clearInterval(t);
+  }, [isOwner, settings.backupRemind, (settings.backupLog || []).length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---------- Accès bloqué ----------
   if (!isOwner && staff?.blocked) {
     return (
@@ -303,7 +338,7 @@ export default function HotelApp(props) {
   }
 
   const saveGuest = (gst) => save.guests?.(guests.some((x) => x.id === gst.id) ? guests.map((x) => (x.id === gst.id ? gst : x)) : [gst, ...guests]);
-  const ctx = { guests, shopId: shop?.id, saveGuest, staffCount: (staffApi?.vendors || []).length, shop, settings, now, rooms: roomsSorted, tariffs, stays, reservations, expenses, isOwner, isTech, by, fmt, actions, save, pushToast, setRoute, setTab, setRoomsTab, sync, staff, userName, onLogout, speak, notify, announceRelease, openReceipt: (rc, back = route) => setRoute({ name: "receipt", receipt: rc, back }) };
+  const ctx = { guests, shopId: shop?.id, saveGuest, staffCount: (staffApi?.vendors || []).length, shop, settings, now, rooms: roomsSorted, tariffs, stays, reservations, expenses, isOwner, isTech, by, fmt, actions, save, pushToast, setRoute, setTab, setRoomsTab, sync, staff, userName, onLogout, speak, notify, announceRelease, editorOn, onEditorOpen, openMenu: () => setMenuOpen(true), openReceipt: (rc, back = route) => setRoute({ name: "receipt", receipt: rc, back }) };
   const go = (name, extra = {}) => setRoute({ name, ...extra });
   const showReceipt = (rc, next) => setRoute({ name: "receipt", receipt: rc, fresh: true, back: next });
 
@@ -313,7 +348,12 @@ export default function HotelApp(props) {
     const back = () => setRoute(route.back || null);
     const stay = route.name === "stay" ? stays.find((s) => s.id === route.id) : null;
     if (route.name === "stay" && stay) routed = <StayScreen ctx={ctx} stay={stay} onBack={back} onOpenGuest={(id) => setRoute({ name: "guestView", guestId: id, back: { name: "stay", id: stay.id } })} onReleased={() => { setRoute(null); setTab("rooms"); setRoomsTab("menage"); }} />;
-    else if (route.name === "newResa") routed = <NewResaScreen ctx={ctx} onBack={back} preset={route.preset} onNeedGuest={(resa) => setRoute({ name: "guest", mode: "resa", pendingResa: resa, prefill: { lastName: resa.client || "", phone: resa.phone || "" }, back: route })} />;
+    else if (route.name === "newResa") routed = <NewResaScreen ctx={ctx} onBack={back} preset={route.preset} onSaved={(res) => { setTab("rooms"); setRoomsTab("resa"); if (res !== true && settings.receipt.ask) showReceipt(res, null); else setRoute(null); }} />;
+    else if (route.name === "arrivalPay") {
+      const resa = reservations.find((x) => x.id === route.resaId);
+      routed = resa ? <ArrivalPayScreen ctx={ctx} resa={{ ...resa, guestId: route.guestId || resa.guestId, client: route.client || resa.client, phone: route.phone || resa.phone }} onBack={() => setRoute(null)}
+        onConfirm={(opts) => arriveReservation({ ...resa, guestId: route.guestId || resa.guestId, client: route.client || resa.client, phone: route.phone || resa.phone }, { skipGuest: true, ...opts })} /> : null;
+    }
     else if (route.name === "guest") {
       const resa = route.pendingResa || (route.resaId ? reservations.find((x) => x.id === route.resaId) : null);
       const p = route.pending;
@@ -362,6 +402,10 @@ export default function HotelApp(props) {
     else if (route.name === "history" && isOwner) routed = <HistoryScreen ctx={ctx} onBack={back} openReceipt={(rc) => setRoute({ name: "receipt", receipt: rc, back: route })} />;
     else if (route.name === "inventory" && isOwner) routed = <InventoryScreen ctx={ctx} onBack={back} />;
     else if (route.name === "profits" && isOwner) routed = <ProfitScreen ctx={ctx} onBack={back} />;
+    else if (route.name === "rules" && isOwner) routed = <RulesScreen ctx={ctx} onBack={back} />;
+    else if (route.name === "announce" && isOwner) routed = <AnnounceScreen ctx={ctx} onBack={back} />;
+    else if (route.name === "backup" && isOwner) routed = <BackupScreen ctx={ctx} onBack={back} verifyOwnerPin={verifyOwnerPin} />;
+    else if (route.name === "faq") routed = <FaqScreen faq={faq} onBack={back} onSupport={onOpenSupport ? () => onOpenSupport() : null} />;
     else if (route.name === "order" && isOwner) routed = <OrderLicenceScreen ctx={ctx} onBack={back} pricing={pricing} planId={route.planId} onSend={(msg, who) => { onOrderLicense?.(msg, who); setRoute(null); }} />;
     else routed = null;
   }
@@ -373,7 +417,7 @@ export default function HotelApp(props) {
           dessous. Hauteur réelle de la barre, 40 px au minimum (anciennes
           WebView Android qui ne la donnent pas). */}
       <div aria-hidden="true" className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-40 no-print"
-        style={{ height: STATUS_H, background: "#F4F5F8", boxShadow: "0 1px 0 rgba(18,35,61,0.08), 0 4px 12px -6px rgba(18,35,61,0.18)" }} />
+        style={{ height: STATUS_H, background: "linear-gradient(90deg, #0B1628 0%, #14294A 100%)", boxShadow: "0 4px 12px -6px rgba(11,22,40,0.5)" }} />
       <div aria-hidden="true" style={{ height: `calc(${STATUS_H} - max(22px, env(safe-area-inset-top)) + 10px)` }} />
       {routed || (
         <>
@@ -386,25 +430,38 @@ export default function HotelApp(props) {
           )}
           {tab === "rent" && !isTech && <RentScreen ctx={ctx} preset={rentPreset} onStarted={(s, print) => { setRentPreset(null); if (print) showReceipt(s.receipts[0], { name: "stay", id: s.id }); else go("stay", { id: s.id }); }} onReserve={() => go("newResa")} onNeedGuest={(pending) => setRoute({ name: "guest", mode: "night", pending, prefill: pending.prefill })} />}
           {tab === "cash" && !isTech && <CashScreen ctx={ctx} openStay={(s) => go("stay", { id: s.id })} openExpenses={() => go("expenses")} />}
-          {tab === "settings" && <SettingsScreen ctx={ctx} go={go} license={license} licenseStatus={licenseStatus} />}
         </>
       )}
-      <div aria-hidden="true" style={{ height: "calc(118px + env(safe-area-inset-bottom))" }} />
-      {!routed && <BottomNav tab={tab} setTab={(t) => { setRoute(null); setTab(t); }} isTech={isTech} badges={{ rooms: stays.filter((s) => isActiveStay(s) && toMs(s.end) < now).length }} />}
+      <div aria-hidden="true" style={{ height: isTech ? "calc(40px + env(safe-area-inset-bottom))" : "calc(118px + env(safe-area-inset-bottom))" }} />
+      {!routed && !isTech && <BottomNav tab={tab} setTab={(t) => { setRoute(null); setTab(t); }} onMenu={() => setMenuOpen(true)} menuOpen={menuOpen} badges={{ rooms: stays.filter((s) => isActiveStay(s) && toMs(s.end) < now).length }} />}
+      {menuOpen && (
+        <HotelMenuDrawer ctx={ctx} tab={routed ? route?.name : tab} license={license} licenseStatus={licenseStatus} faq={faq}
+          onClose={() => setMenuOpen(false)}
+          onTab={(t) => { setRoute(null); setTab(t); }}
+          go={(name) => setRoute({ name })}
+          onSupport={() => onOpenSupport?.()}
+          onLegal={onOpenLegal || null} />
+      )}
     </div>
   );
 }
 
 // ---------- Barre du bas ----------
-function BottomNav({ tab, setTab, isTech, badges }) {
-  const items = isTech
-    ? [{ id: "rooms", label: "Ménage", icon: "broom" }, { id: "settings", label: "Compte", icon: "sliders" }]
-    : [{ id: "home", label: "Accueil", icon: "home" }, { id: "rooms", label: "Chambres", icon: "bed" }, { id: "rent", label: "Louer", icon: "plus", center: true }, { id: "cash", label: "Caisse", icon: "wallet" }, { id: "settings", label: "Réglages", icon: "sliders" }];
+function BottomNav({ tab, setTab, onMenu, menuOpen, badges }) {
+  const items = [{ id: "home", label: "Accueil", icon: "home" }, { id: "rooms", label: "Chambres", icon: "bed" }, { id: "rent", label: "Louer", icon: "plus", center: true }, { id: "cash", label: "Caisse", icon: "wallet" }, { id: "menu", label: "Menu", icon: "grid", menu: true }];
   return (
     <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 z-30 no-print" style={{ paddingBottom: "calc(10px + env(safe-area-inset-bottom))", background: "linear-gradient(to top, #F4F5F8 70%, rgba(244,245,248,0))", paddingTop: 14 }}>
       <nav aria-label="Menu de l'hôtel" className="rounded-[24px] grid items-center" style={{ height: 68, background: "#fff", boxShadow: "0 6px 24px rgba(18,35,61,0.14)", gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((it) => {
           const on = tab === it.id;
+          if (it.menu) {
+            return (
+              <button key={it.id} type="button" onClick={onMenu} aria-label="Menu" aria-expanded={!!menuOpen} className="gb-focus flex flex-col items-center gap-[3px] text-[10.5px] font-extrabold" style={{ color: H.navy }}>
+                <span className="flex items-center justify-center" style={{ width: 34, height: 30, borderRadius: 10, background: "linear-gradient(135deg,#17305A,#0E1C33)", boxShadow: "0 6px 14px -6px rgba(14,28,51,0.8)" }}><Icon name="grid" size={16} color="#fff" stroke={2.3} /></span>
+                {it.label}
+              </button>
+            );
+          }
           if (it.center) {
             return (
               <button key={it.id} type="button" onClick={() => setTab(it.id)} className="gb-focus flex flex-col items-center gap-[3px] text-[10.5px] font-extrabold" style={{ marginTop: -30, color: H.navy }} aria-current={on ? "page" : undefined}>
@@ -584,7 +641,7 @@ function HeroStat({ label, value, color, sub }) {
   return <span className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}><span className="block text-[10px] font-bold truncate" style={{ color: "#AEBBD2" }}>{label}</span><span className="block text-[14px] font-extrabold whitespace-nowrap overflow-hidden text-ellipsis" style={{ color }}>{value}</span>{sub && <span className="block font-mono text-[11px] font-bold" style={{ color: "#F6D27A" }}>{sub}</span>}</span>;
 }
 
-function PlanHero({ ctx }) {
+function PlanHero({ ctx, compact }) {
   const { shop, rooms, stays, now, fmt } = ctx;
   const active = stays.filter(isActiveStay);
   const usable = rooms.filter((r) => !r.outOfService).length;
@@ -592,6 +649,12 @@ function PlanHero({ ctx }) {
   const next = active.filter((s) => toMs(s.end) >= now).sort((a, b) => toMs(a.end) - toMs(b.end))[0];
   const C = 2 * Math.PI * 31;
   const dateTxt = new Date(now).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+  if (compact) return (
+    <div className="rounded-[20px] px-3.5 py-2.5 text-white flex items-center gap-3" style={{ background: NAVY_GRAD, boxShadow: "0 10px 22px -12px rgba(14,28,51,0.6)" }}>
+      <span className="flex-1 min-w-0"><span className="block text-[17px] font-extrabold leading-tight">Chambres</span><span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "#C9D3E6" }}><LiveDot />{hmOf(now)}{next ? ` · prochaine fin Ch. ${next.roomNum} ${fmtClock(toMs(next.end) - now)}` : ""}</span></span>
+      <span className="h-8 px-2.5 rounded-[10px] text-[13px] font-extrabold flex items-center shrink-0" style={{ background: "rgba(224,169,59,0.18)", color: "#F6D27A" }}>{pct} % occupé</span>
+    </div>
+  );
   return (
     <div className="mt-1 rounded-[26px] p-4 text-white relative overflow-hidden" style={{ background: NAVY_GRAD, boxShadow: "0 14px 30px -12px rgba(14,28,51,0.6)" }}>
       <div className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(224,169,59,0.35) 0%, rgba(224,169,59,0) 70%)" }} />
@@ -618,13 +681,19 @@ function PlanHero({ ctx }) {
   );
 }
 
-function EnCoursHero({ ctx }) {
+function EnCoursHero({ ctx, compact }) {
   const { stays, now, fmt } = ctx;
   const active = stays.filter(isActiveStay);
   const n = active.length || 1;
   const by = { occ: 0, night: 0, low: 0, over: 0 };
   active.forEach((s) => { by[stayKind(s, now)] += 1; });
   const alerts = by.low + by.over;
+  if (compact) return (
+    <div className="rounded-[20px] px-3.5 py-2.5 text-white flex items-center gap-3" style={{ background: NAVY_GRAD, boxShadow: "0 10px 22px -12px rgba(14,28,51,0.6)" }}>
+      <span className="flex-1 min-w-0"><span className="block text-[17px] font-extrabold leading-tight">{active.length} séjour{active.length > 1 ? "s" : ""} en cours</span><span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "#C9D3E6" }}><LiveDot />{hmOf(now)}:{pad2(new Date(now).getSeconds())} · reste {fmt(active.reduce((t, s) => t + stayDue(s), 0))}</span></span>
+      {alerts > 0 && <span className="h-8 px-2.5 rounded-[10px] text-[12px] font-extrabold flex items-center gap-1 shrink-0" style={{ background: "rgba(251,191,36,0.16)", color: "#FCD34D" }}><Icon name="warn" size={13} stroke={2.4} />{alerts}</span>}
+    </div>
+  );
   return (
     <div className="mt-1 rounded-[26px] p-4 text-white relative overflow-hidden" style={{ background: NAVY_GRAD, boxShadow: "0 14px 30px -12px rgba(14,28,51,0.6)" }}>
       <div className="absolute rounded-full" style={{ left: -50, bottom: -70, width: 190, height: 190, background: "radial-gradient(circle, rgba(244,63,94,0.28) 0%, rgba(244,63,94,0) 70%)" }} />
@@ -656,10 +725,10 @@ function EnCoursHero({ ctx }) {
   );
 }
 
-function RoomsTabs({ tab, setTab }) {
+function RoomsTabs({ tab, setTab, compact }) {
   const opts = [["plan", "Plan"], ["encours", "En cours"], ["resa", "Réservations"], ["menage", "Ménage"]];
   return (
-    <div className="mt-3 p-1 rounded-[17px] grid gap-[3px]" style={{ background: "#fff", boxShadow: "0 4px 16px -4px rgba(18,35,61,0.12)", gridTemplateColumns: "minmax(0,0.8fr) minmax(0,1fr) minmax(0,1.45fr) minmax(0,1fr)" }}>
+    <div className={`${compact ? "mt-2" : "mt-3"} p-1 rounded-[17px] grid gap-[3px]`} style={{ background: "#fff", boxShadow: "0 4px 16px -4px rgba(18,35,61,0.12)", gridTemplateColumns: "minmax(0,0.8fr) minmax(0,1fr) minmax(0,1.45fr) minmax(0,1fr)" }}>
       {opts.map(([id, l]) => { const on = tab === id; return <button key={id} type="button" onClick={() => setTab(id)} aria-pressed={on} className="gb-focus min-h-[40px] rounded-[13px] text-[12px] font-extrabold whitespace-nowrap overflow-hidden px-1" style={{ background: on ? GOLD_GRAD : "transparent", color: on ? H.navy : H.ink2, boxShadow: on ? "0 4px 10px -3px rgba(211,150,42,0.6)" : "none" }}>{l}</button>; })}
     </div>
   );
@@ -669,15 +738,33 @@ function RoomsScreen({ ctx, tab, setTab, openStay, rentRoom, newResa }) {
   const { isTech, rooms, reservations, now } = ctx;
   const resaCount = reservations.filter((r) => isLiveResa(r) && toMs(r.end) > now).length;
   const premium = !isTech && (tab === "plan" || tab === "encours");
+  const [planFilter, setPlanFilter] = useState("all");
+  const [encFilter, setEncFilter] = useState("all");
+  // En-tête fixe : reste en haut pendant le défilement et se resserre pour
+  // laisser la place aux chambres (seuils différents pour éviter le va-et-vient).
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const on = () => { const y = window.scrollY || 0; setCompact((c) => (c ? y > 40 : y > 140)); };
+    on();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
+  }, []);
   return (
     <div>
-      {premium ? (tab === "plan" ? <PlanHero ctx={ctx} /> : <EnCoursHero ctx={ctx} />) : (
-        <TopBar title={isTech ? "Ménage" : "Chambres"} sub={isTech ? `${ctx.shop?.name || ""} · ${ctx.userName || ""}` : `${rooms.length} chambre${rooms.length > 1 ? "s" : ""} · mise à jour en direct`}
-          right={!isTech && tab === "resa" ? <Btn kind="indigo" icon="plus" onClick={() => newResa()} className="!min-h-[44px] !px-3.5 !text-[13px]">Réserver</Btn> : null} />
+      {!isTech && (
+        <div className="sticky z-30 -mx-4 px-4 pb-2.5" style={{ top: STATUS_H, background: "#F4F5F8", boxShadow: compact ? "0 10px 16px -14px rgba(18,35,61,0.45)" : "none" }}>
+          <div className="pt-1.5" />
+          {premium ? (tab === "plan" ? <PlanHero ctx={ctx} compact={compact} /> : <EnCoursHero ctx={ctx} compact={compact} />) : (
+            <TopBar title="Chambres" sub={`${rooms.length} chambre${rooms.length > 1 ? "s" : ""} · mise à jour en direct`}
+              right={tab === "resa" ? <Btn kind="indigo" icon="plus" onClick={() => newResa()} className="!min-h-[44px] !px-3.5 !text-[13px]">Réserver</Btn> : null} />
+          )}
+          <RoomsTabs tab={tab} setTab={setTab} compact={compact} />
+          {tab === "plan" && rooms.length > 0 && <PlanStickyBar ctx={ctx} filter={planFilter} setFilter={setPlanFilter} compact={compact} />}
+          {tab === "encours" && <EnCoursChips ctx={ctx} f={encFilter} setF={setEncFilter} />}
+        </div>
       )}
-      {!isTech && <RoomsTabs tab={tab} setTab={setTab} />}
-      {tab === "plan" && !isTech && <PlanTab ctx={ctx} openStay={openStay} rentRoom={rentRoom} goTab={setTab} />}
-      {tab === "encours" && !isTech && <EnCoursTab ctx={ctx} openStay={openStay} />}
+      {tab === "plan" && !isTech && <PlanTab ctx={ctx} openStay={openStay} rentRoom={rentRoom} goTab={setTab} filter={planFilter} />}
+      {tab === "encours" && !isTech && <EnCoursTab ctx={ctx} openStay={openStay} f={encFilter} />}
       {tab === "resa" && !isTech && <ResaTab ctx={ctx} newResa={newResa} openStay={openStay} count={resaCount} />}
       {(tab === "menage" || isTech) && <MenageTab ctx={ctx} />}
     </div>
@@ -695,10 +782,9 @@ const TILE = {
   hs: { label: "Hors serv.", dot: "#94A3B8", ink: "#475569", bg: "#F1F5F9", line: "#E2E8F0", num: "#475569" },
 };
 
-function PlanTab({ ctx, openStay, rentRoom, goTab }) {
-  const { rooms, stays, reservations, now, isOwner, setRoute, fmt, tariffs } = ctx;
-  const [filter, setFilter] = useState("all");
-  if (!rooms.length) return <div className="mt-4"><Empty icon="hash" title="Aucune chambre" text={isOwner ? "Enregistrez les numéros de vos chambres." : "Le propriétaire doit enregistrer les chambres."} action={isOwner ? <Btn kind="gold" icon="plus" onClick={() => setRoute({ name: "roomsConfig" })}>Ajouter des chambres</Btn> : null} /></div>;
+// Compteurs et filtres du plan (dans l'en-tête fixe).
+function PlanStickyBar({ ctx, filter, setFilter, compact }) {
+  const { rooms, reservations, now } = ctx;
   const states = rooms.map((r) => ({ r, st: roomState(r, ctx) }));
   const n = (f) => states.filter(f).length;
   const [, d1] = dayBounds(now);
@@ -709,6 +795,36 @@ function PlanTab({ ctx, openStay, rentRoom, goTab }) {
     ["Réservées", resaRooms.size, "#4338CA", "linear-gradient(135deg,#818CF8,#4F46E5)", "rgba(79,70,229,0.6)", "#EEF0FF", "#C7D2FE", "cal"],
     ["Ménage · HS", n((x) => x.st.kind === "menage" || x.st.kind === "hs"), "#7E22CE", "linear-gradient(135deg,#C084FC,#9333EA)", "rgba(147,51,234,0.6)", "#FAF5FF", "#E9D5FF", "broom"],
   ];
+  const countOf = (t) => rooms.filter((r) => r.type === t).length;
+  const chip = (id, label, ink, line) => { const on = filter === id; return <button key={id} type="button" onClick={() => setFilter(id)} aria-pressed={on} className={`gb-focus ${compact ? "min-h-[32px] px-2.5 text-[11.5px]" : "min-h-[36px] px-3 text-[12px]"} rounded-[12px] font-extrabold whitespace-nowrap`} style={{ border: `1.5px solid ${on ? ink : line}`, background: on ? ink : "#fff", color: on ? "#fff" : ink }}>{label}</button>; };
+  return (
+    <>
+      <div className={`${compact ? "mt-2" : "mt-3"} grid grid-cols-4 gap-[7px]`}>
+        {kpis.map(([l, v, ink, grad, shadow, bg, line, icon]) => compact ? (
+          <div key={l} className="rounded-[12px] py-1 px-1 flex items-center justify-center gap-1.5" style={{ background: bg, border: `1px solid ${line}` }}>
+            <span className="text-[15px] font-extrabold" style={{ color: ink }}>{v}</span><span className="text-[9.5px] font-bold whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: "#475569" }}>{l.split(" ")[0]}</span>
+          </div>
+        ) : (
+          <div key={l} className="rounded-[16px] pt-2.5 pb-2 px-1 text-center" style={{ background: bg, border: `1px solid ${line}` }}>
+            <span className="mx-auto w-7 h-7 rounded-[10px] flex items-center justify-center" style={{ background: grad, boxShadow: `0 4px 10px -3px ${shadow}` }}><Icon name={icon} size={15} color="#fff" stroke={2.5} /></span>
+            <p className="mt-1 text-[20px] font-extrabold leading-tight" style={{ color: ink }}>{v}</p>
+            <p className="text-[10px] font-bold whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: "#475569" }}>{l}</p>
+          </div>
+        ))}
+      </div>
+      <div className={`${compact ? "mt-2" : "mt-3"} flex gap-[7px] overflow-x-auto pb-0.5`}>
+        {chip("all", `Toutes · ${rooms.length}`, H.navy, H.line)}
+        {countOf("vent") > 0 && chip("vent", `Ventilées · ${countOf("vent")}`, ROOM_TYPES.vent.ink, "#BFE7E0")}
+        {countOf("clim") > 0 && chip("clim", `Climatisées · ${countOf("clim")}`, ROOM_TYPES.clim.ink, "#C7D7F8")}
+      </div>
+    </>
+  );
+}
+
+function PlanTab({ ctx, openStay, rentRoom, goTab, filter = "all" }) {
+  const { rooms, stays, reservations, now, isOwner, setRoute, fmt, tariffs } = ctx;
+  if (!rooms.length) return <div className="mt-4"><Empty icon="hash" title="Aucune chambre" text={isOwner ? "Enregistrez les numéros de vos chambres." : "Le propriétaire doit enregistrer les chambres."} action={isOwner ? <Btn kind="gold" icon="plus" onClick={() => setRoute({ name: "roomsConfig" })}>Ajouter des chambres</Btn> : null} /></div>;
+  const states = rooms.map((r) => ({ r, st: roomState(r, ctx) }));
   const keep = (t) => filter === "all" || filter === t;
   const busy = stays.filter((s) => isActiveStay(s) && keep(s.type)).sort((a, b) => urgency(a, now) - urgency(b, now));
   const countOf = (t) => rooms.filter((r) => r.type === t).length;
@@ -719,23 +835,8 @@ function PlanTab({ ctx, openStay, rentRoom, goTab }) {
     else if (st.kind === "reservee") goTab("resa");
     else rentRoom(r);
   };
-  const chip = (id, label, ink, line) => { const on = filter === id; return <button key={id} type="button" onClick={() => setFilter(id)} aria-pressed={on} className="gb-focus min-h-[36px] px-3 rounded-[12px] text-[12px] font-extrabold whitespace-nowrap" style={{ border: `1.5px solid ${on ? ink : line}`, background: on ? ink : "#fff", color: on ? "#fff" : ink, boxShadow: on ? `0 6px 14px -6px ${ink}` : "none" }}>{label}</button>; };
   return (
     <div>
-      <div className="mt-3 grid grid-cols-4 gap-[7px]">
-        {kpis.map(([l, v, ink, grad, shadow, bg, line, icon]) => (
-          <div key={l} className="rounded-[16px] pt-2.5 pb-2 px-1 text-center" style={{ background: bg, border: `1px solid ${line}` }}>
-            <span className="mx-auto w-7 h-7 rounded-[10px] flex items-center justify-center" style={{ background: grad, boxShadow: `0 4px 10px -3px ${shadow}` }}><Icon name={icon} size={15} color="#fff" stroke={2.5} /></span>
-            <p className="mt-1 text-[20px] font-extrabold leading-tight" style={{ color: ink }}>{v}</p>
-            <p className="text-[10px] font-bold whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: "#475569" }}>{l}</p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 flex gap-[7px] overflow-x-auto pb-0.5">
-        {chip("all", `Toutes · ${rooms.length}`, H.navy, H.line)}
-        {countOf("vent") > 0 && chip("vent", `Ventilées · ${countOf("vent")}`, ROOM_TYPES.vent.ink, "#BFE7E0")}
-        {countOf("clim") > 0 && chip("clim", `Climatisées · ${countOf("clim")}`, ROOM_TYPES.clim.ink, "#C7D7F8")}
-      </div>
 
       {busy.length > 0 && (
         <>
@@ -823,23 +924,30 @@ function BusyCard({ s, now, fmt, onClick }) {
   );
 }
 
-function EnCoursTab({ ctx, openStay }) {
+function EnCoursChips({ ctx, f, setF }) {
+  const { stays, now } = ctx;
+  const all = stays.filter(isActiveStay);
+  const isAlert = (s) => { const k = stayKind(s, now); return k === "over" || k === "low"; };
+  const chips = [["all", "Tout", H.navy, H.line, all.length], ["h", "À l'heure", "#E11D48", "#FBCFD8", all.filter((s) => !isNight(s)).length], ["n", "Nuitées", "#4F46E5", "#C7D2FE", all.filter(isNight).length], ["a", "Alertes", "#EA580C", "#FCD9A8", all.filter(isAlert).length]];
+  return (
+    <div className="mt-2.5 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,0.8fr) minmax(0,1.15fr) minmax(0,1fr) minmax(0,1fr)" }}>
+      {chips.map(([id, l, ink, line, c]) => { const on = f === id; return (
+        <button key={id} type="button" onClick={() => setF(id)} aria-pressed={on} className="gb-focus min-h-[38px] rounded-[12px] text-[11.5px] font-extrabold whitespace-nowrap flex items-center justify-center gap-1 px-1" style={{ border: `1.5px solid ${on ? ink : line}`, background: on ? ink : "#fff", color: on ? "#fff" : ink, boxShadow: on ? `0 6px 14px -6px ${ink}` : "none" }}>
+          {l}<span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] flex items-center justify-center" style={{ background: on ? "rgba(255,255,255,0.25)" : line, color: on ? "#fff" : ink }}>{c}</span>
+        </button>
+      ); })}
+    </div>
+  );
+}
+
+function EnCoursTab({ ctx, openStay, f = "all" }) {
   const { stays, now, fmt, actions, settings, tariffs, openReceipt } = ctx;
-  const [f, setF] = useState("all");
   const [payFor, setPayFor] = useState(null);
   const all = stays.filter(isActiveStay).sort((a, b) => urgency(a, now) - urgency(b, now));
   const isAlert = (s) => { const k = stayKind(s, now); return k === "over" || k === "low"; };
   const list = all.filter((s) => (f === "all" ? true : f === "n" ? isNight(s) : f === "h" ? !isNight(s) : isAlert(s)));
-  const chips = [["all", "Tout", H.navy, H.line, all.length], ["h", "À l'heure", "#E11D48", "#FBCFD8", all.filter((s) => !isNight(s)).length], ["n", "Nuitées", "#4F46E5", "#C7D2FE", all.filter(isNight).length], ["a", "Alertes", "#EA580C", "#FCD9A8", all.filter(isAlert).length]];
   return (
     <div>
-      <div className="mt-3 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,0.8fr) minmax(0,1.15fr) minmax(0,1fr) minmax(0,1fr)" }}>
-        {chips.map(([id, l, ink, line, c]) => { const on = f === id; return (
-          <button key={id} type="button" onClick={() => setF(id)} aria-pressed={on} className="gb-focus min-h-[38px] rounded-[12px] text-[11.5px] font-extrabold whitespace-nowrap flex items-center justify-center gap-1 px-1" style={{ border: `1.5px solid ${on ? ink : line}`, background: on ? ink : "#fff", color: on ? "#fff" : ink, boxShadow: on ? `0 6px 14px -6px ${ink}` : "none" }}>
-            {l}<span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] flex items-center justify-center" style={{ background: on ? "rgba(255,255,255,0.25)" : line, color: on ? "#fff" : ink }}>{c}</span>
-          </button>
-        ); })}
-      </div>
       {list.length > 0 && <p className="mt-3 flex items-center gap-1.5 text-[11.5px] font-bold" style={{ color: H.muted }}><Icon name="sliders" size={14} />Triés par urgence · les alertes d'abord</p>}
       <div className="mt-2.5 flex flex-col gap-3">
         {list.length === 0 ? <Empty icon="clock" title={f === "a" ? "Aucune alerte" : "Aucune chambre en cours"} text="Les chambres louées apparaissent ici avec leur compte à rebours." /> : list.map((s) => (
@@ -1012,61 +1120,182 @@ function ResaTab({ ctx, newResa, openStay }) {
   );
 }
 
+// Page Ménage : chambres à nettoyer, en cours, hors service, et historique
+// des chambres faites sur une plage de dates (par agent, durées).
+const VIOLET_GRAD = "linear-gradient(140deg, #1E1240 0%, #3B1F7A 55%, #5B3CC4 100%)";
+const durTxt = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${pad2(m % 60)}`; };
+const dateKeyMs = (k) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(k || ""); return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : NaN; };
+
 function MenageTab({ ctx }) {
-  const { rooms, now, actions } = ctx;
+  const { rooms, now, actions, isTech, userName, shop, reservations, sync, onLogout } = ctx;
   const [problem, setProblem] = useState(null);
   const [note, setNote] = useState("");
-  const todo = rooms.filter((r) => r.cleaning && r.cleaning.state !== "done" && !r.outOfService).sort((a, b) => (a.cleaning.since || 0) - (b.cleaning.since || 0));
-  const hs = rooms.filter((r) => r.outOfService);
+  const [range, setRange] = useState("today");
   const [d0] = dayBounds(now);
-  const doneToday = rooms.filter((r) => r.lastCleanedAt && r.lastCleanedAt >= d0).length;
+  const [cFrom, setCFrom] = useState(localDayKey(d0 - 6 * DAY));
+  const [cTo, setCTo] = useState(localDayKey(now));
+  let from = d0, to = d0 + DAY;
+  if (range === "yesterday") { from = d0 - DAY; to = d0; }
+  else if (range === "d7") from = d0 - 6 * DAY;
+  else if (range === "month") from = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1).getTime();
+  else if (range === "custom") { const a = dateKeyMs(cFrom), b = dateKeyMs(cTo); if (Number.isFinite(a) && Number.isFinite(b)) { from = Math.min(a, b); to = Math.max(a, b) + DAY; } }
+
+  const nextResaOf = (r) => reservations.filter((x) => isLiveResa(x) && x.roomId === r.id && toMs(x.end) > now).sort((a, b) => toMs(a.start) - toMs(b.start))[0] || null;
+  const todo = rooms.filter((r) => r.cleaning && r.cleaning.state !== "done" && !r.outOfService).map((r) => {
+    const nr = nextResaOf(r);
+    const urgent = nr && toMs(nr.start) - now < 2 * HOUR;
+    return { r, nr, urgent, doing: r.cleaning.state === "doing", since: r.cleaning.since || now };
+  }).sort((a, b) => (b.urgent - a.urgent) || (b.doing - a.doing) || (a.since - b.since));
+  const hs = rooms.filter((r) => r.outOfService);
+  const done = [];
+  rooms.forEach((r) => (r.cleanLog || []).forEach((e) => { if (e.doneAt >= from && e.doneAt < to) done.push({ ...e, room: r }); }));
+  done.sort((a, b) => b.doneAt - a.doneAt);
+  const issues = [];
+  rooms.forEach((r) => (r.issueLog || []).forEach((e) => { if (e.at >= from && e.at < to) issues.push({ ...e, room: r }); }));
+  issues.sort((a, b) => b.at - a.at);
+  const work = done.filter((e) => e.startedAt).map((e) => e.doneAt - e.startedAt);
+  const avg = work.length ? work.reduce((a, b) => a + b, 0) / work.length : 0;
+  const agents = {};
+  done.forEach((e) => { const k = e.by || "—"; const a = agents[k] || (agents[k] = { n: 0, ms: 0, c: 0 }); a.n += 1; if (e.startedAt) { a.ms += e.doneAt - e.startedAt; a.c += 1; } });
+  const days = [];
+  done.forEach((e) => { const k = localDayKey(e.doneAt); let d = days[days.length - 1]; if (!d || d.k !== k) { d = { k, at: e.doneAt, items: [] }; days.push(d); } d.items.push(e); });
+  const dayTitle = (ms) => { const [s0] = dayBounds(ms); const w = new Date(ms).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }); return s0 === d0 ? `Aujourd'hui · ${w}` : s0 === d0 - DAY ? `Hier · ${w}` : w.charAt(0).toUpperCase() + w.slice(1); };
+  const dateTxt = new Date(now).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const dateInput = { flex: 1, minWidth: 0, height: 42, borderRadius: 11, border: "none", background: "#F7F8FB", padding: "0 10px", fontSize: 13.5, fontWeight: 800, color: H.ink, fontFamily: "inherit" };
+
   return (
     <div>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {[["À faire", todo.length, H.violet, "#F7F4FF", "#DCD1FC"], ["Faites aujourd'hui", doneToday, H.green, "#EEF9F2", "#C9EBD5"], ["Hors service", hs.length, "#475569", "#EEF1F5", "#DCE1E8"]].map(([l, n, c, bg, b]) => (
-          <div key={l} className="rounded-[16px] py-2.5 px-2 text-center" style={{ background: bg, border: `1.5px solid ${b}` }}><p className="text-[22px] font-extrabold" style={{ color: c }}>{n}</p><p className="text-[11px] font-bold" style={{ color: c }}>{l}</p></div>
-        ))}
+      <div className="mt-1 rounded-[26px] p-4 text-white relative overflow-hidden" style={{ background: VIOLET_GRAD, boxShadow: "0 14px 30px -14px rgba(59,31,122,0.8)" }}>
+        <span className="absolute rounded-full" style={{ right: -50, top: -60, width: 190, height: 190, background: "radial-gradient(circle, rgba(196,181,253,0.35) 0%, rgba(196,181,253,0) 70%)" }} />
+        <div className="relative flex items-start gap-3">
+          <span className="w-12 h-12 rounded-[16px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.25)" }}><Icon name="broom" size={24} /></span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-extrabold tracking-[0.14em] truncate uppercase" style={{ color: "#DDD6FE" }}>{shop?.name || "Hôtel"}</p>
+            <h1 className="text-[24px] font-extrabold leading-tight">Ménage</h1>
+            <p className="text-[12px] truncate" style={{ color: "#DDD6FE" }}>{userName ? `${userName} · ` : ""}{dateTxt}</p>
+          </div>
+          {isTech && <button type="button" onClick={() => ctx.openMenu?.()} aria-label="Menu" className="gb-focus w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.14)" }}><Icon name="grid" size={18} /></button>}
+        </div>
+        <div className="relative mt-3 grid grid-cols-4 gap-1.5">
+          {[["À faire", todo.filter((x) => !x.doing).length, "#FDE68A"], ["En cours", todo.filter((x) => x.doing).length, "#C4B5FD"], ["Faites", done.length, "#6EE7B7"], ["Durée moy.", work.length ? durTxt(avg) : "—", "#FFFFFF"]].map(([l, v, c]) => (
+            <span key={l} className="rounded-[13px] px-2 py-2" style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.14)" }}><span className="block text-[9.5px] font-bold whitespace-nowrap" style={{ color: "#DDD6FE" }}>{l}</span><span className="block text-[17px] font-extrabold whitespace-nowrap" style={{ color: c }}>{v}</span></span>
+          ))}
+        </div>
+        {isTech && <p className="relative mt-2.5 flex items-center gap-1.5 text-[11px] font-bold" style={{ color: "#DDD6FE" }}><Icon name="sync" size={13} />{sync?.pending > 0 ? `${sync.pending} en attente de synchronisation` : "Synchronisé avec la réception"}</p>}
       </div>
-      <Label>À nettoyer</Label>
-      {todo.length === 0 ? <Empty icon="broom" title="Tout est propre" text="Les chambres libérées apparaîtront ici avant d'être relouées." /> : (
+
+      <div className="mt-4 mb-2 flex items-center gap-2.5">
+        <span className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center" style={{ background: "linear-gradient(135deg,#FBBF24,#EA580C)" }}><Icon name="broom" size={16} color="#fff" /></span>
+        <span className="flex-1 text-[15.5px] font-extrabold">À nettoyer maintenant</span>
+        <span className="text-[12px] font-bold" style={{ color: H.muted }}>{todo.length} chambre{todo.length > 1 ? "s" : ""}</span>
+      </div>
+      {todo.length === 0 ? <Empty icon="check" title="Tout est propre" text="Les chambres libérées apparaissent ici, les plus urgentes en premier." /> : (
         <div className="flex flex-col gap-2.5">
-          {todo.map((r) => {
-            const doing = r.cleaning.state === "doing";
-            const since = doing ? r.cleaning.startedAt : r.cleaning.since;
+          {todo.map(({ r, nr, urgent, doing, since }) => {
+            const T = roomTypeOf(r.type);
+            const ref = doing ? r.cleaning.startedAt || since : since;
+            const ink = doing ? "#6D28D9" : urgent ? "#C2410C" : "#B45309";
             return (
-              <div key={r.id} className="rounded-[18px] p-3" style={{ background: "#fff", boxShadow: H.shadow, border: "1.5px solid #E6DFFD" }}>
-                <div className="flex items-center gap-3">
-                  <RoomBadge num={r.num} type={r.type} tone={{ bg: H.violetSoft, fg: H.violet }} />
-                  <span className="flex-1 min-w-0"><span className="block text-[14px] font-extrabold">{doing ? "Ménage en cours" : `Libérée à ${hmOf(r.cleaning.since || now)}`}</span><span className="block text-[12px] truncate" style={{ color: H.muted }}>{doing ? `${r.cleaning.by || ""} · commencé à ${hmOf(r.cleaning.startedAt)}` : "En attente de ménage"}</span></span>
-                  <span className="text-right"><span className="block font-mono text-[16px] font-bold" style={{ color: H.violet }}>{fmtClock(now - (since || now)).replace("+", "")}</span><span className="block text-[10px] font-extrabold tracking-[0.04em]" style={{ color: H.muted }}>{doing ? "DURÉE" : "ATTENTE"}</span></span>
+              <div key={r.id} className="rounded-[22px] overflow-hidden" style={{ background: "#fff", boxShadow: `0 10px 24px -14px ${doing ? "rgba(109,40,217,0.5)" : "rgba(234,88,12,0.45)"}`, border: `1.5px solid ${doing ? "#DDD6FE" : urgent ? "#FCD9A8" : "#FDE7C2"}` }}>
+                {urgent && <div className="px-3.5 py-1.5 text-[11.5px] font-extrabold flex items-center gap-1.5 text-white" style={{ background: "linear-gradient(90deg,#F97316,#EA580C)" }}><Icon name="warn" size={13} stroke={2.6} />Prioritaire · réservée à {hmOf(toMs(nr.start))}{nr.client ? ` (${nr.client})` : ""}</div>}
+                <div className="p-3.5 flex items-center gap-3">
+                  <RoomBadge num={r.num} type={r.type} size={52} tone={doing ? { bg: H.violetSoft, fg: H.violet } : null} />
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center gap-1.5"><span className="text-[15px] font-extrabold">Chambre {r.num}</span><span className="h-[19px] px-1.5 rounded-[6px] text-[9.5px] font-extrabold flex items-center" style={{ background: doing ? H.violetSoft : "#FFF4E6", color: ink }}>{doing ? "EN COURS" : "À FAIRE"}</span></span>
+                    <span className="block text-[11.5px] truncate" style={{ color: H.muted }}>{T.label} · {doing ? `commencé à ${hmOf(r.cleaning.startedAt)} par ${r.cleaning.by || "—"}` : `libérée à ${hmOf(since)}`}</span>
+                    {!urgent && nr && <span className="block text-[11px] font-bold" style={{ color: H.indigo }}>Prochaine réservation {dayLabel(toMs(nr.start), now)} à {hmOf(toMs(nr.start))}</span>}
+                  </span>
+                  <span className="text-right shrink-0"><span className="block font-mono text-[18px] font-bold" style={{ color: ink }}>{fmtClock(now - ref).replace("+", "")}</span><span className="block text-[9.5px] font-extrabold tracking-[0.05em]" style={{ color: H.muted }}>{doing ? "DURÉE" : "ATTENTE"}</span></span>
                 </div>
-                <div className="mt-2.5 grid grid-cols-2 gap-2">
-                  <Btn kind="ghost" onClick={() => { setProblem(r); setNote(""); }} className="!min-h-[44px] !text-[13px]">Signaler un problème</Btn>
-                  {doing ? <Btn kind="green" icon="check" onClick={() => actions.cleaningDone(r)} className="!min-h-[44px] !text-[13px]">Chambre prête</Btn> : <Btn kind="navy" onClick={() => actions.cleaningStart(r)} className="!min-h-[44px] !text-[13px]" style={{ background: H.violet }}>Commencer</Btn>}
+                <div className="px-3.5 pb-3.5 grid grid-cols-2 gap-2">
+                  <Btn kind="ghost" icon="warn" onClick={() => { setProblem(r); setNote(""); }} className="!min-h-[46px] !text-[12.5px] !px-2">Problème</Btn>
+                  {doing ? <Btn kind="green" icon="check" onClick={() => actions.cleaningDone(r)} className="!min-h-[46px] !text-[13px]">Chambre prête</Btn> : <Btn kind="navy" onClick={() => actions.cleaningStart(r)} className="!min-h-[46px] !text-[13px]" style={{ background: "linear-gradient(135deg,#7C3AED,#5B21B6)" }}>Commencer</Btn>}
                 </div>
               </div>
             );
           })}
         </div>
       )}
-      <Label>Hors service</Label>
-      {hs.length === 0 ? <p className="text-[12.5px] px-1" style={{ color: H.muted }}>Aucune chambre hors service.</p> : (
-        <Card className="px-3">
-          {hs.map((r, i) => (
-            <div key={r.id} className="flex items-center gap-3 py-2.5" style={{ borderBottom: i === hs.length - 1 ? "none" : `1px solid ${H.line2}` }}>
-              <RoomBadge num={r.num} type={r.type} tone={{ bg: "#EEF1F5", fg: "#475569" }} />
-              <span className="flex-1 min-w-0"><span className="block text-[14px] font-extrabold truncate">{r.hsNote || "Hors service"}</span><span className="block text-[12px] truncate" style={{ color: H.muted }}>{r.hsSince ? `Depuis ${dayLabel(r.hsSince, now)} ${hmOf(r.hsSince)}` : ""}{r.hsBy ? ` · ${r.hsBy}` : ""}</span></span>
-              <Btn kind="ghost" onClick={() => actions.setOutOfService(r, false)} className="!min-h-[40px] !px-3 !text-[12.5px]" style={{ color: H.green, borderColor: "#C9EBD5" }}>Remettre</Btn>
-            </div>
-          ))}
-        </Card>
+
+      {hs.length > 0 && (
+        <>
+          <Label right={<span className="text-[12px]" style={{ color: H.muted }}>{hs.length}</span>}>Hors service</Label>
+          <Card className="px-3">
+            {hs.map((r, i) => (
+              <div key={r.id} className="flex items-center gap-3 py-2.5" style={{ borderBottom: i === hs.length - 1 ? "none" : `1px solid ${H.line2}` }}>
+                <RoomBadge num={r.num} type={r.type} tone={{ bg: "#EEF1F5", fg: "#475569" }} />
+                <span className="flex-1 min-w-0"><span className="block text-[14px] font-extrabold truncate">{r.hsNote || "Hors service"}</span><span className="block text-[12px] truncate" style={{ color: H.muted }}>{r.hsSince ? `Depuis ${dayLabel(r.hsSince, now)} ${hmOf(r.hsSince)}` : ""}{r.hsBy ? ` · ${r.hsBy}` : ""}</span></span>
+                <Btn kind="ghost" onClick={() => actions.setOutOfService(r, false)} className="!min-h-[40px] !px-3 !text-[12.5px]" style={{ color: H.green, borderColor: "#C9EBD5" }}>Remettre</Btn>
+              </div>
+            ))}
+          </Card>
+        </>
       )}
+
+      <div className="mt-5 mb-2 flex items-center gap-2.5">
+        <span className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center" style={{ background: "linear-gradient(135deg,#34D399,#059669)" }}><Icon name="check" size={16} color="#fff" stroke={2.6} /></span>
+        <span className="flex-1 text-[15.5px] font-extrabold">Chambres faites</span>
+      </div>
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+        {[["today", "Aujourd'hui"], ["yesterday", "Hier"], ["d7", "7 jours"], ["month", "Ce mois"], ["custom", "Plage…"]].map(([id, l]) => <Chip key={id} on={range === id} onClick={() => setRange(id)} color={H.violet} line={H.line} className="!min-h-[36px] !px-3 !text-[12px]">{l}</Chip>)}
+      </div>
+      <div className="mt-2 rounded-[16px] p-2 flex items-center gap-1.5" style={{ background: "#fff", border: `1.5px solid ${range === "custom" ? "#C4B5FD" : "#fff"}` }}>
+        <Icon name="cal" size={16} color={H.violet} style={{ marginLeft: 4, flexShrink: 0 }} />
+        {range === "custom" ? (
+          <>
+            <input type="date" aria-label="Du" value={cFrom} onChange={(e) => setCFrom(e.target.value)} style={dateInput} />
+            <span className="font-extrabold" style={{ color: "#94A3B8" }}>→</span>
+            <input type="date" aria-label="Au" value={cTo} onChange={(e) => setCTo(e.target.value)} style={dateInput} />
+          </>
+        ) : <span className="flex-1 text-[13px] font-extrabold px-1">Du {new Date(from).toLocaleDateString("fr-FR")} au {new Date(to - 1).toLocaleDateString("fr-FR")}</span>}
+      </div>
+
+      {Object.keys(agents).length > 0 && (
+        <div className="mt-2.5 flex gap-2 overflow-x-auto pb-0.5">
+          {Object.entries(agents).sort((a, b) => b[1].n - a[1].n).map(([name, a]) => (
+            <span key={name} className="shrink-0 rounded-[16px] px-3 py-2 flex items-center gap-2.5" style={{ background: "#fff", boxShadow: H.shadow }}>
+              <span className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-extrabold" style={{ background: H.violetSoft, color: H.violet }}>{name[0]}</span>
+              <span><span className="block text-[12.5px] font-extrabold">{name}</span><span className="block text-[11px]" style={{ color: H.muted }}>{a.n} chambre{a.n > 1 ? "s" : ""}{a.c ? ` · moy. ${durTxt(a.ms / a.c)}` : ""}</span></span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {days.length === 0 ? <div className="mt-2.5"><Empty icon="broom" title="Aucune chambre faite sur cette période" text="Chaque « Chambre prête » est enregistrée ici avec l'heure, la durée et l'agent." /></div> : days.map((d) => (
+        <div key={d.k}>
+          <div className="mt-3.5 mb-1.5 flex items-center gap-2 px-0.5"><span className="text-[13px] font-extrabold">{dayTitle(d.at)}</span><span className="flex-1 h-px" style={{ background: "#DDE2EA" }} /><span className="text-[11.5px] font-extrabold" style={{ color: H.violet }}>{d.items.length} chambre{d.items.length > 1 ? "s" : ""}</span></div>
+          <Card className="px-3">
+            {d.items.map((e, i) => (
+              <div key={e.id} className="flex items-center gap-3 py-2.5" style={{ borderBottom: i === d.items.length - 1 ? "none" : `1px solid ${H.line2}` }}>
+                <RoomBadge num={e.room.num} type={e.room.type} size={42} />
+                <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold">Prête à {hmOf(e.doneAt)}</span><span className="block text-[11.5px] truncate" style={{ color: H.muted }}>par {e.by || "—"}{e.since ? ` · attente ${durTxt((e.startedAt || e.doneAt) - e.since)}` : ""}</span></span>
+                {e.startedAt ? <span className="h-[24px] px-2 rounded-[8px] text-[11px] font-extrabold flex items-center whitespace-nowrap" style={{ background: H.violetSoft, color: H.violet }}>{durTxt(e.doneAt - e.startedAt)}</span> : null}
+              </div>
+            ))}
+          </Card>
+        </div>
+      ))}
+
+      {issues.length > 0 && (
+        <>
+          <Label>Problèmes signalés sur la période</Label>
+          <Card className="px-3">
+            {issues.map((e, i) => (
+              <div key={e.id} className="flex items-center gap-3 py-2.5" style={{ borderBottom: i === issues.length - 1 ? "none" : `1px solid ${H.line2}` }}>
+                <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: e.fixedAt ? H.greenSoft : "#FFF4E6", color: e.fixedAt ? H.green : "#C2410C" }}><Icon name={e.fixedAt ? "check" : "warn"} size={17} /></span>
+                <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold truncate">Ch. {e.room.num} · {e.note}</span><span className="block text-[11.5px] truncate" style={{ color: H.muted }}>{new Date(e.at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} {hmOf(e.at)} · {e.by || "—"}{e.fixedAt ? ` · réglé ${hmOf(e.fixedAt)}` : " · en attente"}</span></span>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+
       {problem && (
         <Sheet title={`Problème · chambre ${problem.num}`} onClose={() => setProblem(null)}>
           <Field label="Que se passe-t-il ?"><input autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex. : ventilateur en panne, fuite d'eau…" style={inputStyle} /></Field>
-          <div className="mt-2 flex flex-wrap gap-2">{["Ventilateur en panne", "Climatiseur en panne", "Fuite d'eau", "Électricité", "Serrure"].map((t) => <Chip key={t} onClick={() => setNote(t)}>{t}</Chip>)}</div>
-          <p className="mt-3 text-[12px]" style={{ color: H.muted }}>La chambre passe « Hors service » : elle ne pourra plus être louée jusqu'à sa remise en service.</p>
-          <Btn kind="red" full className="mt-3" onClick={() => { actions.patchRoom(problem.id, { outOfService: true, hsNote: note.trim() || "Problème signalé", hsSince: Date.now(), hsBy: ctx.by, cleaning: null }); ctx.pushToast(`Chambre ${problem.num} hors service`, "ok"); setProblem(null); }}>Mettre hors service</Btn>
+          <div className="mt-2 flex flex-wrap gap-2">{["Ventilateur en panne", "Climatiseur en panne", "Fuite d'eau", "Électricité", "Serrure", "Linge manquant"].map((t) => <Chip key={t} onClick={() => setNote(t)}>{t}</Chip>)}</div>
+          <p className="mt-3 text-[12px]" style={{ color: H.muted }}>La chambre passe « Hors service » : elle ne pourra plus être louée jusqu'à sa remise en service. La réception est prévenue par la synchronisation.</p>
+          <Btn kind="red" full className="mt-3" onClick={() => { actions.setOutOfService(problem, true, note.trim() || "Problème signalé"); setProblem(null); }}>Mettre hors service</Btn>
         </Sheet>
       )}
     </div>
@@ -1267,3 +1496,49 @@ function StayScreen({ ctx, stay, onBack, onReleased, onOpenGuest }) {
   );
 }
 
+
+// ---------- Arrivée d'un client réservé : paiement avant d'ouvrir la chambre ----------
+function ArrivalPayScreen({ ctx, resa, onBack, onConfirm }) {
+  const { fmt, settings, guests, now } = ctx;
+  const price = Number(resa.price) || 0;
+  const deposit = Math.min(price, Number(resa.deposit) || 0);
+  const rest = Math.max(0, price - deposit);
+  const [mode, setMode] = useState(rest > 0 ? "cash" : "later");
+  const [given, setGiven] = useState(rest);
+  const [print, setPrint] = useState(settings.receipt.ask !== false);
+  const guest = guests.find((g) => g.id === resa.guestId);
+  const T = roomTypeOf(resa.type);
+  const short = mode === "cash" && rest > 0 && given < rest;
+  const start = Math.max(now, toMs(resa.start));
+  return (
+    <div>
+      <TopBar title="Arrivée du client" sub="Étape finale · paiement" onBack={onBack} />
+      <div className="mt-3 rounded-[22px] p-4 text-white" style={{ background: "linear-gradient(135deg,#0E1C33,#1F3F73)" }}>
+        <div className="flex items-center gap-3">
+          <RoomBadge num={resa.roomNum} type={resa.type} size={52} tone={{ bg: "rgba(255,255,255,0.14)", fg: "#fff" }} />
+          <span className="flex-1 min-w-0"><span className="block text-[16px] font-extrabold">Chambre {resa.roomNum} · {T.label}</span><span className="block text-[12px] truncate" style={{ color: "#C9D3E6" }}>{resa.tariffName} · {isNight(resa) ? `départ ${dayLabel(toMs(resa.end), now)} ${hmOf(toMs(resa.end))}` : `jusqu'à ${hmOf(start + (Number(resa.hours) || 0) * HOUR)}`}</span></span>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {[["Prix", fmt(price), "#fff"], ["Acompte", fmt(deposit), "#6EE7B7"], ["Reste à payer", fmt(rest), "#F6D27A"]].map(([l, v, c]) => <span key={l} className="rounded-[13px] p-2" style={{ background: "rgba(255,255,255,0.08)" }}><span className="block text-[10px] font-bold" style={{ color: "#AEBBD2" }}>{l}</span><span className="block text-[14px] font-extrabold whitespace-nowrap" style={{ color: c }}>{v}</span></span>)}
+        </div>
+      </div>
+      <Card className="mt-3 px-3.5 py-3 flex items-center gap-3">
+        <span className="w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: H.greenSoft, color: H.green }}><Icon name="shield" size={19} /></span>
+        <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold truncate">{guest ? `${guest.lastName} ${guest.firstName || ""}`.trim() : resa.client}</span><span className="block text-[11.5px]" style={{ color: H.green }}>Fiche client et pièce d'identité enregistrées</span></span>
+      </Card>
+      {rest > 0 ? (
+        <>
+          <Label>Paiement du reste</Label>
+          <div className="grid grid-cols-3 gap-2">{Object.entries(PAY_LABEL).map(([id, l]) => <Chip key={id} on={mode === id} onClick={() => setMode(id)} className="!px-1">{l}</Chip>)}</div>
+          {mode === "cash" && <div className="mt-2.5"><CashGiven amount={rest} given={given} setGiven={setGiven} fmt={fmt} /></div>}
+        </>
+      ) : <p className="mt-3 text-[13px] font-bold px-1" style={{ color: H.green }}>Séjour entièrement payé par l'acompte.</p>}
+      <div className="mt-2.5 flex items-center gap-3 rounded-[16px] px-3 py-2.5" style={{ background: "#fff", boxShadow: H.shadow }}>
+        <Icon name="receipt" size={20} color={H.goldDark} />
+        <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold">Afficher le reçu</span><span className="block text-[11.5px]" style={{ color: H.muted }}>Imprimer, PDF ou partager</span></span>
+        <Toggle on={print} onChange={setPrint} label="Afficher le reçu" />
+      </div>
+      <Btn kind="gold" full disabled={short} className="mt-4 !min-h-[56px] !text-[16px]" onClick={() => onConfirm({ payMode: rest > 0 ? mode : "later", given: mode === "cash" ? given : null, print })}>{short ? `Il manque ${fmt(rest - given)}` : `Ouvrir la chambre ${resa.roomNum}${rest > 0 && mode !== "later" ? ` · ${fmt(rest)}` : ""}`}</Btn>
+    </div>
+  );
+}

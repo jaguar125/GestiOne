@@ -88,23 +88,34 @@ export async function checkLicense() {
   return callFunction("check", { device_id: getDeviceId() });
 }
 
-/* ---------- Propriétaire (page Abonnement, inchangé) ---------- */
+/* ---------- Propriétaire (page Abonnement) ---------- */
+
+// Mot de passe personnel de l'éditeur : gardé UNIQUEMENT en mémoire le temps
+// de la visite (jamais sur le téléphone), ajouté à chaque appel propriétaire.
+let ownerPassword = "";
+export function setOwnerPassword(pw) { ownerPassword = pw || ""; }
+export async function ownerPasswordStatus({ email, secret }) {
+  return callFunction("owner-shops", { email, secret, action: "password-status" });
+}
+export async function ownerSetPassword({ email, secret, currentPassword, newPassword }) {
+  return callFunction("owner-shops", { email, secret, action: "set-password", password: currentPassword || "", new_password: newPassword });
+}
 
 export async function getOwnerShops({ email, secret }) {
-  return callFunction("owner-shops", { email, secret });
+  return callFunction("owner-shops", { email, secret, password: ownerPassword });
 }
 
 export async function ownerDeleteShop({ email, secret, shopId }) {
-  return callFunction("owner-shops", { email, secret, action: "delete-shop", shop_id: shopId });
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "delete-shop", shop_id: shopId });
 }
 export async function ownerActivateShop({ email, secret, shopId, code }) {
-  return callFunction("owner-shops", { email, secret, action: "activate-shop", shop_id: shopId, code });
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "activate-shop", shop_id: shopId, code });
 }
 export async function ownerResetAdminPin({ email, secret, shopId }) {
-  return callFunction("owner-shops", { email, secret, action: "reset-admin-pin", shop_id: shopId });
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "reset-admin-pin", shop_id: shopId });
 }
 export async function ownerResetVendorPin({ email, secret, shopId, vendorId }) {
-  return callFunction("owner-shops", { email, secret, action: "reset-vendor-pin", shop_id: shopId, vendor_id: vendorId });
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "reset-vendor-pin", shop_id: shopId, vendor_id: vendorId });
 }
 
 /* ---------- Liaison boutique <-> appareil (multi-boutique) ---------- */
@@ -557,16 +568,16 @@ export async function supportHeartbeat({ name, phone, email, shopName } = {}) {
   return callFunction("support-client", { action: "heartbeat", device_id: getDeviceId(), name, phone, email, shop_name: shopName }, 15000);
 }
 export async function ownerSupportList({ email, secret }) {
-  return callRead("support-owner", { action: "list", email, secret });
+  return callRead("support-owner", { action: "list", email, secret, password: ownerPassword });
 }
 export async function ownerSupportMessages({ email, secret, deviceId }) {
-  return callRead("support-owner", { action: "messages", email, secret, device_id: deviceId });
+  return callRead("support-owner", { action: "messages", email, secret, password: ownerPassword, device_id: deviceId });
 }
 export async function ownerSupportReply({ email, secret, deviceId, message }) {
-  return callFunction("support-owner", { action: "reply", email, secret, device_id: deviceId, message }, 30000);
+  return callFunction("support-owner", { action: "reply", email, secret, password: ownerPassword, device_id: deviceId, message }, 30000);
 }
 export async function ownerSupportDelete({ email, secret, deviceId }) {
-  return callFunction("support-owner", { action: "delete", email, secret, device_id: deviceId });
+  return callFunction("support-owner", { action: "delete", email, secret, password: ownerPassword, device_id: deviceId });
 }
 
 // ---------- Sauvegardes automatiques (une par jour, 30 jours conservés) ----------
@@ -592,7 +603,7 @@ export async function getBackup(backupId, shopId) {
 // messages (ni noms, ni contenu), pour prévenir même quand l'espace est
 // verrouillé.
 export async function ownerSupportIssueToken({ email, secret }) {
-  return callFunction("support-owner", { action: "issue-token", email, secret });
+  return callFunction("support-owner", { action: "issue-token", email, secret, password: ownerPassword });
 }
 export async function ownerSupportCount({ token, since }) {
   return callRead("support-owner", { action: "count", token, since });

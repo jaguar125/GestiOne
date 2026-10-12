@@ -2,7 +2,7 @@
 // réglages, tarifs et forfaits, numéros de chambre, synchronisation,
 // dépenses, personnel, licence, commande de licence, nouvelle réservation.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PaySheet } from "./HotelReceipts.jsx";
 import { H, Icon, Btn, Card, Label, GroupTitle, Segmented, Chip, Toggle, Stepper, TopBar, RoomBadge, Row, Field, inputStyle, Sheet, Empty } from "./HotelUI.jsx";
 import {
@@ -87,6 +87,22 @@ export function SettingsScreen({ ctx, go, license, licenseStatus }) {
   const licTxt = license?.lifetime ? "À vie" : license?.planId === "trial" ? `Essai · ${Math.max(0, daysLeft ?? 0)} j` : licenseStatus === "expired" ? "Expirée" : daysLeft != null ? `${daysLeft} j` : "—";
   const setS = (patch) => save.shopMeta({ ...shop, hotelSettings: { ...settings, ...patch } });
   const syncTxt = sync?.pending > 0 ? `${sync.pending} en attente` : "À jour";
+  // Accès discret de l'éditeur GestiOne : 7 appuis rapides sur l'icône.
+  const taps = useRef({ n: 0, at: 0 });
+  const tapIcon = () => {
+    const t = Date.now();
+    taps.current.n = t - taps.current.at < 1500 ? taps.current.n + 1 : 1;
+    taps.current.at = t;
+    if (taps.current.n >= 7) { taps.current.n = 0; ctx.onEditorOpen?.(); }
+  };
+  const editorBlock = ctx.editorOn ? (
+    <button type="button" onClick={() => ctx.onEditorOpen?.()} className="gb-focus mt-3 w-full text-left rounded-[20px] p-3.5 text-white relative overflow-hidden flex items-center gap-3" style={{ background: "linear-gradient(150deg, #10251F 0%, #1C4A3A 100%)", boxShadow: "0 12px 24px -14px rgba(16,37,31,0.8)" }}>
+      <span className="absolute rounded-full" style={{ right: -40, top: -50, width: 150, height: 150, background: "radial-gradient(circle, rgba(246,196,83,0.38) 0%, rgba(246,196,83,0) 70%)" }} />
+      <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #F6C453, #C98A1E)" }}><Icon name="shield" size={22} color="#10251F" /></span>
+      <span className="relative flex-1 min-w-0"><span className="block text-[10px] font-extrabold tracking-[0.16em]" style={{ color: "#F6C453" }}>ÉDITEUR GESTIONE</span><span className="block text-[16px] font-extrabold">Espace propriétaire</span><span className="block text-[11.5px]" style={{ color: "#B9D3C6" }}>Abonnements et messages des boutiques</span></span>
+      <Icon name="chev" size={18} color="#F6C453" stroke={2.4} />
+    </button>
+  ) : null;
   if (isTech) {
     return (
       <div>
@@ -99,7 +115,12 @@ export function SettingsScreen({ ctx, go, license, licenseStatus }) {
   if (!isOwner) {
     return (
       <div>
-        <TopBar title="Réglages" sub="Connecté en réceptionniste" right={<span className="h-[30px] px-2.5 rounded-[10px] text-[11.5px] font-extrabold flex items-center" style={{ background: "#E7EEFD", color: "#2457B8" }}>{userName}</span>} />
+        <TopBar title="Réglages" sub="Connecté en réceptionniste" right={<span className="h-[30px] px-2.5 rounded-[10px] text-[11.5px] font-extrabold flex items-center select-none" style={{ background: "#E7EEFD", color: "#2457B8" }}>{userName}</span>} />
+        <div className="mt-3 rounded-[20px] px-3.5 py-3 flex items-center gap-3 text-white" style={{ background: H.navy }}>
+          <span onClick={tapIcon} className="w-[42px] h-[42px] rounded-[13px] flex items-center justify-center shrink-0 select-none" style={{ background: H.gold }}><Icon name="bed" size={21} color={H.navy} /></span>
+          <span className="flex-1 min-w-0"><span className="block text-[15px] font-extrabold truncate">{shop?.name}</span><span className="block text-[12px]" style={{ color: "#B8C4D6" }}>Réception · {userName}</span></span>
+        </div>
+        {editorBlock}
         <GroupTitle>MON ESPACE</GroupTitle>
         <Card className="px-3">
           <Row icon="money" tint={H.redSoft} ink={H.red} title="Dépenses" sub="Enregistrer une dépense de l'hôtel" value={`−${fmt(todayExp)}`} valueInk={H.red} onClick={() => go("expenses")} />
@@ -117,10 +138,11 @@ export function SettingsScreen({ ctx, go, license, licenseStatus }) {
     <div>
       <TopBar title="Réglages" sub="Configuration de l'hôtel" right={<span className="h-[30px] px-2.5 rounded-[10px] text-[11.5px] font-extrabold flex items-center gap-1.5" style={{ background: H.goldSoft, color: "#8A5A0B" }}><Icon name="lock" size={13} stroke={2.4} />Propriétaire</span>} />
       <div className="mt-3 rounded-[20px] px-3.5 py-3 flex items-center gap-3 text-white" style={{ background: H.navy }}>
-        <span className="w-[42px] h-[42px] rounded-[13px] flex items-center justify-center shrink-0" style={{ background: H.gold }}><Icon name="bed" size={21} color={H.navy} /></span>
+        <span onClick={tapIcon} className="w-[42px] h-[42px] rounded-[13px] flex items-center justify-center shrink-0 select-none" style={{ background: H.gold }}><Icon name="bed" size={21} color={H.navy} /></span>
         <span className="flex-1 min-w-0"><span className="block text-[15px] font-extrabold truncate">{shop?.name}</span><span className="block text-[12px]" style={{ color: "#B8C4D6" }}>{rooms.length} chambre{rooms.length > 1 ? "s" : ""} · {ctx.staffCount ? `${ctx.staffCount} membre${ctx.staffCount > 1 ? "s" : ""} d'équipe` : "aucun membre d'équipe"}</span></span>
         <button type="button" onClick={() => go("licence")} className="gb-focus h-8 px-2.5 rounded-[10px] text-[11.5px] font-extrabold" style={{ background: "rgba(224,169,59,0.18)", color: "#F0C060" }}>{licTxt}</button>
       </div>
+      {editorBlock}
       <GroupTitle>GESTION</GroupTitle>
       <Card className="px-3">
         <Row icon="money" tint={H.redSoft} ink={H.red} title="Dépenses" sub="Déduites de la recette du jour" value={`−${fmt(todayExp)}`} valueInk={H.red} onClick={() => go("expenses")} />
@@ -660,7 +682,7 @@ export function OrderLicenceScreen({ ctx, onBack, pricing = [], planId, onSend }
 }
 
 // ---------- Nouvelle réservation ----------
-export function NewResaScreen({ ctx, onBack, preset, onNeedGuest }) {
+export function NewResaScreen({ ctx, onBack, preset, onSaved }) {
   const { rooms, tariffs, stays, reservations, now, fmt, actions, settings, by, pushToast } = ctx;
   const [d0] = dayBounds(now);
   const firstDay = preset?.dayStart ? Math.round((preset.dayStart - d0) / DAY) : 0;
@@ -688,6 +710,7 @@ export function NewResaScreen({ ctx, onBack, preset, onNeedGuest }) {
   const price = Number(tariff?.price) || 0;
   const submit = () => {
     if (start < now - 5 * 60000) { pushToast("Choisissez une heure à venir", "error"); return; }
+    if (!client.trim() || String(phone).replace(/\D/g, "").length < 8) { pushToast("Indiquez le nom et le numéro de la personne qui réserve", "error"); return; }
     if (!tariff || !room) return;
     const at = new Date().toISOString();
     const resa = {
@@ -697,16 +720,21 @@ export function NewResaScreen({ ctx, onBack, preset, onNeedGuest }) {
     };
     if (roomConflicts(resa.roomId, start, end, { stays, reservations, now }).length) { pushToast("Cette chambre n'est pas libre sur ce créneau", "error"); return; }
     // Fiche du client obligatoire avant d'enregistrer la réservation.
-    if (onNeedGuest) onNeedGuest(resa);
-    else if (actions.saveReservation(resa)) onBack();
+    // Réservation : seulement le nom et le contact de la personne qui réserve.
+    // La fiche complète du client et sa pièce d'identité sont demandées à
+    // l'arrivée, avant d'occuper la chambre et de payer.
+    const res = actions.saveReservation(resa);
+    if (res) { if (onSaved) onSaved(res); else onBack(); }
   };
   return (
     <div>
       <TopBar title="Nouvelle réservation" sub="La chambre est bloquée automatiquement" onBack={onBack} />
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <input aria-label="Nom du client" value={client} onChange={(e) => setClient(e.target.value)} placeholder="Nom (pré-remplit la fiche)" style={inputStyle} />
-        <input aria-label="Téléphone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Téléphone" style={inputStyle} />
+      <Label>Personne qui réserve</Label>
+      <div className="grid grid-cols-2 gap-2">
+        <input aria-label="Nom de la personne qui réserve" value={client} onChange={(e) => setClient(e.target.value)} placeholder="Nom et prénom *" style={inputStyle} />
+        <input aria-label="Contact de la personne qui réserve" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Téléphone *" style={inputStyle} />
       </div>
+      <p className="mt-1.5 flex items-start gap-1.5 text-[11.5px] leading-snug" style={{ color: H.muted }}><Icon name="shield" size={14} style={{ flexShrink: 0, marginTop: 1 }} />La fiche du client et la photo de sa pièce d'identité seront demandées à son arrivée, avant d'occuper la chambre et de payer.</p>
       <Label>Date d'arrivée</Label>
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
         {days.map((d, i) => { const on = i === day; return <button key={d} type="button" onClick={() => setDay(i)} aria-pressed={on} className="gb-focus shrink-0 rounded-[13px] flex flex-col items-center justify-center" style={{ width: 48, height: 54, background: on ? H.indigo : "#fff", color: on ? "#fff" : H.ink, border: `1.5px solid ${on ? H.indigo : H.line}` }}><span className="text-[10px] font-bold opacity-80">{i === 0 ? "Auj." : wd[new Date(d).getDay()]}</span><span className="text-[16px] font-extrabold">{new Date(d).getDate()}</span></button>; })}
@@ -738,11 +766,18 @@ export function NewResaScreen({ ctx, onBack, preset, onNeedGuest }) {
         {settings.reminderHours.map((h) => { const k = `r${h}`; const on = rem[k] !== false; return <button key={k} type="button" onClick={() => setRem((x) => ({ ...x, [k]: !on }))} aria-pressed={on} className="gb-focus min-h-[44px] rounded-[13px] text-[12.5px] font-extrabold flex items-center justify-center gap-1.5" style={{ background: on ? H.indigoSoft : "#fff", color: on ? "#3730A3" : H.muted, border: `1.5px solid ${on ? "#C7CBFA" : H.line}` }}>{on && <Icon name="check" size={14} stroke={3} />}{h} h avant · {hmOf(start - h * HOUR)}</button>; })}
       </div>
       <Label right={<span className="text-[12px] font-extrabold">{fmt(price)}</span>}>Acompte (optionnel)</Label>
-      <div className="grid grid-cols-2 gap-2">
-        <Stepper value={fmt(Math.min(deposit, price))} onMinus={() => setDeposit((d) => Math.max(0, d - 500))} onPlus={() => setDeposit((d) => Math.min(price, d + 500))} />
-        <div className="grid grid-cols-2 gap-1.5">{[["cash", "Espèces"], ["momo", "MoMo"]].map(([id, l]) => <Chip key={id} on={depMode === id} onClick={() => setDepMode(id)} disabled={!deposit} className="!px-1">{l}</Chip>)}</div>
+      <div className="flex items-center gap-1.5 rounded-[18px] p-1.5" style={{ background: "#fff", boxShadow: H.shadow, border: `1.5px solid ${deposit > 0 ? H.gold : H.line}` }}>
+        <button type="button" onClick={() => setDeposit((d) => Math.max(0, Math.min(price, d) - 500))} aria-label="Moins 500" className="gb-focus w-12 h-12 rounded-[14px] text-[22px] font-extrabold shrink-0" style={{ background: "#F1F3F6", color: H.navy }}>−</button>
+        <input aria-label="Montant de l'acompte" inputMode="numeric" value={deposit ? Math.min(deposit, price).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ") : ""} placeholder="0" onChange={(e) => setDeposit(Math.min(price, Number(e.target.value.replace(/\D/g, "")) || 0))} className="flex-1 min-w-[9ch] text-center text-[24px] font-extrabold bg-transparent outline-none tracking-tight" style={{ color: H.navy, fontVariantNumeric: "tabular-nums" }} />
+        <span className="text-[13px] font-extrabold shrink-0" style={{ color: H.goldDark }}>FCFA</span>
+        <button type="button" onClick={() => setDeposit((d) => Math.min(price, d + 500))} aria-label="Plus 500" className="gb-focus w-12 h-12 rounded-[14px] text-[22px] font-extrabold shrink-0" style={{ background: "#F1F3F6", color: H.navy }}>+</button>
       </div>
-      <Btn kind="indigo" icon="check" full className="mt-4 !min-h-[56px] !text-[16px]" disabled={!room || !tariff} onClick={submit}>Continuer · fiche du client</Btn>
+      <div className="mt-2 grid grid-cols-4 gap-1.5">
+        {[0.25, 0.5, 1].map((k) => { const v = Math.round((price * k) / 500) * 500; return <Chip key={k} on={deposit === v && v > 0} onClick={() => setDeposit(v)} className="!px-1 !text-[12px]">{k === 1 ? "Tout" : `${k * 100} %`}</Chip>; })}
+        <Chip on={deposit === 0} onClick={() => setDeposit(0)} className="!px-1 !text-[12px]">Aucun</Chip>
+      </div>
+      {deposit > 0 && <div className="mt-2 grid grid-cols-2 gap-1.5">{[["cash", "Espèces"], ["momo", "Mobile Money"]].map(([id, l]) => <Chip key={id} on={depMode === id} onClick={() => setDepMode(id)}>{l}</Chip>)}</div>}
+      <Btn kind="indigo" icon="check" full className="mt-4 !min-h-[56px] !text-[16px]" disabled={!room || !tariff || !client.trim() || String(phone).replace(/\D/g, "").length < 8} onClick={submit}>Enregistrer la réservation</Btn>
     </div>
   );
 }

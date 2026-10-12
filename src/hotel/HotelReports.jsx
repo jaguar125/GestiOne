@@ -8,24 +8,27 @@
 import { useMemo, useState } from "react";
 import { H, Icon, Chip, TopBar, Empty } from "./HotelUI.jsx";
 import { hotelFinance, hotelEvents, hotelOccupancy, periodBounds, dayBounds, localDayKey, dayKeyToMs, hmOf, DAY, toMs, roomTypeOf } from "./hotelLogic.js";
-import { printHtml } from "./hotelReceipts.js";
+import { receiptInfo } from "./hotelReceipts.js";
+import { exportReportPdf } from "./hotelPdf.js";
 
 const navyGrad = "linear-gradient(135deg, #0E1C33 0%, #17305A 60%, #1F3F73 100%)";
 const cardStyle = { background: "#fff", boxShadow: "0 4px 14px -8px rgba(18,35,61,0.25)" };
 export const fmtK = (n) => { const a = Math.abs(n), s = n < 0 ? "−" : ""; if (a >= 1e6) return `${s}${(a / 1e6).toFixed(2).replace(".", ",")} M`; if (a >= 1e4) return `${s}${Math.round(a / 1000)} k`; return `${s}${Math.round(a).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ")}`; };
 const dFr = (ms) => new Date(ms).toLocaleDateString("fr-FR");
-const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
-function PdfBtn({ onClick }) {
-  return <button type="button" onClick={onClick} aria-label="Exporter en PDF" className="gb-focus h-10 px-3 rounded-[13px] text-[12px] font-extrabold flex items-center gap-1.5 shrink-0" style={{ background: "#fff", border: `1.5px solid ${H.line}`, color: H.navy }}><Icon name="download" size={15} stroke={2.4} />PDF</button>;
+function PdfBtn({ onClick, pushToast }) {
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await onClick(); } catch (e) { if (!/cancel/i.test(String(e?.message || e))) pushToast?.(e?.message || "PDF impossible", "error"); }
+    setBusy(false);
+  };
+  return <button type="button" onClick={go} disabled={busy} aria-label="Télécharger en PDF" className="gb-focus h-10 px-3 rounded-[13px] text-[12px] font-extrabold flex items-center gap-1.5 shrink-0 disabled:opacity-60" style={{ background: "#fff", border: `1.5px solid ${H.line}`, color: H.navy }}><Icon name={busy ? "sync" : "download"} size={15} stroke={2.4} />{busy ? "PDF…" : "PDF"}</button>;
 }
 function OwnerBadge() {
   return <span className="inline-flex items-center gap-1 h-[22px] px-2 rounded-[7px] text-[10.5px] font-extrabold" style={{ background: H.goldSoft, color: H.goldDark }}><Icon name="lock" size={11} stroke={2.6} />Propriétaire</span>;
 }
-function reportHtml(title, sub, sections) {
-  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#0F172A;font-size:12px}h1{font-size:20px;margin:0}p.s{color:#64748B;margin:2px 0 14px}h2{font-size:14px;margin:18px 0 6px}table{width:100%;border-collapse:collapse}td,th{padding:5px 6px;border-bottom:1px solid #E2E6EC;text-align:left}th{font-size:11px;color:#64748B}td.n,th.n{text-align:right}</style></head><body><h1>${esc(title)}</h1><p class="s">${esc(sub)}</p>${sections.map(([h, head, rows]) => `<h2>${esc(h)}</h2><table><tr>${head.map((x, i) => `<th class="${i ? "n" : ""}">${esc(x)}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((x, i) => `<td class="${i ? "n" : ""}">${esc(x)}</td>`).join("")}</tr>`).join("")}</table>`).join("")}<p class="s" style="margin-top:20px">GestiOne · édité le ${dFr(Date.now())} à ${hmOf(Date.now())}</p></body></html>`;
-}
-
 // ---------- Choix de la période ----------
 function useRange(now, initial = "month") {
   const [r, setR] = useState(initial);
@@ -78,11 +81,17 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
   const [d0] = dayBounds(now);
   const dayTitle = (ms) => { const [s] = dayBounds(ms); const w = new Date(ms).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }); return s === d0 ? `Aujourd'hui · ${w}` : s === d0 - DAY ? `Hier · ${w}` : w; };
   const sign = (e) => (e.k === "exp" ? -1 : 1);
-  const exportPdf = () => printHtml(reportHtml(`Historique · ${shop?.name || "Hôtel"}`, `Du ${dFr(rg.from)} au ${dFr(rg.to - 1)} · recettes ${fmt(fin.income)} · dépenses ${fmt(fin.expensesTotal)} · net ${fmt(fin.net)}`, [["Opérations", ["Date", "Opération", "Détail", "Montant"], shown.map((e) => [`${dFr(e.at)} ${hmOf(e.at)}`, e.title, e.sub, `${e.cancelled ? "(annulé) " : ""}${sign(e) < 0 ? "−" : ""}${fmt(e.amount)}`])]]));
+  const exportPdf = () => exportReportPdf(`Historique-${localDayKey(rg.from)}-au-${localDayKey(rg.to - 1)}.pdf`, {
+    title: "Historique", subtitle: `Du ${dFr(rg.from)} au ${dFr(rg.to - 1)} · ${shown.length} opération${shown.length > 1 ? "s" : ""}`,
+    kpis: [{ label: "Recettes", value: fmt(fin.income), color: "#15803D" }, { label: "Dépenses", value: fmt(fin.expensesTotal), color: "#B91C1C" }, { label: "Net", value: fmt(fin.net), color: "#B7791F" }, { label: "Séjours", value: String(fin.counts.pass + fin.counts.night), color: "#1F3F73" }],
+    sections: [{ title: "Opérations", head: ["Date", "Opération", "Détail", "Montant"], widths: [1.15, 2.3, 2.1, 1.1], align: ["left", "left", "left", "right"],
+      rows: shown.map((e) => [`${new Date(e.at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} ${hmOf(e.at)}`, e.title + (e.cancelled && e.k !== "cancel" ? " (annulé)" : ""), e.sub, { t: `${e.k === "exp" ? "-" : e.k === "cancel" ? "" : "+"}${fmt(e.amount)}`, color: e.k === "exp" ? "#B91C1C" : e.cancelled ? "#94A3B8" : "#15803D", bold: true }]),
+      total: ["Total net", "", "", fmt(fin.net)] }],
+  }, receiptInfo(shop, ctx.settings));
   const openOf = (e) => { const src = e.stay || e.resa; const rc = src && (src.receipts || [])[0]; return rc ? () => openReceipt(rc) : null; };
   return (
     <div>
-      <TopBar title="Historique" sub="Toutes les opérations de l'hôtel" onBack={onBack} right={<PdfBtn onClick={exportPdf} />} />
+      <TopBar title="Historique" sub="Toutes les opérations de l'hôtel" onBack={onBack} right={<PdfBtn onClick={exportPdf} pushToast={ctx.pushToast} />} />
       <RangePicker rg={rg} />
       <div className="mt-3 rounded-[22px] p-4 text-white" style={{ background: navyGrad }}>
         <div className="flex items-center justify-between"><span className="text-[11.5px] font-extrabold tracking-[0.08em]" style={{ color: "#E9C77F" }}>RÉSUMÉ DE LA PÉRIODE</span><OwnerBadge /></div>
@@ -139,13 +148,22 @@ export function InventoryScreen({ ctx, onBack }) {
   const basket = occ.stays ? Math.round(fin.income / occ.stays) : 0;
   const days = occ.days.slice(-31);
   const typeShare = (fin.byType.vent + fin.byType.clim) || 1;
-  const exportPdf = () => printHtml(reportHtml(`Inventaire · ${shop?.name || "Hôtel"}`, `Du ${dFr(rg.from)} au ${dFr(rg.to - 1)} · occupation ${occ.pct} % · ${occ.stays} séjours · ${occ.soldHours} h vendues`, [
-    ["Par chambre", ["Chambre", "Type", "Séjours", "Heures", "Recette"], perRoom.map((x) => [x.room.num, roomTypeOf(x.room.type).label, String(x.stays), String(Math.round(x.ms / 3600000)), fmt(x.amount)])],
-    ["Par réceptionniste", ["Nom", "Encaissé"], users.map(([u, a]) => [u, fmt(a)])],
-  ]));
+  const exportPdf = () => exportReportPdf(`Inventaire-${localDayKey(rg.from)}-au-${localDayKey(rg.to - 1)}.pdf`, {
+    title: "Inventaire des chambres", subtitle: `Du ${dFr(rg.from)} au ${dFr(rg.to - 1)} · ${rooms.length} chambres`,
+    kpis: [{ label: "Taux d'occupation", value: `${occ.pct} %`, color: "#0B7A6E" }, { label: "Séjours", value: String(occ.stays), color: "#E11D48" }, { label: "Heures vendues", value: `${occ.soldHours} h`, color: "#4F46E5" }, { label: "Panier moyen", value: fmt(basket), color: "#B7791F" }],
+    sections: [
+      { title: "Par chambre", head: ["Chambre", "Type", "Séjours", "Heures", "Recette"], widths: [1, 1.4, 1, 1, 1.4], align: ["left", "left", "right", "right", "right"],
+        rows: perRoom.map((x) => [x.room.num, roomTypeOf(x.room.type).label, String(x.stays), String(Math.round(x.ms / 3600000)), { t: fmt(x.amount), bold: true }]),
+        total: ["Total", "", String(occ.stays), String(occ.soldHours), fmt(perRoom.reduce((t, x) => t + x.amount, 0))] },
+      { title: "Par type de chambre", head: ["Type", "Chambres", "Séjours", "Occupation", "Recette"], widths: [1.4, 1, 1, 1, 1.4], align: ["left", "right", "right", "right", "right"],
+        rows: ["vent", "clim"].map((t) => [roomTypeOf(t).plural, String(occ.perType[t].rooms), String(occ.perType[t].stays), `${occ.perType[t].pct} %`, fmt(fin.byType[t])]) },
+      { title: "Réservations", head: ["Statut", "Nombre"], widths: [3, 1], rows: resStats.map(([l, n]) => [l, String(n)]) },
+      { title: "Par réceptionniste", head: ["Nom", "Encaissé"], widths: [3, 1.4], rows: users.map(([u, a2]) => [u, fmt(a2)]) },
+    ],
+  }, receiptInfo(shop, ctx.settings));
   return (
     <div>
-      <TopBar title="Inventaire" sub="Activité des chambres sur la période" onBack={onBack} right={<PdfBtn onClick={exportPdf} />} />
+      <TopBar title="Inventaire" sub="Activité des chambres sur la période" onBack={onBack} right={<PdfBtn onClick={exportPdf} pushToast={ctx.pushToast} />} />
       <RangePicker rg={rg} />
       <div className="mt-3 grid grid-cols-2 gap-2">
         {[["Taux d'occupation", `${occ.pct} %`, `${rooms.length} chambres`, "#0B7A6E"], ["Séjours", String(occ.stays), `${fin.counts.pass} passages · ${fin.counts.night} nuitées`, "#E11D48"], ["Heures vendues", `${occ.soldHours.toLocaleString("fr-FR")} h`, `dont ${occ.nightHours} h de nuit`, "#4F46E5"], ["Panier moyen", fmt(basket), "par séjour", H.goldDark]].map(([l, v, s, c]) => (
@@ -220,13 +238,19 @@ export function ProfitScreen({ ctx, onBack }) {
   const marge = cur.income > 0 ? Math.round((cur.net / cur.income) * 100) : 0;
   const cats = Object.entries(cur.expByCat).sort((a, b) => b[1] - a[1]);
   const inProgress = sel.to > now && sel.from <= now;
-  const exportPdf = () => printHtml(reportHtml(`Bénéfices · ${shop?.name || "Hôtel"}`, `${sel.label} · recettes ${fmt(cur.income)} · dépenses ${fmt(cur.expensesTotal)} · bénéfice ${fmt(cur.net)} (${marge} %)`, [
-    ["Par période", ["Période", "Recettes", "Dépenses", "Bénéfice"], rows.slice().reverse().map((x) => [x.label, fmt(x.f.income), fmt(x.f.expensesTotal), fmt(x.f.net)])],
-    ["Dépenses par catégorie", ["Catégorie", "Montant"], cats.map(([c, v]) => [c, fmt(v)])],
-  ]));
+  const exportPdf = () => exportReportPdf(`Benefices-${String(sel.label).replace(/[^\wÀ-ÿ]+/g, "-")}.pdf`, {
+    title: "Bénéfices", subtitle: `${sel.label.charAt(0).toUpperCase()}${sel.label.slice(1)}${inProgress ? " (en cours)" : ""}`,
+    kpis: [{ label: "Recettes", value: fmt(cur.income), color: "#15803D" }, { label: "Dépenses", value: fmt(cur.expensesTotal), color: "#B91C1C" }, { label: "Bénéfice net", value: fmt(cur.net), color: cur.net < 0 ? "#B91C1C" : "#B7791F" }, { label: "Marge", value: `${marge} %`, color: "#1F3F73" }],
+    sections: [
+      { title: "Par période", head: ["Période", "Recettes", "Dépenses", "Bénéfice"], widths: [1.6, 1, 1, 1],
+        rows: rows.slice().reverse().map((x) => [x.label.charAt(0).toUpperCase() + x.label.slice(1), { t: fmt(x.f.income), color: "#15803D" }, { t: fmt(x.f.expensesTotal), color: "#B91C1C" }, { t: fmt(x.f.net), bold: true, color: x.f.net < 0 ? "#B91C1C" : "#0F172A" }]) },
+      { title: "Dépenses par catégorie", head: ["Catégorie", "Part", "Montant"], widths: [2, 0.8, 1.2],
+        rows: cats.map(([c, v]) => [c, `${Math.round((v / (cur.expensesTotal || 1)) * 100)} %`, fmt(v)]), total: cats.length ? ["Total", "100 %", fmt(cur.expensesTotal)] : null },
+    ],
+  }, receiptInfo(shop, ctx.settings));
   return (
     <div>
-      <TopBar title="Bénéfices" sub="Recettes − dépenses enregistrées" onBack={onBack} right={<PdfBtn onClick={exportPdf} />} />
+      <TopBar title="Bénéfices" sub="Recettes − dépenses enregistrées" onBack={onBack} right={<PdfBtn onClick={exportPdf} pushToast={ctx.pushToast} />} />
       <div className="mt-3 p-1 rounded-[16px] grid gap-[2px]" style={{ background: "#fff", boxShadow: H.shadow, gridTemplateColumns: "minmax(0,1.05fr) minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,0.9fr) minmax(0,0.8fr)" }}>
         {MODES.map(([id, l]) => <button key={id} type="button" onClick={() => { setMode(id); setOff(0); }} aria-pressed={mode === id} className="gb-focus min-h-[38px] rounded-[12px] text-[11px] font-extrabold whitespace-nowrap overflow-hidden" style={{ background: mode === id ? "linear-gradient(135deg,#E9B84E,#D3962A)" : "transparent", color: mode === id ? H.navy : H.ink2 }}>{l}</button>)}
       </div>

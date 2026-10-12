@@ -15691,6 +15691,13 @@ const OWNER_IDLE_MS = 5 * 60 * 1000;
 const OWNER_MAX_FAILS = 3;
 const OWNER_LOCKOUT_MS = 5 * 60 * 1000;
 const OWNER_GUARD_KEY = "ownerGuard";
+// Téléphone de l'éditeur : la rubrique « Espace propriétaire » n'apparaît dans
+// le menu que sur un téléphone où le propriétaire de GestiOne s'est déjà
+// connecté avec son accès personnel (aucun identifiant n'est conservé, seul
+// cet indicateur d'affichage ; le serveur vérifie tout à chaque ouverture).
+const EDITOR_DEVICE_KEY = "gestione:editorDevice";
+const isEditorDevice = () => { try { return localStorage.getItem(EDITOR_DEVICE_KEY) === "1"; } catch { return false; } };
+const setEditorDevice = (on) => { try { if (on) localStorage.setItem(EDITOR_DEVICE_KEY, "1"); else localStorage.removeItem(EDITOR_DEVICE_KEY); } catch { /* stockage indisponible */ } };
 const readOwnerGuard = () => { try { return JSON.parse(localStorage.getItem(OWNER_GUARD_KEY)) || { fails: 0, until: 0 }; } catch { return { fails: 0, until: 0 }; } };
 const writeOwnerGuard = (g) => { try { localStorage.setItem(OWNER_GUARD_KEY, JSON.stringify(g)); } catch { /* stockage indisponible */ } };
 const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -15698,6 +15705,10 @@ const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Ma
 function OwnerGate({ title, verify, onVerified, lockedReason }) {
   const [email, setEmail] = useState("");
   const [secret, setSecret] = useState("");
+  const [password, setPassword] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [newPw2, setNewPw2] = useState("");
+  const [setup, setSetup] = useState(false); // première connexion : création du mot de passe
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -15710,28 +15721,48 @@ function OwnerGate({ title, verify, onVerified, lockedReason }) {
     return () => clearInterval(t);
   }, [blocked]);
   useEffect(() => { if (!blocked && guard.until && guard.until <= now) { const g = { fails: 0, until: 0 }; writeOwnerGuard(g); setGuard(g); } }, [blocked, guard.until, now]);
+  const fail = (err) => {
+    const m = err?.message || "";
+    if (/OFFLINE|SERVER_DOWN/.test(m)) { setError(api.networkErrorText(err, "vérifier l'accès") || "Connexion impossible, réessayez."); return; }
+    if (/Trop de tentatives/i.test(m)) { const g = { fails: OWNER_MAX_FAILS, until: Date.now() + OWNER_LOCKOUT_MS }; writeOwnerGuard(g); setGuard(g); setNow(Date.now()); return; }
+    if (/au moins 8/i.test(m)) { setError(m); return; }
+    const fails = (readOwnerGuard().fails || 0) + 1;
+    const g = fails >= OWNER_MAX_FAILS ? { fails, until: Date.now() + OWNER_LOCKOUT_MS } : { fails, until: 0 };
+    writeOwnerGuard(g); setGuard(g); setNow(Date.now());
+    setSecret(""); setPassword("");
+    setError(fails >= OWNER_MAX_FAILS ? "" : `Identifiants incorrects · ${OWNER_MAX_FAILS - fails} essai${OWNER_MAX_FAILS - fails > 1 ? "s" : ""} restant${OWNER_MAX_FAILS - fails > 1 ? "s" : ""}`);
+  };
+  const done = (em, sc) => {
+    writeOwnerGuard({ fails: 0, until: 0 });
+    setSecret(""); setPassword(""); setNewPw(""); setNewPw2("");
+    onVerified({ email: em, secret: sc });
+  };
   const submit = async (e) => {
     e?.preventDefault?.();
     if (blocked || loading) return;
     const em = email.trim().toLowerCase();
-    if (!em || !secret.trim()) { setError("Renseignez l'email et la réponse."); return; }
+    if (setup) {
+      if (newPw.length < 8) { setError("Le mot de passe doit contenir au moins 8 caractères."); return; }
+      if (newPw !== newPw2) { setError("Les deux mots de passe ne sont pas identiques."); return; }
+      setLoading(true); setError("");
+      try {
+        await api.ownerSetPassword({ email: em, secret, newPassword: newPw });
+        api.setOwnerPassword(newPw);
+        await verify(em, secret);
+        done(em, secret);
+      } catch (err) { fail(err); } finally { setLoading(false); }
+      return;
+    }
+    if (!em || !secret.trim() || !password) { setError("Renseignez l'email, le mot de passe et la réponse."); return; }
     setLoading(true); setError("");
     try {
+      api.setOwnerPassword(password);
       await verify(em, secret);
-      writeOwnerGuard({ fails: 0, until: 0 });
-      setSecret("");
-      onVerified({ email: em, secret });
+      done(em, secret);
     } catch (err) {
-      const m = err?.message || "";
-      if (/OFFLINE|SERVER_DOWN/.test(m)) setError(api.networkErrorText(err, "vérifier l'accès") || "Connexion impossible, réessayez.");
-      else if (/Trop de tentatives/i.test(m)) { const g = { fails: OWNER_MAX_FAILS, until: Date.now() + OWNER_LOCKOUT_MS }; writeOwnerGuard(g); setGuard(g); setNow(Date.now()); }
-      else {
-        const fails = (readOwnerGuard().fails || 0) + 1;
-        const g = fails >= OWNER_MAX_FAILS ? { fails, until: Date.now() + OWNER_LOCKOUT_MS } : { fails, until: 0 };
-        writeOwnerGuard(g); setGuard(g); setNow(Date.now());
-        setSecret("");
-        setError(fails >= OWNER_MAX_FAILS ? "" : `Identifiants incorrects · ${OWNER_MAX_FAILS - fails} essai${OWNER_MAX_FAILS - fails > 1 ? "s" : ""} restant${OWNER_MAX_FAILS - fails > 1 ? "s" : ""}`);
-      }
+      api.setOwnerPassword("");
+      if ((err?.message || "") === "PASSWORD_SETUP_REQUIRED") { setSetup(true); setPassword(""); setError(""); }
+      else fail(err);
     } finally { setLoading(false); }
   };
   const inputBox = (Icon, children) => (
@@ -15739,15 +15770,19 @@ function OwnerGate({ title, verify, onVerified, lockedReason }) {
       <Icon size={18} className="opacity-50 shrink-0" />{children}
     </span>
   );
+  const pwInput = (value, set, placeholder, label) => inputBox(KeyRound, <>
+    <input type={show ? "text" : "password"} autoComplete="new-password" autoCapitalize="none" spellCheck={false} value={value} onChange={(e) => { set(e.target.value); setError(""); }} placeholder={placeholder} aria-label={label} className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+    <button type="button" onClick={() => setShow((v) => !v)} className="gb-focus p-1.5 -mr-1.5 rounded-lg opacity-60" aria-label={show ? "Masquer" : "Afficher"}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+  </>);
   return (
     <form onSubmit={submit} className="flex flex-col gap-3" autoComplete="off">
       <div className="rounded-[24px] p-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(150deg, #10251F 0%, #1C4A3A 100%)", boxShadow: "0 14px 30px -16px rgba(16,37,31,0.7)" }}>
-        <span className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.05)" }} />
-        <span className="absolute -left-8 -bottom-16 w-36 h-36 rounded-full" style={{ background: "rgba(246,196,83,0.08)" }} />
+        <span className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "radial-gradient(circle, rgba(246,196,83,0.30) 0%, rgba(246,196,83,0) 70%)" }} />
         <span className="w-14 h-14 rounded-[18px] flex items-center justify-center relative" style={{ background: "rgba(246,196,83,0.16)", border: "1px solid rgba(246,196,83,0.35)" }}><LockKeyhole size={26} color="#F6C453" /></span>
-        <p className="font-display font-bold text-[22px] mt-3.5 relative">Espace propriétaire</p>
-        <p className="text-[13px] opacity-75 mt-1 relative leading-snug">{title} contient les informations de <b>toutes les entreprises</b> de l'application. Vérifiez votre identité pour continuer.</p>
-        {lockedReason && <p className="mt-3 text-[12px] font-semibold rounded-[10px] px-2.5 py-1.5 inline-flex items-center gap-1.5 relative" style={{ background: "rgba(255,255,255,0.1)" }}><Lock size={13} /> {lockedReason}</p>}
+        <p className="mt-3.5 text-[10.5px] font-bold tracking-[0.16em] relative" style={{ color: "#F6C453" }}>ACCÈS ÉDITEUR GESTIONE</p>
+        <p className="font-display font-bold text-[22px] relative">{setup ? "Créez votre mot de passe" : "Espace propriétaire"}</p>
+        <p className="text-[13px] opacity-75 mt-1 relative leading-snug">{setup ? "Première connexion : choisissez un mot de passe personnel (8 caractères minimum). Il sera demandé à chaque ouverture, avec l'email et la question secrète." : <>{title} contient les informations de <b>toutes les entreprises</b> de l'application. Accès personnel du propriétaire de GestiOne.</>}</p>
+        {lockedReason && !setup && <p className="mt-3 text-[12px] font-semibold rounded-[10px] px-2.5 py-1.5 inline-flex items-center gap-1.5 relative" style={{ background: "rgba(255,255,255,0.1)" }}><Lock size={13} /> {lockedReason}</p>}
       </div>
 
       {blocked ? (
@@ -15758,6 +15793,16 @@ function OwnerGate({ title, verify, onVerified, lockedReason }) {
             <p className="text-[12.5px] mt-0.5">Trop d'essais incorrects. Nouvel essai possible dans <b className="font-mono text-[14px]">{mmss(guard.until - now)}</b>.</p>
           </div>
         </div>
+      ) : setup ? (
+        <>
+          <label className="block"><span className="text-[12px] font-bold opacity-70 mb-1 block">Nouveau mot de passe</span>{pwInput(newPw, setNewPw, "8 caractères minimum", "Nouveau mot de passe")}</label>
+          <label className="block"><span className="text-[12px] font-bold opacity-70 mb-1 block">Confirmer le mot de passe</span>{pwInput(newPw2, setNewPw2, "Retapez le mot de passe", "Confirmer le mot de passe")}</label>
+          {error && <p className="text-[12.5px] font-bold flex items-center gap-1.5" style={{ color: "#B3261E" }}><AlertTriangle size={14} /> {error}</p>}
+          <button type="submit" disabled={loading} className="gb-focus w-full min-h-[54px] rounded-2xl text-[15.5px] font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: "linear-gradient(135deg, #F6C453, #C98A1E)", color: "#10251F" }}>
+            {loading ? <RefreshCw size={18} className="animate-spin" /> : <ShieldCheck size={18} />} {loading ? "Enregistrement…" : "Enregistrer et ouvrir"}
+          </button>
+          <button type="button" onClick={() => { setSetup(false); setError(""); }} className="gb-focus text-[13px] font-bold opacity-70 py-1">Retour</button>
+        </>
       ) : (
         <>
           <label className="block">
@@ -15765,27 +15810,29 @@ function OwnerGate({ title, verify, onVerified, lockedReason }) {
             {inputBox(Mail, <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder="email@exemple.com" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />)}
           </label>
           <label className="block">
+            <span className="text-[12px] font-bold opacity-70 mb-1 block">Mot de passe personnel</span>
+            {pwInput(password, setPassword, "Votre mot de passe", "Mot de passe personnel")}
+          </label>
+          <label className="block">
             <span className="text-[12px] font-bold opacity-70 mb-1 block">Question secrète · {OWNER_SECURITY_QUESTION}</span>
-            {inputBox(KeyRound, <>
-              <input type={show ? "text" : "password"} autoComplete="new-password" autoCapitalize="none" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); setError(""); }} placeholder="Votre réponse" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
-              <button type="button" onClick={() => setShow((v) => !v)} className="gb-focus p-1.5 -mr-1.5 rounded-lg opacity-60" aria-label={show ? "Masquer la réponse" : "Afficher la réponse"}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button>
-            </>)}
+            {pwInput(secret, setSecret, "Votre réponse", "Réponse à la question secrète")}
           </label>
           {error && <p className="text-[12.5px] font-bold flex items-center gap-1.5" style={{ color: "#B3261E" }}><AlertTriangle size={14} /> {error}</p>}
           <button type="submit" disabled={loading} className="gb-focus w-full min-h-[54px] rounded-2xl text-[15.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: "var(--glass)", boxShadow: "0 10px 20px -10px rgba(16,37,31,0.6)" }}>
-            {loading ? <RefreshCw size={18} className="animate-spin" /> : <Unlock size={18} />} {loading ? "Vérification…" : "Déverrouiller"}
+            {loading ? <RefreshCw size={18} className="animate-spin" /> : <Unlock size={18} />} {loading ? "Vérification…" : "Se connecter"}
           </button>
         </>
       )}
 
       <div className="rounded-[18px] p-3.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-        <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-55 mb-2">Protection de cette page</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.1em] opacity-55 mb-2">Protection de cet espace</p>
         {[
+          [KeyRound, "Email + mot de passe + question secrète, vérifiés par le serveur"],
           [LogOut, "Se verrouille dès que vous quittez la page"],
           [Timer, "Se verrouille après 5 minutes sans activité"],
-          [EyeOff, "Se verrouille quand l'application passe en arrière-plan"],
+          [EyeOff, "Invisible pour les clients : n'apparaît que sur votre téléphone"],
           [ShieldAlert, "3 essais faux : saisie bloquée 5 minutes"],
-          [ShieldCheck, "Rien n'est enregistré sur ce téléphone"],
+          [ShieldCheck, "Mot de passe jamais enregistré sur le téléphone"],
         ].map(([Ic, t]) => (
           <p key={t} className="flex items-center gap-2.5 text-[12.5px] py-1"><span className="w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "#E3F1EA", color: "#14684A" }}><Ic size={14} /></span>{t}</p>
         ))}
@@ -15956,7 +16003,49 @@ function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm
   );
 }
 
-function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast, ownerUnread = 0, onMessagesView }) {
+// Accès éditeur : changer le mot de passe personnel, retirer l'accès du téléphone.
+function EditorAccessCard({ ownerAccess, pushToast, onEditorLogout }) {
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState("");
+  const [n1, setN1] = useState("");
+  const [n2, setN2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (n1.length < 8) { pushToast("8 caractères minimum", "error"); return; }
+    if (n1 !== n2) { pushToast("Les deux mots de passe ne sont pas identiques", "error"); return; }
+    setBusy(true);
+    try {
+      await api.ownerSetPassword({ email: ownerAccess.email, secret: ownerAccess.secret, currentPassword: cur, newPassword: n1 });
+      api.setOwnerPassword(n1);
+      setCur(""); setN1(""); setN2(""); setOpen(false);
+      pushToast("Mot de passe personnel modifié", "ok");
+    } catch (e) { pushToast(e.message || "Modification impossible", "error"); }
+    setBusy(false);
+  };
+  const field = (v, set, ph) => <input type="password" autoComplete="new-password" value={v} onChange={(e) => set(e.target.value)} placeholder={ph} className="w-full min-h-[48px] px-3.5 rounded-[13px] outline-none text-[14.5px]" style={{ background: "var(--card)", border: "1.5px solid var(--line)" }} />;
+  return (
+    <div className="rounded-[20px] p-3.5 mb-3.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+      <div className="flex items-center gap-3">
+        <span className="w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #F6C453, #C98A1E)" }}><ShieldCheck size={20} color="#10251F" /></span>
+        <span className="flex-1 min-w-0"><span className="block text-[10px] font-bold tracking-[0.14em]" style={{ color: "#B07A12" }}>ACCÈS ÉDITEUR</span><span className="block text-[14px] font-bold truncate">{ownerAccess?.email}</span></span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button onClick={() => setOpen((v) => !v)} className="gb-focus min-h-[44px] rounded-[13px] text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "var(--paper-dim)" }}><KeyRound size={15} /> Mot de passe</button>
+        <button onClick={() => { if (window.confirm("Retirer l'accès éditeur de ce téléphone ? La rubrique « Espace propriétaire » disparaîtra du menu (7 appuis sur le logo pour la retrouver).")) onEditorLogout?.(); }} className="gb-focus min-h-[44px] rounded-[13px] text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#FCEBEA", color: "#B3261E" }}><LogOut size={15} /> Se déconnecter</button>
+      </div>
+      {open && (
+        <div className="mt-3 flex flex-col gap-2">
+          {field(cur, setCur, "Mot de passe actuel")}
+          {field(n1, setN1, "Nouveau mot de passe (8 caractères min.)")}
+          {field(n2, setN2, "Confirmer le nouveau mot de passe")}
+          <button onClick={save} disabled={busy} className="gb-focus min-h-[48px] rounded-[13px] text-[14px] font-bold text-white disabled:opacity-60" style={{ background: "var(--glass)" }}>{busy ? "Enregistrement…" : "Enregistrer le nouveau mot de passe"}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast, ownerUnread = 0, onMessagesView, onEditorLogout }) {
   const [email, setEmail] = useState("");
   const [secret, setSecret] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16092,6 +16181,7 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
   return (
     <div>
       <OwnerSessionBar onLock={onLockOwner} />
+      <EditorAccessCard ownerAccess={ownerAccess} pushToast={pushToast} onEditorLogout={onEditorLogout} />
       <div role="tablist" aria-label="Espace propriétaire" className="grid grid-cols-2 gap-1 p-1 rounded-[18px] mb-3.5" style={{ background: "var(--paper-dim)" }}>
         {[["shops", "Entreprises", (allShops || []).length, Store], ["messages", "Messages", msgStats.total, MessageCircle]].map(([id, l, n, Ic]) => {
           const on = ownerTab === id;
@@ -16924,10 +17014,19 @@ function IngredientSheet({ state, onAdd, onRefill, onEdit, onClose }) {
   );
 }
 
-function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, supportUnread = 0, ownerUnread = 0, onPick, onLegal, onClose }) {
+function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, supportUnread = 0, ownerUnread = 0, onPick, onLegal, onClose, editorOn = false, onEditorReveal }) {
   const [q, setQ] = useState("");
   const query = q.trim().toLowerCase();
-  const items = ADMIN_SECTIONS.filter((s) => !s.profile || s.profile === shopProfile(shop)).filter((s) => !query || s.label.toLowerCase().includes(query) || (s.desc || "").toLowerCase().includes(query) || (s.group || "").toLowerCase().includes(query));
+  // Accès discret de l'éditeur : 7 appuis rapides sur le logo GestiOne.
+  const tapsRef = useRef({ n: 0, at: 0 });
+  const tapLogo = () => {
+    const t = Date.now();
+    const r = tapsRef.current;
+    r.n = t - r.at < 1500 ? r.n + 1 : 1;
+    r.at = t;
+    if (r.n >= 7) { r.n = 0; onEditorReveal?.(); }
+  };
+  const items = ADMIN_SECTIONS.filter((s) => s.id !== "abonnement").filter((s) => !s.profile || s.profile === shopProfile(shop)).filter((s) => !query || s.label.toLowerCase().includes(query) || (s.desc || "").toLowerCase().includes(query) || (s.group || "").toLowerCase().includes(query));
   const groups = [];
   items.forEach((s) => { const g = s.group || ""; let last = groups[groups.length - 1]; if (!last || last.name !== g) { last = { name: g, items: [] }; groups.push(last); } last.items.push(s); });
   const daysLeft = license && !license.lifetime && license.expiresAt ? Math.ceil((new Date(license.expiresAt) - Date.now()) / MS_DAY) : null;
@@ -16943,7 +17042,7 @@ function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, suppo
         <div className="shrink-0 px-4 pb-4 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", paddingTop: "calc(max(22px, env(safe-area-inset-top)) + 64px)" }}>
           <div className="absolute -right-10 -top-6 w-36 h-36 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
           <div className="flex items-center gap-3 relative">
-            <div className="shrink-0 rounded-[12px] overflow-hidden" style={{ width: 42, height: 42 }}><GestiOneIcon size={42} /></div>
+            <div onClick={tapLogo} className="shrink-0 rounded-[12px] overflow-hidden select-none" style={{ width: 42, height: 42 }}><GestiOneIcon size={42} /></div>
             <div className="min-w-0 flex-1">
               <p className="font-display font-bold text-[17px] truncate">{shop.name}</p>
               <p className="text-[12px] truncate" style={{ color: "rgba(255,255,255,0.65)" }}>{shop.adminDisplayName?.trim() || "Administrateur"}</p>
@@ -16960,6 +17059,21 @@ function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, suppo
           </div>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5" style={{ paddingBottom: "calc(110px + env(safe-area-inset-bottom))" }}>
+          {editorOn && !query && (
+            <button onClick={() => onPick("abonnement")} className="gb-focus w-full text-left mb-3 rounded-[20px] p-3.5 text-white relative overflow-hidden" style={{ background: "linear-gradient(150deg, #10251F 0%, #1C4A3A 100%)", boxShadow: "0 12px 24px -14px rgba(16,37,31,0.8)" }}>
+              <span className="absolute -right-10 -top-12 w-36 h-36 rounded-full" style={{ background: "radial-gradient(circle, rgba(246,196,83,0.38) 0%, rgba(246,196,83,0) 70%)" }} />
+              <span className="relative flex items-center gap-3">
+                <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #F6C453, #C98A1E)" }}><ShieldCheck size={22} color="#10251F" /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[10px] font-bold tracking-[0.16em]" style={{ color: "#F6C453" }}>ÉDITEUR GESTIONE</span>
+                  <span className="block font-display font-bold text-[16px]">Espace propriétaire</span>
+                  <span className="block text-[11.5px]" style={{ color: "#B9D3C6" }}>Abonnements et messages des boutiques</span>
+                </span>
+                {ownerUnread > 0 && <span className="min-w-[22px] h-[22px] px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0" style={{ background: "#F6C453", color: "#10251F" }}>{ownerUnread}</span>}
+                <ChevronRight size={18} color="#F6C453" className="shrink-0" />
+              </span>
+            </button>
+          )}
           {groups.length === 0 && <p className="text-center text-sm opacity-50 py-6">Aucune rubrique trouvée.</p>}
           {groups.map((g) => {
             const col = ADMIN_GROUP_COLORS[g.name] || { fg: "var(--glass)", bg: "var(--paper-dim)" };
@@ -17011,6 +17125,7 @@ function AdminScreen({
   snackLots, saveSnackLots, jump,
 }) {
   const [section, setSection] = useState(jump?.id || "stats");
+  const [editorOn, setEditorOn] = useState(isEditorDevice);
   useEffect(() => {
     if (jump?.id) { setSection(jump.id); onSectionChange?.(jump.id); }
   }, [jump?.n]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -17056,6 +17171,8 @@ function AdminScreen({
           onPick={(id) => { setSection(id); onSectionChange?.(id); setMenuOpen(false); }}
           onLegal={(doc) => { setLegalDoc(doc); setMenuOpen(false); }}
           onClose={() => setMenuOpen(false)}
+          editorOn={editorOn}
+          onEditorReveal={() => { setSection("abonnement"); onSectionChange?.("abonnement"); setMenuOpen(false); }}
         />
       )}
       {legalDoc && <LegalScreen doc={legalDoc} onSwitch={() => setLegalDoc(legalDoc === "terms" ? "privacy" : "terms")} onClose={() => setLegalDoc(null)} />}
@@ -17063,7 +17180,8 @@ function AdminScreen({
       {section === "etablissement" && <EstablishmentSection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
       {section === "securite" && <SecuritySection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
       {section === "journal" && <ActivityLogSection shop={shop} auditLog={auditLog} pushToast={pushToast} />}
-      {section === "abonnement" && <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={onVerifyOwner} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} ownerUnread={ownerUnread} onMessagesView={onOwnerMessagesView} />}
+      {section === "abonnement" && <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={(c) => { setEditorDevice(true); setEditorOn(true); onVerifyOwner(c); }} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} ownerUnread={ownerUnread} onMessagesView={onOwnerMessagesView}
+        onEditorLogout={() => { setEditorDevice(false); setEditorOn(false); onLockOwner?.(); try { localStorage.removeItem("owner_support_token"); } catch { /* ignore */ } setSection("stats"); onSectionChange?.("stats"); pushToast("Accès éditeur retiré de ce téléphone", "ok"); }} />}
       {section === "assistance" && <ShopSupportPage shop={shop} />}
       {section === "licence" && <LicenseSection license={license} licenseStatus={licenseStatus} onActivate={onActivateLicense} pushToast={pushToast} shopName={shop.name} />}
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
@@ -17135,13 +17253,14 @@ function ShopSupportPage({ shop }) {
 // est identique à celle des autres entreprises).
 const HOTEL_SUPPORT_FAQ = [
   { id: "delete", danger: true, group: "Compte et sécurité", q: "Comment supprimer définitivement mon compte ?" },
-  { group: "Chambres et séjours", q: "Comment ajouter ou renuméroter mes chambres ?", a: "Réglages › Chambres & numéros. Ajoutez une chambre ou une série (ex. 113 à 116) et choisissez Ventilée ou Climatisée. Touchez un numéro pour le modifier ou le mettre hors service." },
-  { group: "Chambres et séjours", q: "Jusqu'à quand dure une nuitée ?", a: "Jusqu'au lendemain à l'heure de départ (12:30 par défaut), quelle que soit l'heure d'arrivée. Elle se règle dans Réglages › Tarifs & forfaits › Nuitée." },
+  { group: "Chambres et séjours", q: "Comment ajouter ou renuméroter mes chambres ?", a: "Menu › Réglages de l'entreprise › Chambres & numéros. Ajoutez une chambre ou une série (ex. 113 à 116) et choisissez Ventilée ou Climatisée. Touchez un numéro pour le modifier ou le mettre hors service." },
+  { group: "Chambres et séjours", q: "Jusqu'à quand dure une nuitée ?", a: "Jusqu'au lendemain à l'heure de départ (12:30 par défaut), quelle que soit l'heure d'arrivée. Elle se règle dans Menu › Réglages de l'entreprise › Tarifs & forfaits › Nuitée." },
   { group: "Chambres et séjours", q: "Comment fonctionne une réservation ?", a: "Chambres › Réservations › Réserver : choisissez la date, l'heure, le forfait et la chambre. Elle est bloquée sur ce créneau et le gérant reçoit un rappel vocal et écrit 5 h et 2 h avant." },
-  { group: "Tarifs, caisse et équipe", q: "Comment créer un forfait 2 heures à prix spécial ?", a: "Réglages › Tarifs & forfaits › Nouveau forfait. Choisissez la durée et le prix : la remise par rapport au prix de l'heure est calculée automatiquement." },
-  { group: "Tarifs, caisse et équipe", q: "Comment donner un accès à un réceptionniste ?", a: "Réglages › Personnel & accès › Créer l'accès. Choisissez Réception ou Technicien de surface et donnez le code PIN en main propre. Vous pouvez bloquer ou débloquer un accès à tout moment." },
-  { group: "Tarifs, caisse et équipe", q: "Les dépenses sont-elles déduites de la recette ?", a: "Oui. Chaque dépense enregistrée (Réglages › Dépenses) est retirée de la recette du jour : la Caisse affiche le net en caisse." },
-  { group: "Utilisation", q: "L'application marche-t-elle sans internet ?", a: "Oui. Tout fonctionne hors connexion et les données sont envoyées automatiquement dès que le réseau revient. Une synchronisation complète a lieu toutes les 10 minutes, et le bouton « Synchroniser maintenant » est dans Réglages › Synchronisation." },
+  { group: "Tarifs, caisse et équipe", q: "Comment créer un forfait 2 heures à prix spécial ?", a: "Menu › Réglages de l'entreprise › Tarifs & forfaits › Nouveau forfait. Choisissez la durée et le prix : la remise par rapport au prix de l'heure est calculée automatiquement." },
+  { group: "Tarifs, caisse et équipe", q: "Comment donner un accès à un réceptionniste ?", a: "Menu › Personnel & accès › Créer l'accès. Choisissez Réception ou Technicien de surface et donnez le code PIN en main propre. Vous pouvez bloquer ou débloquer un accès à tout moment." },
+  { group: "Tarifs, caisse et équipe", q: "Les dépenses sont-elles déduites de la recette ?", a: "Oui. Chaque dépense enregistrée (Menu › Dépenses) est retirée de la recette du jour : la Caisse affiche le net en caisse." },
+  { group: "Utilisation", q: "L'application marche-t-elle sans internet ?", a: "Oui. Tout fonctionne hors connexion et les données sont envoyées automatiquement dès que le réseau revient. Une synchronisation complète a lieu toutes les 10 minutes, et le bouton « Synchroniser maintenant » est dans Menu › Réglages de l'entreprise › Synchronisation." },
+  { group: "Utilisation", q: "Comment sauvegarder ou restaurer les données de l'hôtel ?", a: "Menu › Réglages de l'entreprise › Sauvegarde & restauration. « Télécharger la sauvegarde » crée un fichier à garder (Drive, WhatsApp, e-mail). Pour restaurer, choisissez ce fichier et saisissez le code propriétaire : les éléments manquants sont remis en place, rien n'est effacé." },
 ];
 
 function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen, variant, prefill, onBuyLicense }) {
@@ -18731,6 +18850,11 @@ function AppInner() {
   const [license, setLicense] = useState(undefined); // undefined = chargement, null = jamais activée
   const [trialUsed, setTrialUsed] = useState(false);
   const [ownerAccess, setOwnerAccess] = useState(null); // null = non vérifié, string (email) = vérifié
+  // Accès éditeur dans les hôtels (7 appuis sur l'icône des réglages).
+  const [hotelEditorOpen, setHotelEditorOpen] = useState(false);
+  const [hotelEditorOn, setHotelEditorOn] = useState(isEditorDevice);
+  const [hotelLegal, setHotelLegal] = useState(null);
+  const [hotelSupportAsked, setHotelSupportAsked] = useState(false);
   const [homeScreenActive, setHomeScreenActive] = useState(false);
 
   useEffect(() => {
@@ -18805,6 +18929,7 @@ function AppInner() {
   const handleLockOwner = (reason) => {
     if (!ownerAccessRef.current) return;
     setOwnerLockReason(typeof reason === "string" ? reason : "");
+    api.setOwnerPassword("");
     setOwnerAccess(null);
   };
 
@@ -21132,10 +21257,28 @@ function AppInner() {
                     onOrderLicense={(text, who) => setSupportPrefill({ text, n: Date.now(), ...(who || {}) })}
                     routeSignal={hotelRouteSignal}
                     staffApi={{ vendors: vendors || [], saveVendors, buildVendor: buildHotelVendor, isPinTaken: hotelPinTaken }}
+                    editorOn={hotelEditorOn} onEditorOpen={() => setHotelEditorOpen(true)}
+                    verifyOwnerPin={verifyAdminPin} faq={HOTEL_SUPPORT_FAQ}
+                    onOpenSupport={() => { setHotelSupportAsked(true); setSupportPrefill({ text: "", n: Date.now() }); }}
+                    onOpenLegal={(d) => setHotelLegal(d || "terms")}
                     renderInvites={shop.backendLinked ? () => <VendorsSection shop={shop} sales={[]} vendors={vendors || []} saveVendors={saveVendors} pushToast={pushToast} adminPin={shop.adminPin} adminPinHash={shop.adminPinHash} backendLinked={shop.backendLinked} pushNotification={pushNotification} /> : null}
                   />
                 )}
-                {role === "admin" && licenseStatus !== "expired" && !ownerAccess && (
+                {hotelEditorOpen && (
+                  <div className="fixed inset-0 z-[55] overflow-y-auto" style={{ background: "var(--paper)" }}>
+                    <div className="fixed top-0 inset-x-0 z-10 pointer-events-none" style={{ height: "max(40px, env(safe-area-inset-top))", background: "linear-gradient(90deg, #0B1628 0%, #14294A 100%)" }} />
+                    <div className="mx-auto w-full max-w-[600px] px-4" style={{ paddingTop: "calc(max(40px, env(safe-area-inset-top)) + 10px)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
+                      <div className="flex items-center gap-3 mb-3">
+                        <button onClick={() => { handleLockOwner(); setHotelEditorOpen(false); }} className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Retour à l'hôtel"><ArrowLeft size={19} /></button>
+                        <div className="min-w-0"><p className="text-[10.5px] font-bold tracking-[0.16em]" style={{ color: "#B07A12" }}>ÉDITEUR GESTIONE</p><p className="font-display font-bold text-[20px] leading-tight">Espace propriétaire</p></div>
+                      </div>
+                      <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={(c) => { setEditorDevice(true); setHotelEditorOn(true); handleVerifyOwner(c); }} onLockOwner={handleLockOwner} lockReason={ownerLockReason} pushToast={pushToast} ownerUnread={ownerUnread} onMessagesView={(on) => { ownerOnMessagesRef.current = on; if (on) ownerSeenNow(); }}
+                        onEditorLogout={() => { setEditorDevice(false); setHotelEditorOn(false); handleLockOwner(); try { localStorage.removeItem("owner_support_token"); } catch { /* ignore */ } setHotelEditorOpen(false); pushToast("Accès éditeur retiré de ce téléphone", "ok"); }} />
+                    </div>
+                  </div>
+                )}
+                {hotelLegal && <div className="fixed inset-0 z-[70]"><LegalScreen doc={hotelLegal} onSwitch={() => setHotelLegal(hotelLegal === "terms" ? "privacy" : "terms")} onClose={() => setHotelLegal(null)} /></div>}
+                {(role === "admin" || hotelSupportAsked) && licenseStatus !== "expired" && !ownerAccess && !hotelEditorOpen && (
                   <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} variant="hotel" prefill={supportPrefill} onBuyLicense={() => setHotelRouteSignal({ name: "order", n: Date.now() })} />
                 )}
                 {role && locked && (
