@@ -58,7 +58,7 @@ export function ExpensesScreen({ ctx, onBack }) {
 
 // ---------- Clôture de caisse ----------
 const COINS = [10000, 5000, 2000, 1000, 500, 250, 200, 100, 50, 25];
-export function CloseScreen({ ctx, onBack }) {
+export function CloseScreen({ ctx, onBack, openReport }) {
   const { sales, expenses, stock, moves, settings, fmt, actions, now, closes } = ctx;
   const [d0] = dayBounds(now);
   const f = periodFigures({ sales, expenses, stock, moves, from: d0, to: d0 + DAY });
@@ -80,7 +80,7 @@ export function CloseScreen({ ctx, onBack }) {
           <div className="flex justify-between mt-1.5 pt-2" style={{ borderTop: "1px dashed rgba(255,255,255,0.25)", fontSize: 15 }}><b>Espèces attendues</b><b style={{ fontFamily: FONT_D, color: "#67E8F9" }}>{fmt(expected)}</b></div>
         </div>
       </Hero>
-      {done && <p className="cy-a mt-3 rounded-[14px] px-3 py-2.5 text-[12.5px] font-bold" style={{ background: C.greenSoft, color: "#166534" }}>Journée déjà clôturée à {hmOf(done.at)} par {done.by} (écart {done.gap >= 0 ? "+" : "−"}{fmt(Math.abs(done.gap))}). Vous pouvez refaire un comptage.</p>}
+      {done && <p className="cy-a mt-3 rounded-[14px] px-3 py-2.5 text-[12.5px] font-bold" style={{ background: C.greenSoft, color: "#166534" }}>Journée déjà clôturée à {hmOf(done.at)} par {done.by} (écart {done.gap >= 0 ? "+" : "−"}{fmt(Math.abs(done.gap))}). Vous pouvez refaire un comptage.{openReport && <button type="button" onClick={() => openReport(done.id, false)} className="gb-focus cy-tap mt-2 w-full h-[42px] rounded-[12px] flex items-center justify-center gap-2 text-[13px] font-extrabold text-white" style={{ background: C.navy }}><Icon name="printer" size={16} />Voir et imprimer le rapport</button>}</p>}
       <div className="mt-3"><Field label="FOND DE CAISSE À L'OUVERTURE"><input value={float} onChange={(e) => setFloat(e.target.value.replace(/\D/g, ""))} onBlur={() => actions.setSettings({ float: num(float) })} inputMode="numeric" style={inputStyle} /></Field></div>
       <Label>COMPTAGE DES ESPÈCES</Label>
       <div className="grid grid-cols-2 gap-1.5">
@@ -105,7 +105,7 @@ export function CloseScreen({ ctx, onBack }) {
       {gap !== 0 && <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Commentaire sur l'écart (obligatoire)" aria-label="Commentaire sur l'écart" className="mt-2" style={inputStyle} />}
       <BottomBar>
         <p className="text-[11.5px] mb-2.5" style={{ color: C.muted }}>La clôture est datée, signée et annoncée au propriétaire.</p>
-        <Btn kind="navy" full big icon="lock" disabled={!counted || (gap !== 0 && comment.trim().length < 3)} onClick={() => { actions.closeDay({ expected, counted, gap, momo: f.momo, momoChecked: momoOk, comment: comment.trim(), float: num(float), ca: f.ca, encaisse: f.encaisse }); onBack(); }}>Clôturer la journée</Btn>
+        <Btn kind="navy" full big icon="lock" disabled={!counted || (gap !== 0 && comment.trim().length < 3)} onClick={() => { const id = actions.closeDay({ expected, counted, gap, momo: f.momo, momoChecked: momoOk, comment: comment.trim(), float: num(float), ca: f.ca, encaisse: f.encaisse, cash: f.cash, expCash: f.expCash, purchasesCash: f.purchasesCash, refundsCash: f.refundsCash, tickets: f.tickets }); if (id && openReport) openReport(id, true); else onBack(); }}>Clôturer la journée</Btn>
       </BottomBar>
     </div>
   );
@@ -347,6 +347,7 @@ export function AnnounceScreen({ ctx, onBack }) {
       <p className="mt-2 text-[11.5px] leading-relaxed px-1" style={{ color: C.muted }}>Chaque annonce commence par le nom de l'entreprise, puis le prénom de la personne (sans son rôle) et le montant. Le stock bas et les réapprovisionnements sont toujours annoncés sur tous les téléphones. Sur le téléphone d'un employé, la voix n'annonce jamais l'argent en caisse.</p>
       <Card className="mt-3 px-3">
         <div className="flex items-center gap-3 min-h-[60px]"><span className="flex-1"><span className="block text-[13.5px] font-extrabold">Petit signal sonore avant la voix</span><span className="block text-[11.5px]" style={{ color: C.muted }}>Pour ne pas surprendre les clients</span></span><Toggle on={settings.chime !== false} onChange={(v) => actions.setSettings({ chime: v })} label="Signal sonore" /></div>
+        <div className="flex items-center gap-3 min-h-[60px]" style={{ borderTop: `1px solid ${C.line2}` }}><span className="flex-1"><span className="block text-[13.5px] font-extrabold">Son de sélection</span><span className="block text-[11.5px]" style={{ color: C.muted }}>Un petit son quand on choisit une prestation ou un article</span></span><Toggle on={settings.tapSound !== false} onChange={(v) => actions.setSettings({ tapSound: v })} label="Son de sélection" /></div>
         <div className="flex items-center gap-3 min-h-[60px]" style={{ borderTop: `1px solid ${C.line2}` }}><span className="flex-1"><span className="block text-[13.5px] font-extrabold">Heures calmes</span><span className="block text-[11.5px]" style={{ color: C.muted }}>De 22:00 à 07:00 : message écrit seulement</span></span><Toggle on={settings.quiet !== false} onChange={(v) => actions.setSettings({ quiet: v })} label="Heures calmes" /></div>
       </Card>
     </div>

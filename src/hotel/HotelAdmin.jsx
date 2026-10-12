@@ -2,6 +2,7 @@
 // réglages, tarifs et forfaits, numéros de chambre, synchronisation,
 // dépenses, personnel, licence, commande de licence, nouvelle réservation.
 
+import { MomoPicker, DEFAULT_MOMO, momoOf } from "../MomoPicker.jsx";
 import { useMemo, useRef, useState } from "react";
 import { PaySheet } from "./HotelReceipts.jsx";
 import { H, Icon, Btn, Card, Label, GroupTitle, Segmented, Chip, Toggle, Stepper, TopBar, RoomBadge, Row, Field, inputStyle, Sheet, Empty } from "./HotelUI.jsx";
@@ -60,7 +61,7 @@ export function CashScreen({ ctx, openStay, openExpenses }) {
           <Row icon="receipt" tint={H.goldSoft} ink={H.goldDark} title="Reçus" sub="Tous les reçus · voir, réimprimer" last onClick={() => setRoute({ name: "receipts" })} />
         </Card>
       )}
-      {payFor && <PaySheet title={`Encaisser · chambre ${payFor.roomNum}`} amount={stayDue(payFor)} fmt={fmt} defaultPrint={settings.receipt.ask !== false} onClose={() => setPayFor(null)} onConfirm={({ mode, given, print }) => { const rc = actions.collect(payFor, mode, { given }); setPayFor(null); if (rc && print) openReceipt(rc); }} />}
+      {payFor && <PaySheet title={`Encaisser · chambre ${payFor.roomNum}`} amount={stayDue(payFor)} fmt={fmt} defaultPrint={settings.receipt.ask !== false} onClose={() => setPayFor(null)} onConfirm={({ mode, op, given, print }) => { const rc = actions.collect(payFor, mode, { given, op }); setPayFor(null); if (rc && print) openReceipt(rc); }} />}
 
       <Label>Dernières opérations</Label>
       {cash.operations.length === 0 ? <p className="text-[12.5px] px-1" style={{ color: H.muted }}>Aucun encaissement aujourd'hui.</p> : (
@@ -69,7 +70,7 @@ export function CashScreen({ ctx, openStay, openExpenses }) {
             <div key={o.id} className="flex items-center gap-2.5 py-2.5 text-[13px]" style={{ borderBottom: i === a.length - 1 ? "none" : `1px solid ${H.line2}` }}>
               <span className="w-11 font-bold shrink-0" style={{ color: H.muted }}>{hmOf(o.at)}</span>
               <span className="flex-1 min-w-0 truncate"><b>Ch. {o.roomNum}</b> · {o.label}</span>
-              <span className="text-[11px] font-extrabold rounded-[6px] px-1.5 py-0.5 shrink-0" style={o.mode === "momo" ? { background: "#E2F5F2", color: "#0B6B61" } : { background: "#F1F3F6", color: "#475569" }}>{o.mode === "momo" ? "MoMo" : "Espèces"}</span>
+              <span className="text-[11px] font-extrabold rounded-[6px] px-1.5 py-0.5 shrink-0" style={o.mode === "momo" ? { background: "#E2F5F2", color: "#0B6B61" } : { background: "#F1F3F6", color: "#475569" }}>{o.mode === "momo" ? (momoOf(o.op)?.short || "MoMo") : "Espèces"}</span>
               <b className="w-[78px] text-right shrink-0" style={{ color: o.amount < 0 ? H.red : undefined }}>{fmt(o.amount)}</b>
             </div>
           ))}
@@ -697,6 +698,7 @@ export function NewResaScreen({ ctx, onBack, preset, onSaved }) {
   const [rem, setRem] = useState({ r5: true, r2: true });
   const [deposit, setDeposit] = useState(0);
   const [depMode, setDepMode] = useState("cash");
+  const [depOp, setDepOp] = useState(DEFAULT_MOMO);
   const days = Array.from({ length: 14 }, (_, i) => d0 + i * DAY);
   const start = days[day] + mins * 60000;
   const list = tariffs.filter((t) => t.type === type && t.active !== false).sort((a, b) => (Number(a.hours) || 99) - (Number(b.hours) || 99));
@@ -715,7 +717,7 @@ export function NewResaScreen({ ctx, onBack, preset, onSaved }) {
     const at = new Date().toISOString();
     const resa = {
       id: rid(), roomId: room.id, roomNum: room.num, type, tariffId: tariff.id, tariffName: tariff.name, hours: Number(tariff.hours) || 0, price,
-      start, end, client: client.trim(), phone: phone.trim(), deposit: Math.min(deposit, price), depositMode: depMode, depositAt: deposit > 0 ? Date.now() : null,
+      start, end, client: client.trim(), phone: phone.trim(), deposit: Math.min(deposit, price), depositMode: depMode, depositOp: depMode === "momo" ? depOp : "", depositAt: deposit > 0 ? Date.now() : null,
       reminders: { r5: rem.r5, r2: rem.r2 }, notified: {}, status: "confirmed", by, createdAt: at, updatedAt: at,
     };
     if (roomConflicts(resa.roomId, start, end, { stays, reservations, now }).length) { pushToast("Cette chambre n'est pas libre sur ce créneau", "error"); return; }
@@ -777,6 +779,7 @@ export function NewResaScreen({ ctx, onBack, preset, onSaved }) {
         <Chip on={deposit === 0} onClick={() => setDeposit(0)} className="!px-1 !text-[12px]">Aucun</Chip>
       </div>
       {deposit > 0 && <div className="mt-2 grid grid-cols-2 gap-1.5">{[["cash", "Espèces"], ["momo", "Mobile Money"]].map(([id, l]) => <Chip key={id} on={depMode === id} onClick={() => setDepMode(id)}>{l}</Chip>)}</div>}
+      {deposit > 0 && depMode === "momo" && <div className="mt-2.5"><MomoPicker value={depOp} onChange={setDepOp} /></div>}
       <Btn kind="indigo" icon="check" full className="mt-4 !min-h-[56px] !text-[16px]" disabled={!room || !tariff || !client.trim() || String(phone).replace(/\D/g, "").length < 8} onClick={submit}>Enregistrer la réservation</Btn>
     </div>
   );

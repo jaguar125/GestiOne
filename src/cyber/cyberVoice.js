@@ -22,6 +22,9 @@ function chime() {
   return new Promise((r) => setTimeout(r, 520));
 }
 
+// Son de sélection : commun à toute l'application.
+export { uiSound } from "../tapSound.js";
+
 async function sayOnce(text, rate) {
   const started = Date.now();
   try {

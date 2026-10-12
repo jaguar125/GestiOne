@@ -19,7 +19,10 @@ import {
   saleEvent, sayAmount, isLive,
 } from "./cyberLogic.js";
 import { announceVoice } from "./cyberVoice.js";
+import { DragBubble } from "../DragBubble.jsx";
+import { momoLabel } from "../MomoPicker.jsx";
 import { SellScreen, PayScreen, ReceiptScreen } from "./CyberSell.jsx";
+import { PaymentReceiptScreen, CloseReceiptScreen } from "./CyberDocs.jsx";
 import { HistoryScreen, CreditsScreen, ClientScreen, clientDebts } from "./CyberBook.jsx";
 import { StockScreen, PurchaseScreen, InventoryScreen, MovesScreen } from "./CyberStock.jsx";
 import { ExpensesScreen, CloseScreen, ReportsScreen, ServicesScreen, StaffScreen, AnnounceScreen, SyncScreen, ReceiptSettingsScreen, BackupScreen, SupportLocked } from "./CyberAdmin.jsx";
@@ -117,16 +120,17 @@ export default function CyberApp(props) {
     setCart([]); setClient(null);
     return sale;
   };
-  const payCredit = (cl, amount, mode) => {
-    let left = amount; const at = Date.now();
+  const payCredit = (cl, amount, mode, op = "") => {
+    let left = amount; const at = Date.now(); const grp = rid(); const rno = `P${nextTicketNo(shop?.id)}`;
     const own = sales.filter((s) => s.client?.id === cl.id && saleDue(s) > 0).sort((a, b) => a.at - b.at);
     const patch = new Map();
-    own.forEach((s) => { if (left <= 0) return; const take = Math.min(left, saleDue(s)); left -= take; patch.set(s.id, { ...s, payments: [...(s.payments || []), { id: rid(), at, kind: "credit", by, mode, amount: take }], updatedAt: nowIso() }); });
-    if (!patch.size) return;
+    own.forEach((s) => { if (left <= 0) return; const take = Math.min(left, saleDue(s)); left -= take; patch.set(s.id, { ...s, payments: [...(s.payments || []), { id: rid(), at, kind: "credit", by, mode, op: mode === "momo" ? op : "", amount: take, grp, rno }], updatedAt: nowIso() }); });
+    if (!patch.size) return null;
     save.sales(sales.map((s) => patch.get(s.id) || s));
     const paid = amount - left;
-    addEvents([{ type: "paiement", title: `Paiement de crédit reçu par ${by} · ${fmt(paid)}`, body: `${cl.name} a payé ${fmt(paid)} (${mode === "momo" ? "Mobile Money" : "espèces"}).`, voice: `${shop?.name || "Cyber café"}. ${by} vient d'encaisser un paiement de crédit de ${sayAmount(paid, shop?.currency)}, de ${cl.name}.`, amount: paid }]);
+    addEvents([{ type: "paiement", title: `Paiement de crédit reçu par ${by} · ${fmt(paid)}`, body: `${cl.name} a payé ${fmt(paid)} (${mode === "momo" ? momoLabel(op) : "espèces"}).`, voice: `${shop?.name || "Cyber café"}. ${by} vient d'encaisser un paiement de crédit de ${sayAmount(paid, shop?.currency)}, de ${cl.name}.`, amount: paid }]);
     pushToast(`${fmt(paid)} encaissé · ${cl.name}`, "ok");
+    return grp;
   };
   const cancelSale = (sale, { reason, refund }) => {
     if (!can.cancel) { pushToast("Réservé à la gérante et au propriétaire", "error"); return; }
@@ -176,9 +180,11 @@ export default function CyberApp(props) {
   };
   const closeDay = (d) => {
     const at = Date.now();
-    save.closes([{ id: rid(), day: localDayKey(at), at, by, ...d }, ...closes]);
+    const id = rid();
+    save.closes([{ id, day: localDayKey(at), at, by, ...d }, ...closes]);
     addEvents([{ type: "cloture", title: `Caisse clôturée par ${by}`, body: `Compté ${fmt(d.counted)} · attendu ${fmt(d.expected)} · ${d.gap === 0 ? "caisse juste" : `${d.gap < 0 ? "manquant" : "excédent"} de ${fmt(Math.abs(d.gap))}`}.`, voice: `${shop?.name || "Cyber café"}. ${by} vient de clôturer la caisse. ${d.gap === 0 ? "La caisse est juste." : `${d.gap < 0 ? "Manquant" : "Excédent"} de ${sayAmount(Math.abs(d.gap), shop?.currency)}.`}`, amount: d.counted }]);
     pushToast("Journée clôturée", "ok");
+    return id;
   };
   const saveService = (svc) => {
     const ex = services.some((s) => s.id === svc.id);
@@ -211,12 +217,14 @@ export default function CyberApp(props) {
     else if (n === "pay") screen = <PayScreen ctx={ctx} cart={cart} client={client} setClient={setClient} onBack={back} onDone={(s, print) => setRoute({ name: "receipt", saleId: s.id, fresh: true, print, back: null })} />;
     else if (n === "receipt") { const s = sales.find((x) => x.id === route.saleId); screen = s ? <ReceiptScreen key={s.id} ctx={ctx} sale={s} fresh={route.fresh} autoPrint={route.print} onBack={back} onNew={() => setRoute({ name: "sell", back: null })} /> : null; }
     else if (n === "history") screen = <HistoryScreen ctx={ctx} onBack={back} openReceipt={openReceipt} />;
-    else if (n === "client") screen = <ClientScreen ctx={ctx} clientId={route.clientId} onBack={back} openReceipt={openReceipt} />;
+    else if (n === "client") screen = <ClientScreen ctx={ctx} clientId={route.clientId} onBack={back} openReceipt={openReceipt} openPayment={(key, fresh) => go("payreceipt", { clientId: route.clientId, key, fresh })} />;
+    else if (n === "payreceipt") screen = <PaymentReceiptScreen key={route.key} ctx={ctx} clientId={route.clientId} payKey={route.key} fresh={route.fresh} onBack={back} />;
+    else if (n === "closereceipt") screen = <CloseReceiptScreen key={route.closeId} ctx={ctx} closeId={route.closeId} fresh={route.fresh} onBack={back} />;
     else if (n === "achat" && can.stock) screen = <PurchaseScreen ctx={ctx} onBack={back} />;
     else if (n === "inventaire" && can.stock) screen = <InventoryScreen ctx={ctx} onBack={back} />;
     else if (n === "mouvements" && can.stock) screen = <MovesScreen ctx={ctx} onBack={back} />;
     else if (n === "depenses" && can.expense) screen = <ExpensesScreen ctx={ctx} onBack={back} />;
-    else if (n === "cloture" && can.close) screen = <CloseScreen ctx={ctx} onBack={back} />;
+    else if (n === "cloture" && can.close) screen = <CloseScreen ctx={ctx} onBack={back} openReport={(closeId, fresh) => (fresh ? setRoute({ name: "closereceipt", closeId, fresh, back: route.back }) : go("closereceipt", { closeId }))} />;
     else if (n === "rapports" && can.reports) screen = <ReportsScreen ctx={ctx} onBack={back} />;
     else if (n === "tarifs" && can.price) screen = <ServicesScreen ctx={ctx} onBack={back} />;
     else if (n === "personnel" && can.staff) screen = <StaffScreen ctx={ctx} onBack={back} staffApi={{ ...staffApi }} renderInvites={renderInvites} />;
@@ -230,7 +238,7 @@ export default function CyberApp(props) {
     else if (n === "support") screen = <SupportLocked onBack={back} onNotify={() => { notifyOwner(); back(); }} />;
     else if (n === "activite") screen = <ActivityScreen ctx={ctx} levelFor={levelFor} onBack={back} />;
   }
-  const isFullBleed = route?.name === "receipt";
+  const isFullBleed = ["receipt", "payreceipt", "closereceipt"].includes(route?.name);
   const showNav = !route;
   return (
     <div className="cy-root px-4" style={{ color: C.ink, background: isFullBleed ? C.navy : C.ground, minHeight: "100vh" }}>
@@ -259,6 +267,7 @@ function EventBanner({ ev, shop, onClose }) {
   const [ic, bg] = EV_ICON[ev.type] || EV_ICON.prestation;
   return (
     <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] px-2.5 z-[80]" style={{ top: `calc(${STATUS_H} + 6px)` }}>
+      <DragBubble id="cyber-annonce">
       <button type="button" onClick={onClose} className="cy-drop w-full text-left rounded-[22px] p-3" style={{ background: "rgba(255,255,255,0.98)", border: `1px solid ${C.line}`, boxShadow: "0 22px 44px -16px rgba(10,23,48,0.55)" }}>
         <span className="flex items-center gap-2.5">
           <span className="w-10 h-10 rounded-[13px] flex items-center justify-center text-white shrink-0" style={{ background: bg }}><Icon name={ic} size={19} stroke={2.4} /></span>
@@ -267,6 +276,7 @@ function EventBanner({ ev, shop, onClose }) {
         {ev.body && <span className="block mt-1.5 text-[13px] leading-snug" style={{ color: C.ink2 }}>{ev.body}</span>}
         {ev.voiceOn && ev.voice && <span className="mt-2 flex items-center gap-2.5 rounded-[14px] px-2.5 py-2" style={{ background: C.navy }}><Waves /><span className="flex-1 text-[11.5px] italic leading-snug" style={{ color: "#E2E8F0" }}>« {ev.voice} »</span></span>}
       </button>
+      </DragBubble>
     </div>
   );
 }

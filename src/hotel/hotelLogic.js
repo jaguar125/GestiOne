@@ -210,7 +210,7 @@ export function hotelCashForDay({ stays = [], expenses = [], reservations = [], 
       const amount = Number(p.amount) || 0;
       total += amount;
       if (p.mode === "momo") momo += amount; else cash += amount;
-      operations.push({ id: `${s.id}-${p.id || at}`, at, amount, mode: p.mode, roomNum: s.roomNum, label: p.label || s.tariffName, by: p.by || s.by || "" });
+      operations.push({ id: `${s.id}-${p.id || at}`, at, amount, mode: p.mode, op: p.op || "", roomNum: s.roomNum, label: p.label || s.tariffName, by: p.by || s.by || "" });
     });
   });
   // Acomptes de réservation déjà reçus (le client n'est pas encore arrivé :
@@ -222,7 +222,7 @@ export function hotelCashForDay({ stays = [], expenses = [], reservations = [], 
     if (!(at >= from && at < to)) return;
     total += dep;
     if (r.depositMode === "momo") momo += dep; else cash += dep;
-    operations.push({ id: `dep-${r.id}`, at, amount: dep, mode: r.depositMode, roomNum: r.roomNum, label: "Acompte réservation", by: r.by || "" });
+    operations.push({ id: `dep-${r.id}`, at, amount: dep, mode: r.depositMode, op: r.depositOp || "", roomNum: r.roomNum, label: "Acompte réservation", by: r.by || "" });
   });
   // Acomptes remboursés (réservation annulée par le propriétaire).
   (reservations || []).forEach((r) => {
@@ -340,7 +340,7 @@ export function stayLines(stay) {
 }
 
 // Reçu d'un séjour (photo figée au moment de l'encaissement).
-export function makeStayReceipt(stay, { kind = "start", amount = 0, given = null, mode = "cash", by = "", at = Date.now() } = {}) {
+export function makeStayReceipt(stay, { kind = "start", amount = 0, given = null, mode = "cash", op = "", by = "", at = Date.now() } = {}) {
   const total = stayTotal(stay);
   const paidAfter = stayPaid(stay);
   const paidBefore = Math.max(0, paidAfter - amount);
@@ -349,7 +349,7 @@ export function makeStayReceipt(stay, { kind = "start", amount = 0, given = null
     id: rid(), no: nextReceiptNo(at), at, by, kind, src: "stay", srcId: stay.id,
     roomNum: stay.roomNum, type: stay.type, tariffName: stay.tariffName, hours: Number(stay.hours) || 0,
     start: toMs(stay.start), end: toMs(stay.end), client: stay.client || "", phone: stay.phone || "",
-    lines: stayLines(stay), total, paidBefore, amount, given: g, change: Math.max(0, g - amount), mode,
+    lines: stayLines(stay), total, paidBefore, amount, given: g, change: Math.max(0, g - amount), mode, op: mode === "momo" ? op : "",
     rest: Math.max(0, total - paidAfter), status: "ok",
   };
 }
@@ -364,7 +364,7 @@ export function makeResaReceipt(resa, { by = "", at = Date.now(), given = null }
     roomNum: resa.roomNum, type: resa.type, tariffName: resa.tariffName, hours: Number(resa.hours) || 0,
     start: toMs(resa.start), end: toMs(resa.end), client: resa.client || "", phone: resa.phone || "",
     lines: [{ label: `${resa.tariffName || "Séjour"} (${resa.type === "clim" ? "clim" : "ventilée"})`, amount: price }],
-    total: price, paidBefore: 0, amount: dep, given: g, change: Math.max(0, g - dep), mode: dep > 0 ? (resa.depositMode || "cash") : "later",
+    total: price, paidBefore: 0, amount: dep, given: g, change: Math.max(0, g - dep), mode: dep > 0 ? (resa.depositMode || "cash") : "later", op: dep > 0 && resa.depositMode === "momo" ? resa.depositOp || "Wave" : "",
     rest: Math.max(0, price - dep), status: "ok",
   };
 }

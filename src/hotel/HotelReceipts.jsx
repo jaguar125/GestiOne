@@ -4,6 +4,7 @@
 // reçus (propriétaire), réglages du logo et de l'en-tête, encaissement avec
 // somme reçue et monnaie rendue, annulations réservées au propriétaire.
 
+import { MomoPicker, DEFAULT_MOMO } from "../MomoPicker.jsx";
 import { useEffect, useMemo, useState } from "react";
 import { H, Icon, Btn, Card, Label, GroupTitle, Chip, Toggle, TopBar, RoomBadge, Field, inputStyle, Sheet, Empty } from "./HotelUI.jsx";
 import { allReceipts, dayBounds, hmOf, toMs, DAY, stayPaid } from "./hotelLogic.js";
@@ -26,19 +27,19 @@ export function ReceiptTicket({ r, info, fmt }) {
           {(info.address || info.phone) && <div className="text-[10.5px] leading-[1.5]" style={{ color: "#4B5563" }}>{info.address}{info.address && info.phone ? <br /> : null}{info.phone ? `Tél. ${info.phone}` : ""}</div>}
           <div className="mt-2 px-2.5 py-[3px] text-[11px] font-extrabold tracking-[0.12em]" style={{ border: "1.5px solid #111827" }}>{m.title}</div>
         </div>
-        <div className="my-3" style={{ borderTop: "1.5px dashed #9CA3AF" }} />
+        <div className="my-3" style={{ borderTop: "1px solid #E3E8F0" }} />
         {m.rows.map(row)}
-        <div className="my-2" style={{ borderTop: "1.5px dashed #9CA3AF" }} />
+        <div className="my-2" style={{ borderTop: "1px solid #E3E8F0" }} />
         <div className="text-center text-[22px] font-extrabold">{m.room}</div>
         <div className="text-center text-[11px] font-bold">{m.roomType}</div>
         <div className="mt-2">{m.stay.map(row)}</div>
-        <div className="my-2" style={{ borderTop: "1.5px dashed #9CA3AF" }} />
+        <div className="my-2" style={{ borderTop: "1px solid #E3E8F0" }} />
         {m.lines.map(([a, b], i) => <div key={i} className="flex justify-between gap-2"><span>{a}</span><span>{b}</span></div>)}
         <div className="my-1.5" style={{ borderTop: "1.5px solid #111827" }} />
         <div className="flex justify-between text-[15px] font-extrabold"><span>{m.totalLbl}</span><span>{m.totalVal}</span></div>
         <div className="my-1.5" style={{ borderTop: "1.5px solid #111827" }} />
         {m.pay.map(row)}
-        <div className="mt-2.5 mb-2" style={{ borderTop: "1.5px dashed #9CA3AF" }} />
+        <div className="mt-2.5 mb-2" style={{ borderTop: "1px solid #E3E8F0" }} />
         <div className="text-center">
           <div className="text-[13px] font-extrabold">{m.thanks[0]}</div>
           {m.thanks.slice(1).map((t, i) => <div key={i} className="mt-0.5 text-[11px] leading-[1.5]" style={{ color: "#374151" }}>{t}</div>)}
@@ -119,6 +120,7 @@ export function CashGiven({ amount, given, setGiven, fmt }) {
 // Encaissement d'un reste à payer (fiche du séjour, En cours, Caisse).
 export function PaySheet({ title, amount, fmt, defaultPrint = true, onClose, onConfirm }) {
   const [mode, setMode] = useState("cash");
+  const [op, setOp] = useState(DEFAULT_MOMO);
   const [given, setGiven] = useState(amount);
   const [print, setPrint] = useState(defaultPrint);
   const ok = mode !== "cash" || given >= amount;
@@ -129,8 +131,9 @@ export function PaySheet({ title, amount, fmt, defaultPrint = true, onClose, onC
       </div>
       <div className="mt-2.5 grid grid-cols-2 gap-2">{[["cash", "Espèces"], ["momo", "Mobile Money"]].map(([id, l]) => <Chip key={id} on={mode === id} onClick={() => setMode(id)}>{l}</Chip>)}</div>
       {mode === "cash" && <div className="mt-2.5"><CashGiven amount={amount} given={given} setGiven={setGiven} fmt={fmt} /></div>}
+      {mode === "momo" && <div className="mt-2.5"><MomoPicker value={op} onChange={setOp} /></div>}
       <div className="mt-2.5 flex items-center gap-3 rounded-[16px] px-3 py-2.5" style={{ background: "#fff" }}><span className="flex-1"><span className="block text-[13.5px] font-extrabold">Afficher le reçu</span><span className="block text-[11.5px]" style={{ color: H.muted }}>Pour l'imprimer ou le partager</span></span><Toggle on={print} onChange={setPrint} label="Afficher le reçu" /></div>
-      <Btn kind="green" full disabled={!ok} className="mt-3 !min-h-[54px] !text-[15.5px]" onClick={() => onConfirm({ mode, given: mode === "cash" ? given : amount, print })}><Icon name="check" size={19} stroke={2.6} />{ok ? `Encaisser ${fmt(amount)}` : `Il manque ${fmt(amount - given)}`}</Btn>
+      <Btn kind="green" full disabled={!ok} className="mt-3 !min-h-[54px] !text-[15.5px]" onClick={() => onConfirm({ mode, op: mode === "momo" ? op : "", given: mode === "cash" ? given : amount, print })}><Icon name="check" size={19} stroke={2.6} />{ok ? `Encaisser ${fmt(amount)}` : `Il manque ${fmt(amount - given)}`}</Btn>
     </Sheet>
   );
 }

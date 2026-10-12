@@ -1,6 +1,8 @@
 // src/cyber/CyberUI.jsx — éléments d'interface du Cyber café
 // (couleurs, icônes, boutons animés, en-têtes, feuilles, interrupteurs).
 
+import { useEffect, useRef, useState } from "react";
+
 export const C = {
   navy: "#0A1730", navy2: "#1B3361", ground: "#EEF2F8", card: "#FFFFFF", ink: "#0F172A", ink2: "#334155", muted: "#5B6B82",
   line: "#DDE4EE", line2: "#EEF2F8", cyan: "#22D3EE", cyanInk: "#0E7490", cyanSoft: "#E0F7FB",
@@ -183,14 +185,14 @@ export function Seg({ options, value, onChange, dark, small }) {
   return (
     <div className="grid gap-[5px] p-[5px] rounded-[16px]" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0,1fr))`, background: dark ? "rgba(255,255,255,0.08)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.14)" : `1px solid ${C.line}` }}>
       {options.map(([id, label]) => { const on = value === id; return (
-        <button key={id} type="button" onClick={() => onChange(id)} aria-pressed={on} className="gb-focus cy-tap rounded-[12px] font-extrabold whitespace-nowrap overflow-hidden text-ellipsis px-1"
-          style={{ minHeight: small ? 34 : 42, fontSize: small ? 12 : 13.5, background: on ? (dark ? "#fff" : C.navy) : "transparent", color: on ? (dark ? C.navy : "#fff") : (dark ? "#C7D2E5" : C.ink2) }}>{label}</button>
+        <button key={id} type="button" onClick={() => onChange(id)} aria-pressed={on} className="gb-focus cy-tap rounded-[12px] font-extrabold px-1.5 py-1 leading-tight text-center"
+          style={{ minHeight: small ? 34 : 42, fontSize: small ? 11.5 : 13, overflowWrap: "anywhere", background: on ? (dark ? "#fff" : C.navy) : "transparent", color: on ? (dark ? C.navy : "#fff") : (dark ? "#C7D2E5" : C.ink2) }}>{label}</button>
       ); })}
     </div>
   );
 }
 export function Chip({ on, children, onClick, ink = C.navy, className = "" }) {
-  return <button type="button" onClick={onClick} aria-pressed={!!on} className={`gb-focus cy-tap min-h-[36px] px-3 rounded-[12px] text-[12.5px] font-extrabold whitespace-nowrap ${className}`} style={{ border: `1.5px solid ${on ? ink : C.line}`, background: on ? ink : "#fff", color: on ? "#fff" : C.ink2 }}>{children}</button>;
+  return <button type="button" onClick={onClick} aria-pressed={!!on} className={`gb-focus cy-tap min-h-[36px] px-3 py-1 rounded-[12px] text-[12.5px] font-extrabold leading-tight ${className}`} style={{ border: `1.5px solid ${on ? ink : C.line}`, background: on ? ink : "#fff", color: on ? "#fff" : C.ink2 }}>{children}</button>;
 }
 export function Toggle({ on, onChange, label, disabled }) {
   return (
@@ -199,13 +201,55 @@ export function Toggle({ on, onChange, label, disabled }) {
     </button>
   );
 }
-export function Stepper({ value, onMinus, onPlus, small, label }) {
+// Compteur − / + : appui simple, ou appui maintenu pour avancer vite
+// (1, puis 5, puis 10 à la fois). Avec onSet, le nombre se saisit aussi
+// directement au clavier.
+export function Stepper({ value, onMinus, onPlus, onSet, min = 0, max = 9999, small, label }) {
   const s = small ? 36 : 48;
+  const [txt, setTxt] = useState(null);
+  const latest = useRef(value); latest.current = value;
+  const hold = useRef(null);
+  const typed = useRef(false);
+  const clamp = (n) => Math.max(min, Math.min(max, n));
+  const bump = (d) => {
+    if (!onSet) { (d < 0 ? onMinus : onPlus)?.(); return; }
+    const v = clamp((Number(latest.current) || 0) + d); latest.current = v; onSet(v);
+  };
+  const stop = () => { clearTimeout(hold.current); hold.current = null; };
+  const start = (dir) => (e) => {
+    if (e.button > 0) return;
+    e.preventDefault(); bump(dir);
+    if (!onSet) return;
+    let n = 0;
+    const tick = () => { n += 1; bump(dir * (n > 18 ? 10 : n > 8 ? 5 : 1)); hold.current = setTimeout(tick, 95); };
+    hold.current = setTimeout(tick, 420);
+  };
+  useEffect(() => stop, []);
+  const key = (dir) => (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bump(dir); } };
+  const btn = (dir, sign, dark) => (
+    <button type="button" onPointerDown={start(dir)} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} onKeyDown={key(dir)} onContextMenu={(e) => e.preventDefault()}
+      aria-label={`${dir < 0 ? "Moins" : "Plus"}${label ? ` : ${label}` : ""}`} className={`gb-focus cy-tap rounded-[13px] font-extrabold${dark ? " text-white" : ""}`}
+      style={{ width: s, height: s, background: dark ? C.navy : C.ground, color: dark ? "#fff" : C.navy, fontSize: small ? 18 : 24, touchAction: "manipulation", userSelect: "none" }}>{sign}</button>
+  );
+  const w = small ? 58 : 92;
   return (
     <div className="flex items-center gap-2">
-      <button type="button" onClick={onMinus} aria-label={`Moins${label ? ` : ${label}` : ""}`} className="gb-focus cy-tap rounded-[13px] font-extrabold" style={{ width: s, height: s, background: C.ground, color: C.navy, fontSize: small ? 18 : 24 }}>−</button>
-      <span className="text-center font-extrabold" style={{ minWidth: small ? 34 : 56, fontFamily: FONT_D, fontSize: small ? 18 : 30 }}>{value}</span>
-      <button type="button" onClick={onPlus} aria-label={`Plus${label ? ` : ${label}` : ""}`} className="gb-focus cy-tap rounded-[13px] font-extrabold text-white" style={{ width: s, height: s, background: C.navy, fontSize: small ? 18 : 24 }}>+</button>
+      {btn(-1, "−", false)}
+      {onSet ? (
+        <input
+          value={txt ?? String(value)}
+          inputMode="numeric"
+          enterKeyHint="done"
+          aria-label={`Nombre${label ? ` de ${label}` : ""}`}
+          onFocus={(e) => { setTxt(String(value)); const el = e.target; typed.current = false; el.select(); setTimeout(() => { if (!typed.current && el.selectionStart === el.selectionEnd) el.select(); }, 0); }}
+          onChange={(e) => { typed.current = true; const t = e.target.value.replace(/\D/g, "").slice(0, String(max).length); setTxt(t); if (t !== "") onSet(clamp(Number(t))); }}
+          onBlur={() => { setTxt(null); if (Number(latest.current) < min) onSet(min); }}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          className="text-center font-extrabold outline-none rounded-[12px]"
+          style={{ width: w, height: s, fontFamily: FONT_D, fontSize: small ? 18 : 28, color: C.ink, background: "#fff", border: `1.5px solid ${txt != null ? C.cyan : C.line}`, transition: "border-color .15s" }}
+        />
+      ) : <span className="text-center font-extrabold" style={{ minWidth: small ? 34 : 56, fontFamily: FONT_D, fontSize: small ? 18 : 30 }}>{value}</span>}
+      {btn(1, "+", true)}
     </div>
   );
 }

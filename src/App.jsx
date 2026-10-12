@@ -11,12 +11,14 @@ import {
   PauseCircle,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
-import * as Tone from "tone";
 import * as api from "./api.js";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
 import { phoneNotify, preparePhoneNotifications } from "./phoneNotify.js";
 import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber, openWhatsAppChat, whatsappDisplay } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
+import { DragBubble } from "./DragBubble.jsx";
+import { uiSound } from "./tapSound.js";
+import { MomoPicker, DEFAULT_MOMO } from "./MomoPicker.jsx";
 import { HoldSaleSheet, HeldSalesBanner, HistoryTabs, HeldSalesList, heldStockProblems } from "./HeldSales.jsx";
 import HotelApp from "./hotel/HotelApp.jsx";
 import CyberApp from "./cyber/CyberApp.jsx";
@@ -796,23 +798,13 @@ function buildStockLedger(product, { sales = [], movements = [], inventories = [
 
 /* ---------- Retours sonores ---------- */
 
-let gbSynth = null;
+
+// Sons de confirmation (article choisi, ajouté, vente, erreur). Activés par
+// défaut : seul un « non » explicite dans les Réglages les coupe (les
+// boutiques créées avant ce réglage n'avaient pas la valeur enregistrée).
 async function playSound(kind, enabled) {
-  if (!enabled) return;
-  try {
-    await Tone.start();
-    if (!gbSynth) gbSynth = new Tone.Synth({ oscillator: { type: "sine" }, volume: -14 }).toDestination();
-    const now = Tone.now();
-    if (kind === "add") {
-      gbSynth.triggerAttackRelease("C6", 0.06, now);
-    } else if (kind === "sale") {
-      gbSynth.triggerAttackRelease("C5", 0.08, now);
-      gbSynth.triggerAttackRelease("E5", 0.08, now + 0.09);
-      gbSynth.triggerAttackRelease("G5", 0.12, now + 0.18);
-    } else if (kind === "error") {
-      gbSynth.triggerAttackRelease("F3", 0.14, now);
-    }
-  } catch { /* audio indisponible (ex: avant interaction utilisateur) — on ignore */ }
+  if (enabled === false) return;
+  uiSound(kind);
 }
 
 // Annonce vocale — utilisée pour le scan de reçu (crédit/avoir en cours), le
@@ -1396,6 +1388,7 @@ function Toast({ toast }) {
   const tint = isErr ? "#FCEBE8" : "#E7F7EE";
   return (
     <div key={toast.message + toast.type} className="fixed z-[95] w-[calc(100%-2rem)] max-w-[380px] no-print gb-toast-in" style={{ left: "50%", top: "calc(1.25rem + env(safe-area-inset-top))" }}>
+      <DragBubble id="toast">
       <div className="relative flex items-center gap-3 pl-3.5 pr-4 py-3.5 rounded-2xl overflow-hidden" style={{ background: "var(--card)", boxShadow: "0 12px 32px -8px rgba(15,27,22,0.28), 0 2px 8px rgba(15,27,22,0.08)", borderLeft: `4px solid ${accent}` }}>
         <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: tint }}>
           {isErr ? <AlertTriangle size={17} color={accent} strokeWidth={2.4} /> : <Check size={17} color={accent} strokeWidth={2.8} />}
@@ -1403,6 +1396,7 @@ function Toast({ toast }) {
         <p className="text-sm font-semibold leading-snug flex-1" style={{ color: "var(--ink)" }}>{toast.message}</p>
         <div className="absolute bottom-0 left-0 h-[3px] gb-toast-bar" style={{ background: accent }} />
       </div>
+      </DragBubble>
     </div>
   );
 }
@@ -1414,8 +1408,9 @@ function SaleToastStack({ toasts }) {
   if (!toasts.length) return null;
   return (
     <div className="fixed z-[94] left-0 right-0 flex flex-col items-end px-3 pointer-events-none no-print" style={{ top: "calc(1.25rem + env(safe-area-inset-top))" }}>
+      <DragBubble id="sale-toast" className="w-full max-w-[380px] flex flex-col">
       {toasts.map((t) => (
-        <div key={t.id} className={`w-full max-w-[380px] mb-2 ${t.leaving ? "gb-sale-toast-out" : "gb-sale-toast-in"}`}>
+        <div key={t.id} className={`w-full mb-2 ${t.leaving ? "gb-sale-toast-out" : "gb-sale-toast-in"}`}>
           <div className="rounded-2xl overflow-hidden" style={{ background: "#0A2E24", boxShadow: "0 10px 26px -6px rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.06)" }}>
             <div className="flex items-center gap-3 px-4 py-3.5">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#123D30", border: "1px solid rgba(111,207,158,0.35)" }}>
@@ -1437,6 +1432,7 @@ function SaleToastStack({ toasts }) {
           </div>
         </div>
       ))}
+      </DragBubble>
     </div>
   );
 }
@@ -2698,7 +2694,7 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
               </span>
             </div>
             <p className="text-[11px] font-bold mt-2">Votre satisfaction, notre priorité !</p>
-            <div className="border-t border-dashed mt-3" style={{ borderColor: "#C9D1DC" }} />
+            <div className="border-t mt-3" style={{ borderColor: "#C9D1DC" }} />
           </div>
         )}
         <div className="text-center">
@@ -2714,7 +2710,7 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
           <span className="font-semibold">{receipt.vendor}</span>
         </div>
 
-        <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+        <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
         <div className="flex flex-col gap-2.5">
           {receipt.items.map((i) => (
@@ -2731,7 +2727,7 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
           ))}
         </div>
 
-        <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+        <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
         {receipt.remise > 0 && (
           <div className="flex flex-col gap-1 mb-2 text-[11.5px] font-mono">
@@ -2828,7 +2824,7 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
           </div>
         )}
 
-        <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+        <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
         <ReceiptCodes id={receipt.id} label={`N° ${receiptNumber(receipt.id)}`} />
 
@@ -3817,7 +3813,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const addToCart = (product, silent, sel, n = 1) => {
     // Article de boutique avec tailles / couleurs : on choisit d'abord la
     // variante (fiche article), puis on l'ajoute avec son propre stock.
-    if (hasVariants(product) && !sel?.bv) { setBoutiqueFor(product); return; }
+    if (hasVariants(product) && !sel?.bv) { playSound("select", shop.soundsEnabled); setBoutiqueFor(product); return; }
     if (sel?.bv) {
       const bv = sel.bv;
       const key = `${product.id}~bv~${bvKey(bv.color, bv.size)}`;
@@ -3834,7 +3830,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     }
     // Produit avec formules (Pain fourré…) ou suppléments : on ouvre d'abord
     // le choix, défini par le propriétaire dans la fiche produit.
-    if (((product.options || []).length > 0 || (product.variants || []).length > 0) && sel === undefined) { setOptionsFor(product); return; }
+    if (((product.options || []).length > 0 || (product.variants || []).length > 0) && sel === undefined) { playSound("select", shop.soundsEnabled); setOptionsFor(product); return; }
     if (product.stock <= 0) { pushToast(`${product.name} — rupture de stock`, "error"); playSound("error", shop.soundsEnabled); return; }
     const opts = Array.isArray(sel) ? sel : sel?.opts || [];
     const variant = Array.isArray(sel) ? null : sel?.variant || null;
@@ -3904,7 +3900,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const subtotal = cartItems.reduce((s, i) => s + computeItemTotal(i.product, i.qty), 0);
   // Remise accordée au client (thème Bleu nuit) : déduite du total à payer.
   const [remise, setRemise] = useState("");
-  const [mobileOp, setMobileOp] = useState("");
+  const [mobileOp, setMobileOp] = useState(DEFAULT_MOMO);
   const remiseVal = Math.min(subtotal, Math.max(0, Math.round(Number(remise) || 0)));
   const total = subtotal - remiseVal;
   const count = cartItems.reduce((s, i) => s + i.qty, 0);
@@ -4135,7 +4131,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
     setAvoirProduit(false);
     setAvoirClientName("");
     setRemise("");
-    setMobileOp("");
+    setMobileOp(DEFAULT_MOMO);
     setCart([]);
   };
 
@@ -4561,20 +4557,9 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                     </span>
                   </button>
                 )}
-                {nuit && (payment === "mobile" || payment === "mixte") && (
+                {(payment === "mobile" || payment === "mixte") && (
                   <div className="mb-3 gb-slide-up">
-                    <p className="text-xs font-semibold opacity-60 mb-2">Opérateur</p>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {MOBILE_OPERATORS.map((o) => {
-                        const on = mobileOp === o.id;
-                        return (
-                          <button key={o.id} onClick={() => setMobileOp(on ? "" : o.id)} aria-pressed={on} className="gb-focus min-w-0 min-h-[46px] px-1.5 rounded-xl text-[11px] font-bold flex items-center justify-start gap-1.5" style={on ? { background: o.bg, color: o.fg, border: `1.5px solid ${o.bg}` } : { background: "var(--card)", color: "var(--ink)", border: "1px solid var(--line)" }}>
-                            <span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[9px] font-black" style={{ background: o.bg, color: o.fg, border: on ? "1.5px solid rgba(255,255,255,0.7)" : "none" }}>{o.short}</span>
-                            <span className="leading-tight text-left">{o.id}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <MomoPicker value={mobileOp} onChange={setMobileOp} />
                   </div>
                 )}
                 {payment === "mixte" && (() => {
@@ -6835,13 +6820,14 @@ function SettleCreditModal({ sale, onConfirm, onClose }) {
   const [amount, setAmount] = useState(String(remaining));
   const [error, setError] = useState("");
   const [method, setMethod] = useState("especes");
+  const [operator, setOperator] = useState(DEFAULT_MOMO);
   const value = Number(String(amount).replace(/[^\d.]/g, "")) || 0;
   const after = Math.max(0, remaining - value);
 
   const submit = () => {
     if (!value || value <= 0) { setError("Entre un montant valide"); return; }
     if (value > remaining + 0.5) { setError(`Le montant dépasse le solde dû (${fmt(remaining)})`); return; }
-    onConfirm(value, { method });
+    onConfirm(value, method === "mobile" ? { method, operator } : { method });
   };
 
   return (
@@ -6893,10 +6879,11 @@ function SettleCreditModal({ sale, onConfirm, onClose }) {
             );
           })}
         </div>
+        {method === "mobile" && <div className="mb-3 gb-slide-up"><MomoPicker value={operator} onChange={setOperator} /></div>}
         {error && <p className="text-xs mb-1 font-semibold" style={{ color: "var(--danger)" }}>{error}</p>}
 
         <button onClick={submit} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2 mt-2" style={{ background: method === "mobile" ? "#1D5FA8" : "var(--glass)" }}>
-          {method === "mobile" ? <Smartphone size={16} /> : <Banknote size={16} />} Encaisser {value ? fmt(value) : ""} {method === "mobile" ? "par Mobile Money" : "en espèces"}
+          {method === "mobile" ? <Smartphone size={16} /> : <Banknote size={16} />} Encaisser {value ? fmt(value) : ""} {method === "mobile" ? `par ${operator}` : "en espèces"}
         </button>
         <p className="text-[11px] opacity-50 text-center mt-2.5">{method === "mobile" ? "Ajouté à la recette du jour, sans entrer dans la caisse (espèces)." : "Ajouté à la recette du jour et aux espèces de la caisse."}</p>
       </div>
@@ -6957,13 +6944,13 @@ function CreditReceiptModal({ sale, shop, onClose, pushToast }) {
           <span>{lastPayment ? new Date(lastPayment.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</span>
         </div>
 
-        <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+        <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
         <div className="flex justify-between text-xs mb-1.5"><span className="opacity-50">Client</span><span className="font-semibold">{sale.clientName || "Client"}</span></div>
         <div className="flex justify-between text-xs mb-1.5"><span className="opacity-50">Vente initiale</span><span>{new Date(sale.date).toLocaleDateString("fr-FR")}</span></div>
         <div className="flex justify-between text-xs"><span className="opacity-50">Vendu par</span><span className="font-semibold">{sale.vendor}</span></div>
 
-        <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+        <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
         <p className="text-[11px] font-semibold uppercase tracking-wide opacity-50 mb-2">Règlements</p>
         <div className="flex flex-col gap-1.5 mb-1">
@@ -6978,7 +6965,7 @@ function CreditReceiptModal({ sale, shop, onClose, pushToast }) {
           ))}
         </div>
 
-        <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+        <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
         <div className="flex justify-between text-xs mb-1"><span className="opacity-50">Montant du crédit</span><span className="font-mono">{fmt(sale.total)}</span></div>
         <div className="flex justify-between text-xs mb-1"><span className="opacity-50">Total réglé à ce jour</span><span className="font-mono">{fmt(paidSoFar)}</span></div>
@@ -6987,7 +6974,7 @@ function CreditReceiptModal({ sale, shop, onClose, pushToast }) {
           <span className="font-display font-bold text-2xl" style={{ color: remaining > 0 ? "var(--danger)" : "var(--glass)" }}>{remaining > 0 ? fmt(remaining) : fmt(sale.total)}</span>
         </div>
 
-        <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+        <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
         <ReceiptCodes id={sale.id} label={`N° ${receiptNumber(sale.id)}`} />
 
@@ -7430,7 +7417,7 @@ function CombinedAvoirReceiptModal({ produit, monnaie, shop, onClose, pushToast 
           <div className="flex justify-between text-[11px] mt-1.5"><span className="opacity-50">Client</span><span className="font-semibold">{produit.clientName}</span></div>
           <div className="flex justify-between text-[11px] mt-1"><span className="opacity-50">Avoir créé le</span><span>{new Date(produit.date).toLocaleDateString("fr-FR")} par {produit.vendor}</span></div>
 
-          <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+          <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
           <div className="rounded-xl overflow-hidden mb-3" style={{ border: "1px solid #D8DFD4" }}>
             <div className="px-3 py-2 flex items-center justify-between" style={{ background: "#EEEDFE" }}>
@@ -7486,14 +7473,14 @@ function CombinedAvoirReceiptModal({ produit, monnaie, shop, onClose, pushToast 
             </div>
           </div>
 
-          <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+          <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
           <div className="flex justify-between items-baseline">
             <span className="text-[11px] font-semibold uppercase tracking-wide opacity-50">Total récupéré</span>
             <span className="font-display font-bold text-2xl" style={{ color: "#27500A" }}>{fmt(totalRecovered)}</span>
           </div>
 
-          <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+          <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
           <ReceiptCodes id={produit.id} label={`N° ${receiptNumber(produit.id)}`} />
 
@@ -7565,7 +7552,7 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
           <div className="flex justify-between text-[11px] mt-1.5"><span className="opacity-50">Client</span><span className="font-semibold">{avoir.clientName}</span></div>
           <div className="flex justify-between text-[11px] mt-1"><span className="opacity-50">Avoir créé le</span><span>{new Date(avoir.date).toLocaleDateString("fr-FR")} par {avoir.vendor}</span></div>
 
-          <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+          <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
           <p className="text-[11px] font-semibold uppercase tracking-wide opacity-50 mb-2">{isProduit ? "Articles d'origine" : "Montant d'origine"}</p>
           {isProduit ? (
@@ -7581,7 +7568,7 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
             <div className="flex justify-between text-sm font-semibold"><span>Monnaie due</span><span className="font-mono">{fmt(avoir.amount)}</span></div>
           )}
 
-          <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+          <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
           <p className="text-[11px] font-semibold uppercase tracking-wide opacity-50 mb-2">Historique des remises</p>
           <div className="flex flex-col gap-2.5">
@@ -7609,7 +7596,7 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
             {events.length === 0 && <p className="text-xs opacity-50">Aucune remise enregistrée.</p>}
           </div>
 
-          <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+          <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
           <div className="flex justify-between items-baseline">
             <span className="text-[11px] font-semibold uppercase tracking-wide opacity-50">Total récupéré</span>
@@ -7623,7 +7610,7 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
             </div>
           )}
 
-          <div className="border-t border-dashed my-3" style={{ borderColor: "var(--line)" }} />
+          <div className="border-t my-3" style={{ borderColor: "var(--line)" }} />
 
           <ReceiptCodes id={avoir.id} label={`N° ${receiptNumber(avoir.id)}`} />
 
@@ -9313,7 +9300,7 @@ function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
 
       {/* Notifications */}
       <SettingsCard Icon={Bell} color="#854F0B" bg="#FAEEDA" title="Sons et notifications" sub="Ce que l'application vous signale">
-        <SettingToggle Icon={Volume2} color="#B7791F" title="Sons de confirmation" desc="Un petit son au scan d'un article et à chaque vente." on={f.soundsEnabled} onChange={() => set("soundsEnabled", !f.soundsEnabled)} />
+        <SettingToggle Icon={Volume2} color="#B7791F" title="Sons de confirmation" desc="Un petit son quand on choisit un article, au scan et à chaque vente." on={f.soundsEnabled} onChange={() => set("soundsEnabled", !f.soundsEnabled)} />
         <SettingToggle Icon={Bell} color="#B7791F" title="Notifications de vente" desc="L'administrateur est prévenu de chaque vente faite par un vendeur." on={f.salesNotificationsEnabled} onChange={() => set("salesNotificationsEnabled", !f.salesNotificationsEnabled)} />
         <SettingToggle Icon={Mic} color="#B7791F" title="Annonces vocales" desc="Ventes, dépenses, crédit / avoir au scan, stock bas, licence. Enregistré tout de suite." on={f.voiceNotificationsEnabled} onChange={() => {
           const next = !f.voiceNotificationsEnabled;
@@ -17397,12 +17384,16 @@ function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen, variant,
   return (
     <>
       {!open && !inline && (
-        <button onClick={() => { setOpen(true); if (unread > 0) setStage("thread"); }} className="gb-focus gb-pulse fixed right-4 z-40 w-14 h-14 rounded-2xl flex items-center justify-center active:scale-95 transition-transform" style={{ background: "#1F2A33", boxShadow: "0 10px 24px rgba(22,32,42,0.35)", bottom: "calc(6rem + env(safe-area-inset-bottom))" }} aria-label={unread > 0 ? `Assistance : ${unread} nouveau${unread > 1 ? "x" : ""} message${unread > 1 ? "s" : ""}` : "Assistance"}>
+        <div className="fixed right-4 z-40 no-print" style={{ bottom: "calc(6rem + env(safe-area-inset-bottom))" }}>
+        <DragBubble id="support">
+        <button onClick={() => { setOpen(true); if (unread > 0) setStage("thread"); }} className="gb-focus gb-pulse relative w-14 h-14 rounded-2xl flex items-center justify-center active:scale-95 transition-transform" style={{ background: "#1F2A33", boxShadow: "0 10px 24px rgba(22,32,42,0.35)" }} aria-label={unread > 0 ? `Assistance : ${unread} nouveau${unread > 1 ? "x" : ""} message${unread > 1 ? "s" : ""}` : "Assistance"}>
           <MessageCircle size={24} color="#fff" strokeWidth={2.2} />
           {unread > 0
             ? <span className="absolute -top-2 -right-2 min-w-[24px] h-6 px-1.5 rounded-full border-2 text-[12px] font-bold text-white flex items-center justify-center" style={{ background: "#D93B30", borderColor: "var(--paper)" }}>{unread > 9 ? "9+" : unread}</span>
             : <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full border-2" style={{ background: "#5CC98A", borderColor: "var(--paper)" }} />}
         </button>
+        </DragBubble>
+        </div>
       )}
 
       {open && (

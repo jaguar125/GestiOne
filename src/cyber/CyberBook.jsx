@@ -6,6 +6,8 @@
 
 import { useMemo, useState } from "react";
 import { C, FONT_D, Icon, Btn, Card, Label, TopBar, Chip, Field, inputStyle, Sheet, Empty, Avatar, Tag, Hero, BackBtn } from "./CyberUI.jsx";
+import { creditGroupKey } from "./cyberReceipt.js";
+import { MomoPicker, DEFAULT_MOMO, momoOf, momoLabel } from "../MomoPicker.jsx";
 import { DAY, dayBounds, dayLabel, hmOf, localDayKey, saleDue, salePaid, saleToPay, saleSummary, periodFigures, isLive } from "./cyberLogic.js";
 
 export function useRange(initial = "today") {
@@ -24,7 +26,7 @@ export function useRange(initial = "today") {
 export function RangeChips({ r, extra = [] }) {
   return (
     <>
-      <div className="cy-noscroll -mx-4 px-4 flex gap-1.5 overflow-x-auto">
+      <div className="flex flex-wrap gap-1.5">
         {[["today", "Aujourd'hui"], ["yest", "Hier"], ["week", "7 jours"], ["month", "Ce mois"], ["range", "Plage…"], ...extra].map(([id, l]) => <Chip key={id} on={r.mode === id} onClick={() => r.setMode(id)}>{l}</Chip>)}
       </div>
       {r.mode === "range" && (
@@ -41,7 +43,8 @@ const STATUS = (s) => {
   if (s.status === "cancelled") return s.refund ? ["Remboursé", C.redSoft, C.red] : ["Annulé", "#F1F5F9", "#475569"];
   const due = saleDue(s);
   if (due > 0) return [salePaid(s) > 0 ? "Partiel" : "Crédit", C.amberSoft, "#92400E"];
-  if ((s.payments || []).some((p) => p.mode === "momo")) return ["Mobile Money", C.indigoSoft, C.indigo];
+  const mo = (s.payments || []).find((p) => p.mode === "momo");
+  if (mo) return [momoOf(mo.op)?.short || "Mobile Money", C.indigoSoft, C.indigo, "momo"];
   return ["Payé", C.greenSoft, C.green];
 };
 
@@ -57,7 +60,7 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
   const people = useMemo(() => [...new Set([...(staffNames || []), ...sales.map((s) => s.by).filter(Boolean)])], [sales, staffNames]);
   const [a, b] = r.range;
   const base = sales.filter((s) => { const t = s.at; return t >= a && t < b && (mineOnly ? s.by === userName : who === "all" || s.by === who); });
-  const list = base.filter((s) => f === "all" || (f === "cash" ? STATUS(s)[0] === "Payé" : f === "momo" ? STATUS(s)[0] === "Mobile Money" : f === "credit" ? saleDue(s) > 0 : s.status === "cancelled")).sort((x, y) => y.at - x.at);
+  const list = base.filter((s) => f === "all" || (f === "cash" ? STATUS(s)[0] === "Payé" : f === "momo" ? (s.payments || []).some((p) => p.mode === "momo") : f === "credit" ? saleDue(s) > 0 : s.status === "cancelled")).sort((x, y) => y.at - x.at);
   const fig = periodFigures({ sales, from: a, to: b, by: mineOnly ? userName : who === "all" ? null : who });
   const sumOf = (p) => base.filter((s) => isLive(s) && (p === "all" || s.by === p)).reduce((t, s) => t + (Number(s.total) || 0), 0);
   return (
@@ -65,9 +68,9 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
       <TopBar title={mineOnly ? "Mes ventes" : "Historique de l'équipe"} sub={mineOnly ? `${userName} · vos ventes uniquement` : "Toutes les ventes, par employé"} onBack={onBack} />
       <div className="cy-a cy-d1 mt-3"><RangeChips r={r} /></div>
       {!mineOnly && (
-        <div className="cy-a cy-d1 cy-noscroll mt-2.5 -mx-4 px-4 flex gap-1.5 overflow-x-auto">
+        <div className="cy-a cy-d1 mt-2.5 flex flex-wrap gap-1.5">
           {["all", ...people].map((p) => { const on = who === p; return (
-            <button key={p} type="button" onClick={() => setWho(p)} aria-pressed={on} className="gb-focus cy-tap shrink-0 rounded-[14px] px-3 py-1.5 text-left" style={{ background: on ? C.navy : "#fff", color: on ? "#fff" : C.ink, border: `1.5px solid ${on ? C.navy : C.line}` }}>
+            <button key={p} type="button" onClick={() => setWho(p)} aria-pressed={on} className="gb-focus cy-tap rounded-[14px] px-3 py-1.5 text-left" style={{ background: on ? C.navy : "#fff", color: on ? "#fff" : C.ink, border: `1.5px solid ${on ? C.navy : C.line}` }}>
               <span className="block text-[12.5px] font-extrabold">{p === "all" ? "Toute l'équipe" : p}</span><span className="block text-[10.5px] font-bold" style={{ opacity: 0.8 }}>{fmt(sumOf(p))}</span>
             </button>
           ); })}
@@ -78,7 +81,7 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
         <Card className="px-3 py-2.5"><p className="text-[11px] font-bold" style={{ color: C.muted }}>{mineOnly ? "Mon total" : "Chiffre d'affaires"}</p><p className="text-[18px] font-extrabold" style={{ fontFamily: FONT_D }}>{fmt(fig.ca)}</p></Card>
         <Card className="px-3 py-2.5"><p className="text-[11px] font-bold" style={{ color: C.muted }}>Tickets</p><p className="text-[18px] font-extrabold" style={{ fontFamily: FONT_D, color: C.cyanInk }}>{fig.tickets}</p></Card>
       </div>
-      <div className="cy-a cy-d2 cy-noscroll mt-2.5 -mx-4 px-4 flex gap-1.5 overflow-x-auto">{[["all", "Tous"], ["cash", "Espèces"], ["momo", "Mobile Money"], ["credit", "Crédits"], ["cancel", "Annulés"]].map(([id, l]) => <Chip key={id} on={f === id} onClick={() => setF(id)}>{l}</Chip>)}</div>
+      <div className="cy-a cy-d2 mt-2.5 flex flex-wrap gap-1.5">{[["all", "Tous"], ["cash", "Espèces"], ["momo", "Mobile Money"], ["credit", "Crédits"], ["cancel", "Annulés"]].map(([id, l]) => <Chip key={id} on={f === id} onClick={() => setF(id)}>{l}</Chip>)}</div>
       <div className="cy-a cy-d3 mt-3 flex flex-col gap-2">
         {list.map((s) => {
           const [tag, tint, ink] = STATUS(s); const isOpen = open === s.id; const dead = s.status === "cancelled";
@@ -94,6 +97,7 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
                   <div className="rounded-[12px] px-3 py-2 text-[12px] leading-relaxed" style={{ background: "#F7F9FC", color: C.ink2 }}>
                     {(s.lines || []).map((l) => <div key={l.id} className="flex justify-between gap-2"><span>{l.qty} × {l.label}{l.detail ? ` (${l.detail})` : ""}</span><b>{fmt(l.amount)}</b></div>)}
                     {Number(s.official) > 0 && <div className="flex justify-between"><span>Frais officiels (hors CA)</span><b>{fmt(s.official)}</b></div>}
+                    {(s.payments || []).length > 0 && <div className="mt-1.5 pt-1.5" style={{ borderTop: `1px solid ${C.line}` }}>{(s.payments || []).map((p) => <div key={p.id} className="flex justify-between gap-2"><span>{p.kind === "credit" ? `Paiement de crédit (${dayLabel(p.at).toLowerCase()} ${hmOf(p.at)})` : "Payé"} · {p.mode === "momo" ? momoLabel(p.op) : "Espèces"}</span><b className="whitespace-nowrap">{fmt(p.amount)}</b></div>)}</div>}
                     {saleDue(s) > 0 && <div className="flex justify-between" style={{ color: C.amber }}><span>Reste à payer</span><b>{fmt(saleDue(s))}</b></div>}
                     {dead && <div style={{ color: C.red }}>Annulé par {s.cancel?.by} · {dayLabel(s.cancel?.at).toLowerCase()} à {hmOf(s.cancel?.at)} · motif : {s.cancel?.reason || "—"}{s.refund ? ` · remboursé ${fmt(s.refund.amount)}` : ""}</div>}
                   </div>
@@ -195,22 +199,28 @@ export function CreditsScreen({ ctx, openClient }) {
   );
 }
 
-export function ClientScreen({ ctx, clientId, onBack, openReceipt }) {
+export function ClientScreen({ ctx, clientId, onBack, openReceipt, openPayment }) {
   const { clients, sales, fmt, actions } = ctx;
   const c = clients.find((x) => x.id === clientId);
   const [pay, setPay] = useState(false);
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState("cash");
+  const [op, setOp] = useState(DEFAULT_MOMO);
   if (!c) return <div><TopBar title="Client" onBack={onBack} /><Empty title="Client introuvable" /></div>;
   const own = sales.filter((s) => s.client?.id === c.id).sort((a, b) => b.at - a.at);
   const due = own.reduce((t, s) => t + saleDue(s), 0);
-  const moves = [];
+  const moves = []; const payMoves = new Map();
   own.forEach((s) => {
+    (s.payments || []).filter((p) => p.kind === "credit").forEach((p) => {
+      const k = creditGroupKey(p); const m = payMoves.get(k);
+      if (m) { m.amount += Number(p.amount) || 0; m.n += 1; return; }
+      payMoves.set(k, { id: `pay-${k}`, key: k, at: p.at, mode: p.mode, op: p.op, by: p.by, amount: Number(p.amount) || 0, n: 1 });
+    });
     if (!isLive(s)) return;
     const first = (s.payments || []).filter((p) => p.kind !== "credit").reduce((t, p) => t + p.amount, 0);
     moves.push({ id: s.id, at: s.at, sale: s, t: `${first > 0 ? "Vente partielle" : "Vente à crédit"} · ticket ${s.no}`, sub: `${saleSummary(s)}${first > 0 ? ` · payé ${fmt(first)}` : ""}`, v: `+ ${fmt(saleToPay(s) - first)}`, plus: true });
-    (s.payments || []).filter((p) => p.kind === "credit").forEach((p) => moves.push({ id: p.id, at: p.at, sale: s, t: `Paiement de crédit · ${p.mode === "momo" ? "Mobile Money" : "espèces"}`, sub: `reçu par ${p.by}`, v: `− ${fmt(p.amount)}`, plus: false }));
   });
+  payMoves.forEach((p) => moves.push({ id: p.id, at: p.at, payKey: p.key, t: `Paiement de crédit · ${p.mode === "momo" ? momoLabel(p.op) : "espèces"}`, sub: `reçu par ${p.by}${p.n > 1 ? ` · ${p.n} tickets` : ""} · voir le reçu`, v: `− ${fmt(p.amount)}`, plus: false }));
   moves.sort((a, b) => b.at - a.at);
   const n = Math.min(due, Number(amount) || 0);
   const tel = String(c.phone || "").replace(/\D/g, "");
@@ -231,7 +241,7 @@ export function ClientScreen({ ctx, clientId, onBack, openReceipt }) {
       <Label>MOUVEMENTS</Label>
       <Card className="cy-a cy-d2 px-3">
         {moves.map((m, i) => (
-          <button key={m.id} type="button" onClick={() => openReceipt(m.sale)} className="gb-focus w-full flex items-center gap-2.5 min-h-[58px] text-left" style={{ borderTop: i ? `1px solid ${C.line2}` : "none" }}>
+          <button key={m.id} type="button" onClick={() => (m.payKey ? openPayment?.(m.payKey) : openReceipt(m.sale))} className="gb-focus w-full flex items-center gap-2.5 min-h-[58px] text-left" style={{ borderTop: i ? `1px solid ${C.line2}` : "none" }}>
             <span className="w-[34px] h-[34px] rounded-[11px] flex items-center justify-center shrink-0" style={{ background: m.plus ? C.redSoft : C.greenSoft, color: m.plus ? C.red : C.green }}><Icon name={m.plus ? "plus" : "minus"} size={16} stroke={2.6} /></span>
             <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold truncate">{m.t}</span><span className="block text-[11.5px] truncate" style={{ color: C.muted }}>{dayLabel(m.at)} {hmOf(m.at)} · {m.sub}</span></span>
             <span className="text-[13.5px] font-extrabold" style={{ color: m.plus ? C.red : C.green }}>{m.v}</span>
@@ -249,8 +259,9 @@ export function ClientScreen({ ctx, clientId, onBack, openReceipt }) {
           <Field label="MONTANT REÇU"><input value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, "").slice(0, 8))} inputMode="numeric" style={{ ...inputStyle, fontSize: 24, fontWeight: 800 }} /></Field>
           <div className="mt-2 grid grid-cols-4 gap-1.5">{[due, 5000, 2000, 1000].filter((v, i, a) => v <= due && a.indexOf(v) === i).map((v) => <Chip key={v} on={Number(amount) === v} onClick={() => setAmount(String(v))} className="!px-1">{v === due ? "Tout" : String(v).replace(/\B(?=(\d{3})+(?!\d))/g, " ")}</Chip>)}</div>
           <div className="mt-2 grid grid-cols-2 gap-1.5"><Chip on={mode === "cash"} onClick={() => setMode("cash")}>Espèces</Chip><Chip on={mode === "momo"} onClick={() => setMode("momo")}>Mobile Money</Chip></div>
+          {mode === "momo" && <div className="mt-2.5"><MomoPicker value={op} onChange={setOp} /></div>}
           <p className="mt-3 rounded-[12px] px-3 py-2 text-[11.5px]" style={{ background: C.cyanSoft, color: "#155E75" }}>Ce paiement entre dans l'encaissé du jour. Ce n'est pas une nouvelle vente : le chiffre d'affaires ne change pas.</p>
-          <Btn kind="green" full big className="mt-3" disabled={!(n > 0)} onClick={() => { actions.payCredit(c, n, mode); setPay(false); }}>Encaisser {fmt(n)} · reste {fmt(due - n)}</Btn>
+          <Btn kind="green" full big className="mt-3" disabled={!(n > 0)} onClick={() => { const key = actions.payCredit(c, n, mode, mode === "momo" ? op : ""); setPay(false); if (key && openPayment) openPayment(key, true); }}>Encaisser {fmt(n)} · reste {fmt(due - n)}</Btn>
         </Sheet>
       )}
     </div>

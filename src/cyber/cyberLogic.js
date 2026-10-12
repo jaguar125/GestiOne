@@ -10,6 +10,8 @@
 //  - rôles : propriétaire, gérante, employé ;
 //  - annonces vocales et écrites.
 
+import { momoName } from "../MomoPicker.jsx";
+
 export const DAY = 24 * 3600 * 1000;
 export const rid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-3);
 export const pad2 = (n) => String(n).padStart(2, "0");
@@ -242,7 +244,7 @@ export function saleEvent(sale, shop, fmt) {
   const type = credit ? "credit" : word === "vente" ? "vente" : "prestation";
   const Word = word === "vente" ? "Vente" : "Prestation";
   const title = credit ? `${Word} à crédit de ${sale.by} · ${fmt(total)}` : `${Word} de ${sale.by} · ${fmt(total)}`;
-  const pay = credit ? (salePaid(sale) > 0 ? `Payé ${fmt(salePaid(sale))}, reste ${fmt(due)}` : "À crédit") : (sale.payments || []).some((p) => p.mode === "momo") ? "Payé par Mobile Money" : "Payé en espèces";
+  const pay = credit ? (salePaid(sale) > 0 ? `Payé ${fmt(salePaid(sale))}, reste ${fmt(due)}` : "À crédit") : (sale.payments || []).some((p) => p.mode === "momo") ? `Payé par ${momoName((sale.payments || []).find((p) => p.mode === "momo").op) || "Mobile Money"}` : "Payé en espèces";
   const body = `${saleSummary(sale)}. ${pay}${sale.client?.name ? ` · client ${sale.client.name}` : ""}.`;
   const voice = `${shop?.name || "Cyber café"}. ${sale.by} vient de faire une ${word}${credit ? " à crédit" : ""} de ${sayAmount(total, shop?.currency)}${credit && sale.client?.name ? `, pour ${sale.client.name}` : ""}.`;
   return { type, title, body, voice, amount: total };

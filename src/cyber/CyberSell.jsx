@@ -5,16 +5,20 @@
 // d'identité, inscription en ligne, prestation libre), paiement (espèces,
 // Mobile Money, crédit, partiel) et reçu.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { C, GRAD, FONT_D, Icon, Btn, Card, Label, TopBar, Seg, Chip, Toggle, Stepper, Field, inputStyle, Sheet, Empty, Avatar, BottomBar, Tag } from "./CyberUI.jsx";
-import { CATS, unitPrice, tierRows, lineTotal, lineOfficial, rid, qtyLabel, saleDue, salePaid, saleToPay, hmOf } from "./cyberLogic.js";
-import { receiptInfo, receiptModel, printReceipt, shareReceipt } from "./cyberReceipt.js";
+import { CATS, unitPrice, tierRows, lineTotal, lineOfficial, rid, qtyLabel, saleDue } from "./cyberLogic.js";
+import { receiptInfo, saleDoc } from "./cyberReceipt.js";
+import { DocScreen, SuccessHead } from "./CyberPaper.jsx";
+import { uiSound } from "./cyberVoice.js";
+import { MomoPicker, DEFAULT_MOMO, momoOf } from "../MomoPicker.jsx";
 
 const sp = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 
 // ---------- Catalogue ----------
 export function SellScreen({ ctx, cart, setCart, client, setClient, onCheckout, onBack }) {
-  const { services, stock, levels, fmt, pushToast } = ctx;
+  const { services, stock, levels, fmt, pushToast, settings } = ctx;
+  const sound = (k) => { if (settings?.tapSound !== false) uiSound(k); };
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null); // prestation à configurer
@@ -30,7 +34,8 @@ export function SellScreen({ ctx, cart, setCart, client, setClient, onCheckout, 
   const qtyIn = (key) => cart.filter((l) => (l.svcId || l.stockId) === key).reduce((t, l) => t + (l.kind === "article" ? l.qty : 1), 0);
   const addArticle = (a) => {
     const inCart = cart.filter((l) => l.stockId === a.id).reduce((t, l) => t + l.qty, 0);
-    if ((levels[a.id] || 0) - inCart <= 0) { pushToast(`${a.name} : plus de stock`, "error"); return; }
+    if ((levels[a.id] || 0) - inCart <= 0) { sound("error"); pushToast(`${a.name} : plus de stock`, "error"); return; }
+    sound("add");
     const ex = cart.find((l) => l.stockId === a.id && l.kind === "article");
     if (ex) setCart(cart.map((l) => (l === ex ? { ...l, qty: l.qty + 1, amount: (l.qty + 1) * l.unitPrice, consume: [{ stockId: a.id, qty: l.qty + 1 }] } : l)));
     else setCart([...cart, { id: rid(), kind: "article", stockId: a.id, cat: "article", label: a.name, svcName: a.name, qty: 1, unit: "unité", unitPrice: Number(a.price), amount: Number(a.price), consume: [{ stockId: a.id, qty: 1 }] }]);
@@ -45,14 +50,14 @@ export function SellScreen({ ctx, cart, setCart, client, setClient, onCheckout, 
         <Icon name="search" size={17} color={C.muted} />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher une prestation ou un article" aria-label="Rechercher une prestation ou un article" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
       </label>
-      <div className="cy-a cy-d1 cy-noscroll mt-2.5 -mx-4 px-4 flex gap-1.5 overflow-x-auto">
+      <div className="cy-a cy-d1 mt-2.5 flex flex-wrap gap-1.5">
         {tabs.map(([id, l]) => <Chip key={id} on={tab === id} onClick={() => setTab(id)}>{l}</Chip>)}
       </div>
       <div className="cy-a cy-d2 mt-3 grid grid-cols-3 gap-2">
         {items.map((x) => {
           const K = CATS[x.cat] || CATS.bureau; const n = qtyIn(x.key);
           return (
-            <button key={x.key} type="button" onClick={() => (x.type === "art" ? addArticle(x.a) : setOpen(x.s))} aria-label={`Ajouter ${x.name}`} className="gb-focus cy-tap relative text-left rounded-[18px] p-2.5 flex flex-col gap-1.5 min-h-[112px]"
+            <button key={x.key} type="button" onClick={() => { if (x.type === "art") addArticle(x.a); else { sound("select"); setOpen(x.s); } }} aria-label={`Ajouter ${x.name}`} className="gb-focus cy-tap relative text-left rounded-[18px] p-2.5 flex flex-col gap-1.5 min-h-[112px]"
               style={{ background: "#fff", border: `1.5px solid ${n ? K.ink : C.line}`, boxShadow: n ? `0 10px 20px -12px ${K.ink}` : "0 4px 10px -8px rgba(10,23,48,0.3)" }}>
               <span className="w-9 h-9 rounded-[12px] flex items-center justify-center" style={{ background: K.tint, color: K.ink }}><Icon name={K.icon} size={18} /></span>
               <span className="text-[12.5px] font-extrabold leading-tight">{x.name}</span>
@@ -85,8 +90,8 @@ export function SellScreen({ ctx, cart, setCart, client, setClient, onCheckout, 
         </Btn>
       </BottomBar>
 
-      {open && <ConfigSheet ctx={ctx} svc={open} onClose={() => setOpen(null)} onAdd={(line) => { setCart([...cart, line]); setOpen(null); }} />}
-      {free && <FreeSheet ctx={ctx} onClose={() => setFree(false)} onAdd={(line) => { setCart([...cart, line]); setFree(false); }} />}
+      {open && <ConfigSheet ctx={ctx} svc={open} onClose={() => setOpen(null)} onAdd={(line) => { sound("add"); setCart([...cart, line]); setOpen(null); }} />}
+      {free && <FreeSheet ctx={ctx} onClose={() => setFree(false)} onAdd={(line) => { sound("add"); setCart([...cart, line]); setFree(false); }} />}
       {pick && <ClientPicker ctx={ctx} current={client} onClose={() => setPick(false)} onPick={(c) => { setClient(c); setPick(false); }} />}
     </div>
   );
@@ -124,7 +129,7 @@ function ConfigSheet({ ctx, svc, onClose, onAdd }) {
   const { fmt, stock } = ctx;
   const form = svc.form || "qty";
   const K = CATS[svc.cat] || CATS.bureau;
-  const [qty, setQty] = useState(form === "copy" ? 10 : 1);
+  const [qty, setQty] = useState(1);
   const [fmtA, setFmtA] = useState("A4");
   const [side, setSide] = useState("r");
   const [colour, setColour] = useState(0);
@@ -138,12 +143,18 @@ function ConfigSheet({ ctx, svc, onClose, onAdd }) {
   const hasStock = (id) => stock.some((s) => s.id === id);
   let body = null; let total = 0; let line = null; let saving = 0;
   if (form === "copy") {
+    // Le prix au palier se calcule sur le nombre de PAGES (faces) :
+    // 10 copies recto-verso = 20 pages, et les 20 pages sont toutes facturées
+    // au prix du palier atteint.
     const mult = fmtA === "A3" ? 2 : 1;
-    const u = unitPrice(svc, qty) * mult;
-    total = u * qty; saving = (Number(svc.price) * mult - u) * qty;
-    const sheets = side === "rv" ? Math.ceil(qty / 2) : qty;
+    const faces = side === "rv" ? 2 : 1;
+    const pages = qty * faces;
+    const u = unitPrice(svc, pages) * mult;
+    total = u * pages; saving = (Number(svc.price) * mult - u) * pages;
     const paperId = fmtA === "A3" ? "stk-a3" : (svc.paper || "stk-a4");
-    line = { label: `${svc.name} ${fmtA}`, detail: `${side === "rv" ? "recto-verso" : "recto"} · ${fmt(u)}/page`, qty, unit: "page", unitPrice: u, amount: total, consume: hasStock(paperId) ? [{ stockId: paperId, qty: sheets }] : [] };
+    const next = tierRows(svc).find((r) => r.from > pages);
+    const toNext = next ? next.from - pages : 0;
+    line = { label: `${svc.name} ${fmtA}`, detail: `${qty} copie${qty > 1 ? "s" : ""} ${side === "rv" ? "recto-verso" : "recto"} · ${pages} page${pages > 1 ? "s" : ""} × ${fmt(u)}`, qty: pages, unit: "page", unitPrice: u, amount: total, consume: hasStock(paperId) ? [{ stockId: paperId, qty }] : [] };
     body = (
       <>
         <div className="grid grid-cols-2 gap-2">
@@ -151,12 +162,24 @@ function ConfigSheet({ ctx, svc, onClose, onAdd }) {
           <div><p className="text-[11px] font-extrabold mb-1.5" style={{ color: C.muted }}>FACES</p><Seg small options={[["r", "Recto"], ["rv", "Recto-verso"]]} value={side} onChange={setSide} /></div>
         </div>
         <div className="mt-3 rounded-[20px] p-3.5" style={{ border: `1px solid ${C.line}` }}>
-          <p className="text-[11px] font-extrabold" style={{ color: C.muted }}>NOMBRE DE PAGES</p>
-          <div className="mt-2 flex justify-center"><Stepper value={qty} onMinus={() => setQ(qty - 1)} onPlus={() => setQ(qty + 1)} label="pages" /></div>
-          <p className="text-center text-[11.5px] mt-1" style={{ color: C.muted }}>{sheets} feuille{sheets > 1 ? "s" : ""} {fmtA}{side === "rv" ? " recto-verso" : ""}</p>
+          <p className="text-[11px] font-extrabold text-center" style={{ color: C.muted }}>NOMBRE DE COPIES</p>
+          <div className="mt-2 flex justify-center"><Stepper value={qty} onSet={setQ} min={1} max={9999} label="copies" /></div>
+          <p className="text-center text-[11px] mt-1.5" style={{ color: C.muted }}>Touchez le nombre pour le saisir · maintenez + ou − pour aller vite</p>
           <div className="mt-2.5 grid grid-cols-4 gap-1.5">{QUICK.map(([n, l]) => <Btn key={l} kind="soft" onClick={() => setQ(qty + n)} style={{ minHeight: 36, fontSize: 12.5 }}>{l}</Btn>)}<Btn kind="soft" onClick={() => setQ(1)} style={{ minHeight: 36, fontSize: 12 }}>Effacer</Btn></div>
         </div>
-        <TierTable svc={svc} qty={qty} mult={mult} fmt={fmt} />
+        <div className="mt-3 rounded-[18px] px-3.5 py-3" style={{ background: C.navy, color: "#fff" }} aria-live="polite">
+          <div className="flex items-center justify-between text-[13px]" style={{ color: "#B6C4DC" }}>
+            <span>{qty} copie{qty > 1 ? "s" : ""} {side === "rv" ? "× 2 faces" : "recto"}</span>
+            <span><b className="text-white text-[15px]" style={{ fontFamily: FONT_D }}>{pages}</b> page{pages > 1 ? "s" : ""}</span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between">
+            <span className="text-[13px]" style={{ color: "#B6C4DC" }}>{pages} × {fmt(u)}{mult > 1 ? " (A3)" : ""}</span>
+            <span className="text-[17px] font-extrabold" style={{ fontFamily: FONT_D, color: "#67E8F9" }}>{fmt(total)}</span>
+          </div>
+          {next && <p className="mt-2 pt-2 text-[11.5px] font-bold" style={{ borderTop: "1px dashed rgba(255,255,255,0.22)", color: "#FDE68A" }}>Encore {toNext} page{toNext > 1 ? "s" : ""} et toutes les pages passent à {fmt(next.price * mult)}</p>}
+          <p className="mt-1 text-[11px]" style={{ color: "#8FA3C2" }}>{qty} feuille{qty > 1 ? "s" : ""} {fmtA} utilisée{qty > 1 ? "s" : ""}</p>
+        </div>
+        <TierTable svc={svc} qty={pages} mult={mult} fmt={fmt} />
       </>
     );
   } else if (form === "print") {
@@ -167,7 +190,7 @@ function ConfigSheet({ ctx, svc, onClose, onAdd }) {
     const row = (label, sub, v, set, min, max) => (
       <div className="flex items-center gap-2 min-h-[62px]" style={{ borderTop: `1px solid ${C.line2}` }}>
         <span className="flex-1"><span className="block text-[14px] font-extrabold">{label}</span><span className="block text-[11.5px]" style={{ color: C.muted }}>{sub}</span></span>
-        <Stepper small value={v} label={label} onMinus={() => set(Math.max(min, v - 1))} onPlus={() => set(Math.min(max, v + 1))} />
+        <Stepper small value={v} label={label} min={min} max={max} onSet={set} />
       </div>
     );
     body = (
@@ -189,7 +212,7 @@ function ConfigSheet({ ctx, svc, onClose, onAdd }) {
             <span className="flex-1"><span className="block text-[14px] font-extrabold">{l}</span><span className="block text-[11.5px]" style={{ color: C.muted }}>{sub} · {n} photos par planche</span></span>
           </button>
         ); })}</div>
-        <div className="mt-3 flex items-center justify-between rounded-[18px] px-3.5 py-2.5" style={{ border: `1px solid ${C.line}` }}><span className="text-[14px] font-extrabold">Planches</span><Stepper small value={qty} label="planches" onMinus={() => setQ(qty - 1)} onPlus={() => setQ(qty + 1)} /></div>
+        <div className="mt-3 flex items-center justify-between rounded-[18px] px-3.5 py-2.5" style={{ border: `1px solid ${C.line}` }}><span className="text-[14px] font-extrabold">Planches</span><Stepper small value={qty} label="planches" min={1} max={999} onSet={setQ} /></div>
       </>
     );
   } else if (form === "web") {
@@ -215,7 +238,7 @@ function ConfigSheet({ ctx, svc, onClose, onAdd }) {
     body = (
       <div className="flex flex-col items-center gap-2 rounded-[20px] py-4" style={{ border: `1px solid ${C.line}` }}>
         <p className="text-[11px] font-extrabold" style={{ color: C.muted }}>QUANTITÉ ({svc.unit.toUpperCase()})</p>
-        <Stepper value={qty} label={svc.unit} onMinus={() => setQ(qty - 1)} onPlus={() => setQ(qty + 1)} />
+        <Stepper value={qty} label={svc.unit} min={1} max={9999} onSet={setQ} />
         <p className="text-[12px]" style={{ color: C.muted }}>{fmt(svc.price)} par {svc.unit}</p>
       </div>
     );
@@ -282,8 +305,7 @@ export function PayScreen({ ctx, cart, client, setClient, onBack, onDone }) {
   const total = lineTotal(cart) + lineOfficial(cart);
   const [mode, setMode] = useState("cash");
   const [given, setGiven] = useState("");
-  const [op, setOp] = useState("Orange");
-  const [ref, setRef] = useState("");
+  const [op, setOp] = useState(DEFAULT_MOMO);
   const [part, setPart] = useState("");
   const [print, setPrint] = useState(true);
   const [pick, setPick] = useState(false);
@@ -296,7 +318,7 @@ export function PayScreen({ ctx, cart, client, setClient, onBack, onDone }) {
     if (isCredit && !client) { setPick(true); return; }
     if (mode === "cash" && given && g < total) { ctx.pushToast("La somme reçue est inférieure au total", "error"); return; }
     const pay = [];
-    if (paidNow > 0) pay.push({ mode: mode === "momo" ? "momo" : "cash", amount: paidNow, given: mode === "cash" && g > paidNow ? g : paidNow, op: mode === "momo" ? op : "", ref: mode === "momo" ? ref.trim() : "" });
+    if (paidNow > 0) pay.push({ mode: mode === "momo" ? "momo" : "cash", amount: paidNow, given: mode === "cash" && g > paidNow ? g : paidNow, op: mode === "momo" ? op : "" });
     const sale = actions.sell({ lines: cart, client, payments: pay });
     if (sale) onDone(sale, print);
   };
@@ -310,7 +332,7 @@ export function PayScreen({ ctx, cart, client, setClient, onBack, onDone }) {
       <div className="relative -mt-12">
         <div className="cy-a cy-d1 grid grid-cols-4 gap-1.5 p-1.5 rounded-[22px]" style={{ background: "#fff", border: `1px solid ${C.line}`, boxShadow: "0 16px 30px -18px rgba(10,23,48,0.5)" }}>
           {[["cash", "Espèces", "cash"], ["momo", "Mobile Money", "phone"], ["credit", "À crédit", "clock"], ["partial", "Partiel", "money"]].map(([id, l, ic]) => { const on = mode === id; return (
-            <button key={id} type="button" onClick={() => setMode(id)} aria-pressed={on} className="gb-focus cy-tap h-16 rounded-[16px] flex flex-col items-center justify-center gap-1 text-[11.5px] font-extrabold" style={{ background: on ? C.navy : "transparent", color: on ? "#fff" : C.ink2, boxShadow: on ? "0 8px 18px -8px rgba(10,23,48,0.8)" : "none" }}><Icon name={ic} size={20} />{l}</button>
+            <button key={id} type="button" onClick={() => setMode(id)} aria-pressed={on} className="gb-focus cy-tap min-h-[64px] px-1 py-1.5 rounded-[16px] flex flex-col items-center justify-center gap-1 text-[11px] leading-tight text-center font-extrabold" style={{ background: on ? C.navy : "transparent", color: on ? "#fff" : C.ink2, boxShadow: on ? "0 8px 18px -8px rgba(10,23,48,0.8)" : "none" }}><Icon name={ic} size={20} />{l}</button>
           ); })}
         </div>
       </div>
@@ -323,10 +345,8 @@ export function PayScreen({ ctx, cart, client, setClient, onBack, onDone }) {
       )}
       {mode === "momo" && (
         <Card className="cy-a cy-d2 mt-3 p-3.5">
-          <p className="text-[11px] font-extrabold mb-1.5" style={{ color: C.muted }}>OPÉRATEUR</p>
-          <div className="grid grid-cols-4 gap-1.5">{["Orange", "MTN", "Moov", "Wave"].map((o) => <Chip key={o} on={op === o} onClick={() => setOp(o)} className="!px-1">{o}</Chip>)}</div>
-          <div className="mt-3"><Field label="RÉFÉRENCE DE LA TRANSACTION (CONSEILLÉ)"><input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Ex. MP241012.1530.A12345" style={inputStyle} /></Field></div>
-          <p className="mt-2.5 rounded-[12px] px-3 py-2 text-[11.5px] leading-snug flex gap-2" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E" }}><Icon name="info" size={16} />Vérifiez le SMS de confirmation avant de valider : l'application ne confirme pas le paiement à votre place.</p>
+          <MomoPicker value={op} onChange={setOp} />
+          <p className="mt-2.5 rounded-[12px] px-3 py-2 text-[11.5px] leading-snug flex gap-2" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E" }}><Icon name="info" size={16} />Vérifiez la réception du paiement {op} sur le téléphone, puis validez.</p>
         </Card>
       )}
       {isCredit && (
@@ -347,7 +367,7 @@ export function PayScreen({ ctx, cart, client, setClient, onBack, onDone }) {
       )}
       <div className="mt-3 flex items-center gap-2.5 px-1"><Toggle on={print} onChange={setPrint} label="Imprimer le reçu" /><span className="text-[13.5px] font-bold">Imprimer le reçu après validation</span></div>
       <BottomBar>
-        <Btn kind="green" full big icon="check" onClick={go} disabled={!ok && !(isCredit && !client)}>{mode === "credit" ? "Valider la vente à crédit" : mode === "partial" ? `Valider · ${fmt(paidNow)} encaissés` : `Valider le paiement · ${fmt(total)}`}</Btn>
+        <Btn kind="green" full big icon="check" onClick={go} disabled={!ok && !(isCredit && !client)}>{mode === "credit" ? "Valider la vente à crédit" : mode === "partial" ? `Valider · ${fmt(paidNow)} encaissés` : mode === "momo" ? `Valider · ${momoOf(op)?.short || op} · ${fmt(total)}` : `Valider le paiement · ${fmt(total)}`}</Btn>
       </BottomBar>
       {pick && <ClientPicker ctx={ctx} current={client} required onClose={() => setPick(false)} onPick={(c) => { setClient(c); setPick(false); }} />}
     </div>
@@ -356,47 +376,16 @@ export function PayScreen({ ctx, cart, client, setClient, onBack, onDone }) {
 
 // ---------- Reçu ----------
 export function ReceiptScreen({ ctx, sale, fresh, onNew, onBack, autoPrint }) {
-  const { fmt, shop, settings, pushToast } = ctx;
+  const { fmt, shop, settings } = ctx;
   const info = receiptInfo(shop, settings);
-  const m = receiptModel(sale, info, fmt);
-  const [busy, setBusy] = useState(false);
-  const print = async () => { setBusy(true); try { const how = await printReceipt(sale, info, fmt); if (how === "pdf") pushToast("Reçu enregistré en PDF", "ok"); } catch { pushToast("Impression impossible", "error"); } setBusy(false); };
-  useEffect(() => { if (autoPrint) { const t = setTimeout(print, 450); return () => clearTimeout(t); } return undefined; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const m = saleDoc(sale, info, fmt);
   const change = (sale.payments || []).filter((p) => p.mode === "cash" && p.given > p.amount).reduce((t, p) => t + (p.given - p.amount), 0);
-  return (
-    <div className="-mx-4 px-4 min-h-screen text-white" style={{ background: C.navy, paddingBottom: 200 }}>
-      <div className="pt-4 text-center">
-        {fresh ? (
-          <>
-            <span className="cy-pop inline-flex w-14 h-14 rounded-full items-center justify-center" style={{ background: "#10B981", boxShadow: "0 10px 26px -6px rgba(16,185,129,0.8)" }}><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path className="cy-ck" d="M20 6 9 17l-5-5" /></svg></span>
-            <p className="cy-a text-[20px] font-extrabold mt-2" style={{ fontFamily: FONT_D }}>{saleDue(sale) > 0 ? "Vente enregistrée" : "Paiement enregistré"}</p>
-            <p className="cy-a text-[12.5px]" style={{ color: "#B6C4DC" }}>{change > 0 ? <>Monnaie à rendre : <b style={{ color: "#6EE7B7" }}>{fmt(change)}</b></> : saleDue(sale) > 0 ? `Reste ${fmt(saleDue(sale))} au crédit de ${sale.client?.name}` : `Ticket ${sale.no}`}</p>
-          </>
-        ) : (
-          <div className="flex items-center gap-2.5 text-left"><button type="button" onClick={onBack} aria-label="Retour" className="gb-focus cy-tap w-11 h-11 rounded-[14px] flex items-center justify-center" style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.18)" }}><Icon name="back" size={20} stroke={2.4} /></button><span className="text-[20px] font-extrabold" style={{ fontFamily: FONT_D }}>Reçu {sale.no}</span></div>
-        )}
-      </div>
-      <div className="mx-2 mt-4">
-        <div className="cy-print rounded-t-[6px] px-4 pt-4 pb-5 text-[12px]" style={{ background: "#fff", color: C.ink, fontFamily: "ui-monospace, 'Courier New', monospace", boxShadow: "0 20px 40px -18px rgba(0,0,0,0.6)" }}>
-          <div className="text-center"><span className="inline-flex w-11 h-11 rounded-[13px] items-center justify-center" style={{ background: C.navy }}><Icon name="monitor" size={22} color="#22D3EE" /></span><p className="text-[15px] font-extrabold mt-1.5" style={{ fontFamily: FONT_D }}>{info.name.toUpperCase()}</p>{info.address && <p className="text-[11px]" style={{ color: C.muted }}>{info.address}</p>}{info.phone && <p className="text-[11px]" style={{ color: C.muted }}>Tél. {info.phone}</p>}{m.cancelled && <p className="mt-1 inline-block px-2 py-0.5 font-extrabold" style={{ border: "2px solid #B91C1C", color: "#B91C1C" }}>ANNULÉ</p>}</div>
-          <div className="my-2.5" style={{ borderTop: "1.5px dashed #94A3B8" }} />
-          {m.rows.map(([a, b]) => <div key={a} className="flex justify-between gap-2"><span>{a}</span><span className="text-right">{b}</span></div>)}
-          <div className="my-2.5" style={{ borderTop: "1.5px dashed #94A3B8" }} />
-          {m.lines.map((l, i) => <div key={i} className="mb-1"><div className="flex justify-between gap-2 font-bold"><span>{l.label}</span><span>{l.amount}</span></div>{l.detail && <div className="text-[10.5px]" style={{ color: C.muted }}>{l.detail}</div>}{l.official && <div className="flex justify-between text-[11px]"><span>  Frais officiels</span><span>{l.official}</span></div>}</div>)}
-          <div className="my-2" style={{ borderTop: "1.5px dashed #94A3B8" }} />
-          <div className="flex justify-between text-[15px] font-bold"><span>TOTAL</span><span>{m.total}</span></div>
-          {m.pay.map(([a, b]) => <div key={a} className="flex justify-between"><span>{a}</span><span>{b}</span></div>)}
-          <div className="my-2" style={{ borderTop: "1.5px dashed #94A3B8" }} />
-          <div className="text-center" style={{ color: C.ink2 }}>{m.thanks.map((t) => <p key={t}>{t}</p>)}</div>
-        </div>
-        <div style={{ height: 12, background: "radial-gradient(circle at 6px -2px, transparent 7px, #FFFFFF 7.5px) 0 0 / 12px 12px repeat-x" }} />
-      </div>
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] px-4 pt-3 grid grid-cols-2 gap-2 z-30" style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))", background: "linear-gradient(to top, #0A1730 75%, rgba(10,23,48,0))" }}>
-        <button type="button" onClick={() => shareReceipt(sale, info, fmt)} className="gb-focus cy-tap h-[50px] rounded-[16px] flex items-center justify-center gap-2 text-[13.5px] font-extrabold" style={{ border: "1px solid rgba(255,255,255,0.22)", background: "rgba(255,255,255,0.08)", color: "#fff" }}><Icon name="share" size={17} />Partager</button>
-        <button type="button" onClick={print} disabled={busy} className="gb-focus cy-tap h-[50px] rounded-[16px] flex items-center justify-center gap-2 text-[13.5px] font-extrabold" style={{ background: "#22D3EE", color: C.navy, boxShadow: "0 10px 22px -10px rgba(34,211,238,0.9)" }}><Icon name="printer" size={17} />{busy ? "Impression…" : "Imprimer"}</button>
-        <button type="button" onClick={fresh ? onNew : onBack} className="gb-focus cy-tap col-span-2 h-[54px] rounded-[18px] flex items-center justify-center gap-2 text-[15px] font-extrabold" style={{ background: "#fff", color: C.navy }}><Icon name={fresh ? "plus" : "back"} size={19} stroke={2.6} />{fresh ? "Nouvelle vente" : "Retour"}</button>
-      </div>
-    </div>
-  );
+  const head = fresh ? (
+    <SuccessHead
+      title={saleDue(sale) > 0 ? "Vente enregistrée" : "Paiement enregistré"}
+      sub={change > 0 ? <>Monnaie à rendre : <b style={{ color: "#6EE7B7" }}>{fmt(change)}</b></> : saleDue(sale) > 0 ? `Reste ${fmt(saleDue(sale))} au crédit de ${sale.client?.name}` : `Ticket ${sale.no}`}
+    />
+  ) : null;
+  return <DocScreen ctx={ctx} m={m} info={info} phone={sale.client?.phone} head={head} title={`Reçu ${sale.no}`} onBack={onBack} autoPrint={autoPrint} mainLabel={fresh ? "Nouvelle vente" : "Retour"} mainIcon={fresh ? "plus" : "back"} onMain={fresh ? onNew : onBack} />;
 }
 export { sp };

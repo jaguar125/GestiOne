@@ -8,6 +8,7 @@
 //    80 mm ou A4), qui permet aussi d'enregistrer en PDF.
 
 import { isPrinterFeatureAvailable, printRawEscPos } from "../printer.js";
+import { momoLabel } from "../MomoPicker.jsx";
 import { durationLabel, hmOf, isNight, toMs } from "./hotelLogic.js";
 
 export const KIND_TITLE = { start: "", collect: "RÈGLEMENT", resa: "RÉSERVATION" };
@@ -63,7 +64,7 @@ export function receiptModel(r, info, fmt) {
   const pay = [];
   if (r.paidBefore > 0) pay.push(["Déjà réglé", fmt(r.paidBefore)]);
   if (r.amount > 0) {
-    pay.push(["Mode de paiement", PAY_TXT[r.mode] || r.mode]);
+    pay.push(["Mode de paiement", r.mode === "momo" ? momoLabel(r.op) : PAY_TXT[r.mode] || r.mode]);
     pay.push(["Somme reçue", fmt(r.given || r.amount)]);
     pay.push(["Montant encaissé", fmt(r.amount)]);
     pay.push(["Monnaie rendue", fmt(r.change || 0)]);

@@ -8,6 +8,8 @@
 // GestiOne (fonctionne hors connexion).
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { uiSound } from "../tapSound.js";
+import { MomoPicker, DEFAULT_MOMO, momoName, momoLabel } from "../MomoPicker.jsx";
 import {
   H, Icon, Btn, Card, Label, Segmented, Chip, Toggle, Stepper, TopBar, RoomBadge, Field, inputStyle, Sheet, Empty,
 } from "./HotelUI.jsx";
@@ -84,7 +86,7 @@ export default function HotelApp(props) {
   const patchStay = (id, fn) => save.stays(stays.map((s) => (s.id === id ? { ...fn(s), updatedAt: nowIso() } : s)));
   const patchResa = (id, patch) => save.reservations(reservations.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: nowIso() } : r)));
 
-  const startStay = ({ room, tariff, client = "", phone = "", payMode = "cash", resa = null, guestId = null, given = null }) => {
+  const startStay = ({ room, tariff, client = "", phone = "", payMode = "cash", op = "", resa = null, guestId = null, given = null }) => {
     const start = Date.now();
     const end = computeEnd(start, tariff, settings);
     const conflicts = roomConflicts(room.id, start, end, { stays, reservations, now: start, excludeResaId: resa?.id });
@@ -95,17 +97,17 @@ export default function HotelApp(props) {
     }
     const price = Number(tariff.price) || 0;
     const payments = [];
-    if (resa && Number(resa.deposit) > 0) payments.push({ id: rid(), at: toMs(resa.depositAt || resa.createdAt || start) || start, amount: Number(resa.deposit), mode: resa.depositMode || "cash", by: resa.by || by, label: "Acompte réservation" });
+    if (resa && Number(resa.deposit) > 0) payments.push({ id: rid(), at: toMs(resa.depositAt || resa.createdAt || start) || start, amount: Number(resa.deposit), mode: resa.depositMode || "cash", op: resa.depositMode === "momo" ? momoName(resa.depositOp) || DEFAULT_MOMO : "", by: resa.by || by, label: "Acompte réservation" });
     const already = payments.reduce((t, p) => t + p.amount, 0);
     const nowPaid = payMode !== "later" && price - already > 0 ? price - already : 0;
-    if (nowPaid > 0) payments.push({ id: rid(), at: start, amount: nowPaid, mode: payMode, by, label: tariff.name, given: payMode === "cash" && Number(given) > nowPaid ? Number(given) : nowPaid });
+    if (nowPaid > 0) payments.push({ id: rid(), at: start, amount: nowPaid, mode: payMode, op: payMode === "momo" ? op || DEFAULT_MOMO : "", by, label: tariff.name, given: payMode === "cash" && Number(given) > nowPaid ? Number(given) : nowPaid });
     const stay = {
       id: rid(), roomId: room.id, roomNum: room.num, type: room.type, tariffId: tariff.id, tariffName: tariff.name, hours: Number(tariff.hours) || 0,
       price, start, end, client: client.trim(), phone: phone.trim(), payMode, payments, extensions: [], extras: [], status: "active", by,
       resaId: resa?.id || null, guestId: guestId || resa?.guestId || null, createdAt: nowIso(), updatedAt: nowIso(),
     };
     // Reçu de la location (passage ou nuitée), même si le paiement est pour plus tard.
-    stay.receipts = [makeStayReceipt(stay, { kind: "start", amount: nowPaid, given, mode: nowPaid > 0 ? payMode : "later", by, at: start })];
+    stay.receipts = [makeStayReceipt(stay, { kind: "start", amount: nowPaid, given, mode: nowPaid > 0 ? payMode : "later", op: payMode === "momo" ? op || DEFAULT_MOMO : "", by, at: start })];
     save.stays([stay, ...stays]);
     if (room.cleaning) patchRoom(room.id, { cleaning: null });
     if (resa) patchResa(resa.id, { status: "arrived", stayId: stay.id, arrivedAt: nowIso(), guestId: stay.guestId, client: stay.client || resa.client, phone: stay.phone || resa.phone });
@@ -137,18 +139,21 @@ export default function HotelApp(props) {
 
   const addExtra = (stay, label, amount) => {
     if (!(amount > 0)) return;
+    if (shop?.soundsEnabled !== false) uiSound("add");
     patchStay(stay.id, (s) => ({ ...s, extras: [...(s.extras || []), { id: rid(), at: Date.now(), label, amount, by }] }));
     pushToast(`${label} ajouté : ${fmt(amount)}`, "ok");
   };
 
-  const collect = (stay, mode = "cash", { given = null } = {}) => {
+  const collect = (stay, mode = "cash", { given = null, op = "" } = {}) => {
+    const opName = mode === "momo" ? op || DEFAULT_MOMO : "";
+    if (shop?.soundsEnabled !== false) uiSound("sale");
     const due = stayDue(stay);
     if (!(due > 0)) return null;
     const at = Date.now();
-    const paid = { ...stay, payments: [...(stay.payments || []), { id: rid(), at, amount: due, mode, by, label: "Encaissement", given: mode === "cash" && Number(given) > due ? Number(given) : due }] };
-    const rc = makeStayReceipt(paid, { kind: "collect", amount: due, given, mode, by, at });
+    const paid = { ...stay, payments: [...(stay.payments || []), { id: rid(), at, amount: due, mode, op: opName, by, label: "Encaissement", given: mode === "cash" && Number(given) > due ? Number(given) : due }] };
+    const rc = makeStayReceipt(paid, { kind: "collect", amount: due, given, mode, op: opName, by, at });
     patchStay(stay.id, (s) => ({ ...s, payments: [...(s.payments || []), paid.payments[paid.payments.length - 1]], receipts: [...(s.receipts || []), rc] }));
-    pushToast(`${fmt(due)} encaissé (${PAY_LABEL[mode]})${mode === "cash" && rc.change > 0 ? ` · monnaie ${fmt(rc.change)}` : ""}`, "ok");
+    pushToast(`${fmt(due)} encaissé (${mode === "momo" ? momoLabel(opName) : PAY_LABEL[mode]})${mode === "cash" && rc.change > 0 ? ` · monnaie ${fmt(rc.change)}` : ""}`, "ok");
     return rc;
   };
 
@@ -244,7 +249,7 @@ export default function HotelApp(props) {
     });
     pushToast(del ? "Réservation supprimée · la chambre est de nouveau libre" : "Réservation annulée · la chambre est de nouveau libre", "ok");
   };
-  const arriveReservation = (resa, { skipGuest, payMode, given, print } = {}) => {
+  const arriveReservation = (resa, { skipGuest, payMode, op, given, print } = {}) => {
     const room = roomById(resa.roomId);
     const guest = resa.guestId ? guests.find((x) => x.id === resa.guestId) : null;
     // Fiche du client complète (photos de la pièce comprises) avant d'entrer.
@@ -256,7 +261,7 @@ export default function HotelApp(props) {
     if (!room) { pushToast("Chambre introuvable", "error"); return; }
     // Fiche complète : on passe au paiement avant d'ouvrir la chambre.
     if (!payMode) { setRoute({ name: "arrivalPay", resaId: resa.id, guestId: resa.guestId, client: resa.client || "", phone: resa.phone || "" }); return; }
-    const stay = startStay({ room, tariff: { ...tariff, price: Number(resa.price) || Number(tariff.price) || 0 }, client: resa.client || "", phone: resa.phone || "", payMode, given, resa, guestId: resa.guestId });
+    const stay = startStay({ room, tariff: { ...tariff, price: Number(resa.price) || Number(tariff.price) || 0 }, client: resa.client || "", phone: resa.phone || "", payMode, op, given, resa, guestId: resa.guestId });
     if (stay) {
       if (print) setRoute({ name: "receipt", receipt: stay.receipts[0], fresh: true, back: { name: "stay", id: stay.id } });
       else setRoute({ name: "stay", id: stay.id });
@@ -375,7 +380,7 @@ export default function HotelApp(props) {
                 if (res !== true && settings.receipt.ask) showReceipt(res, null); else setRoute(null);
               }
             } else if (route.mode === "night") {
-              const s = startStay({ room: p.room, tariff: p.tariff, client: name, phone: gst.phone, payMode: p.payMode, guestId: gst.id, given: p.given });
+              const s = startStay({ room: p.room, tariff: p.tariff, client: name, phone: gst.phone, payMode: p.payMode, op: p.op, guestId: gst.id, given: p.given });
               if (s) { setRentPreset(null); if (p.print) showReceipt(s.receipts[0], { name: "stay", id: s.id }); else setRoute({ name: "stay", id: s.id }); }
             } else if (route.mode === "photosOnly") {
               setRoute(route.back || null);
@@ -954,7 +959,7 @@ function EnCoursTab({ ctx, openStay, f = "all" }) {
           <StayCard key={s.id} s={s} now={now} fmt={fmt} settings={settings} tariffs={tariffs} actions={actions} onOpen={() => openStay(s)} onPay={() => setPayFor(s)} />
         ))}
       </div>
-      {payFor && <PaySheet title={`Encaisser · chambre ${payFor.roomNum}`} amount={stayDue(payFor)} fmt={fmt} defaultPrint={settings.receipt.ask !== false} onClose={() => setPayFor(null)} onConfirm={({ mode, given, print }) => { const rc = actions.collect(payFor, mode, { given }); setPayFor(null); if (rc && print) openReceipt(rc); }} />}
+      {payFor && <PaySheet title={`Encaisser · chambre ${payFor.roomNum}`} amount={stayDue(payFor)} fmt={fmt} defaultPrint={settings.receipt.ask !== false} onClose={() => setPayFor(null)} onConfirm={({ mode, op, given, print }) => { const rc = actions.collect(payFor, mode, { given, op }); setPayFor(null); if (rc && print) openReceipt(rc); }} />}
     </div>
   );
 }
@@ -1311,6 +1316,7 @@ function RentScreen({ ctx, preset, onStarted, onReserve, onNeedGuest }) {
   const [client, setClient] = useState("");
   const [phone, setPhone] = useState("");
   const [pay, setPay] = useState("cash");
+  const [op, setOp] = useState(DEFAULT_MOMO);
   const [given, setGiven] = useState(0);
   const [print, setPrint] = useState(settings.receipt.ask !== false);
   useEffect(() => { if (preset) { setType(preset.type); setRoomId(preset.roomId); } }, [preset?.n]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1330,8 +1336,8 @@ function RentScreen({ ctx, preset, onStarted, onReserve, onNeedGuest }) {
     if (!tariff || !room) return;
     // Nuitée : fiche du client et photo de la pièce d'identité obligatoires.
     if (short) return;
-    if (isNight(tariff) && onNeedGuest) { onNeedGuest({ room, tariff, payMode: pay, given: pay === "cash" ? given : null, print, prefill: { lastName: client, phone } }); return; }
-    const s = actions.startStay({ room, tariff, client, phone, payMode: pay, given: pay === "cash" ? given : null });
+    if (isNight(tariff) && onNeedGuest) { onNeedGuest({ room, tariff, payMode: pay, op: pay === "momo" ? op : "", given: pay === "cash" ? given : null, print, prefill: { lastName: client, phone } }); return; }
+    const s = actions.startStay({ room, tariff, client, phone, payMode: pay, op: pay === "momo" ? op : "", given: pay === "cash" ? given : null });
     if (s) { setClient(""); setPhone(""); onStarted(s, print); }
   };
   return (
@@ -1373,6 +1379,7 @@ function RentScreen({ ctx, preset, onStarted, onReserve, onNeedGuest }) {
       <div className="grid grid-cols-3 gap-2">
         {Object.entries(PAY_LABEL).map(([id, l]) => <Chip key={id} on={pay === id} onClick={() => setPay(id)} className="!px-1">{l}</Chip>)}
       </div>
+      {pay === "momo" && <div className="mt-2.5"><MomoPicker value={op} onChange={setOp} /></div>}
       {pay === "cash" && tariff && <div className="mt-2.5"><CashGiven amount={price} given={given} setGiven={setGiven} fmt={fmt} /></div>}
       <div className="mt-2.5 flex items-center gap-3 rounded-[16px] px-3 py-2.5" style={{ background: "#fff", boxShadow: H.shadow }}>
         <Icon name="receipt" size={20} color={H.goldDark} />
@@ -1473,7 +1480,7 @@ function StayScreen({ ctx, stay, onBack, onReleased, onOpenGuest }) {
       {isOwner && <Btn kind="danger" full icon="ban" onClick={() => setCancelOpen(true)} className="mt-2.5 !min-h-[44px] !text-[13px]">Annuler ce séjour (propriétaire)</Btn>}
       <p className="mt-2 text-center text-[11.5px]" style={{ color: H.muted }}>{settings.cleaningRequired ? "Ensuite : ménage" : "Ensuite : chambre libre"}{settings.releaseVoice || settings.releaseNotify ? ` · annonce ${settings.releaseVoice && settings.releaseNotify ? "écrite et vocale" : settings.releaseVoice ? "vocale" : "écrite"} du numéro.` : "."}</p>
 
-      {payOpen && <PaySheet title={`Encaisser · chambre ${stay.roomNum}`} amount={due} fmt={fmt} defaultPrint={settings.receipt.ask !== false} onClose={() => setPayOpen(false)} onConfirm={({ mode, given, print }) => { const rc = actions.collect(stay, mode, { given }); setPayOpen(false); if (rc && print) openReceipt(rc); }} />}
+      {payOpen && <PaySheet title={`Encaisser · chambre ${stay.roomNum}`} amount={due} fmt={fmt} defaultPrint={settings.receipt.ask !== false} onClose={() => setPayOpen(false)} onConfirm={({ mode, op, given, print }) => { const rc = actions.collect(stay, mode, { given, op }); setPayOpen(false); if (rc && print) openReceipt(rc); }} />}
       {cancelOpen && <CancelSheet ctx={ctx} kind="stay" item={stay} onClose={() => setCancelOpen(false)} onDone={onBack} />}
       {extraOpen && (
         <Sheet title="Ajouter une consommation" onClose={() => setExtraOpen(false)}>
@@ -1504,6 +1511,7 @@ function ArrivalPayScreen({ ctx, resa, onBack, onConfirm }) {
   const deposit = Math.min(price, Number(resa.deposit) || 0);
   const rest = Math.max(0, price - deposit);
   const [mode, setMode] = useState(rest > 0 ? "cash" : "later");
+  const [op, setOp] = useState(DEFAULT_MOMO);
   const [given, setGiven] = useState(rest);
   const [print, setPrint] = useState(settings.receipt.ask !== false);
   const guest = guests.find((g) => g.id === resa.guestId);
@@ -1531,6 +1539,7 @@ function ArrivalPayScreen({ ctx, resa, onBack, onConfirm }) {
           <Label>Paiement du reste</Label>
           <div className="grid grid-cols-3 gap-2">{Object.entries(PAY_LABEL).map(([id, l]) => <Chip key={id} on={mode === id} onClick={() => setMode(id)} className="!px-1">{l}</Chip>)}</div>
           {mode === "cash" && <div className="mt-2.5"><CashGiven amount={rest} given={given} setGiven={setGiven} fmt={fmt} /></div>}
+          {mode === "momo" && <div className="mt-2.5"><MomoPicker value={op} onChange={setOp} /></div>}
         </>
       ) : <p className="mt-3 text-[13px] font-bold px-1" style={{ color: H.green }}>Séjour entièrement payé par l'acompte.</p>}
       <div className="mt-2.5 flex items-center gap-3 rounded-[16px] px-3 py-2.5" style={{ background: "#fff", boxShadow: H.shadow }}>
@@ -1538,7 +1547,7 @@ function ArrivalPayScreen({ ctx, resa, onBack, onConfirm }) {
         <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold">Afficher le reçu</span><span className="block text-[11.5px]" style={{ color: H.muted }}>Imprimer, PDF ou partager</span></span>
         <Toggle on={print} onChange={setPrint} label="Afficher le reçu" />
       </div>
-      <Btn kind="gold" full disabled={short} className="mt-4 !min-h-[56px] !text-[16px]" onClick={() => onConfirm({ payMode: rest > 0 ? mode : "later", given: mode === "cash" ? given : null, print })}>{short ? `Il manque ${fmt(rest - given)}` : `Ouvrir la chambre ${resa.roomNum}${rest > 0 && mode !== "later" ? ` · ${fmt(rest)}` : ""}`}</Btn>
+      <Btn kind="gold" full disabled={short} className="mt-4 !min-h-[56px] !text-[16px]" onClick={() => onConfirm({ payMode: rest > 0 ? mode : "later", op: mode === "momo" ? op : "", given: mode === "cash" ? given : null, print })}>{short ? `Il manque ${fmt(rest - given)}` : `Ouvrir la chambre ${resa.roomNum}${rest > 0 && mode !== "later" ? ` · ${fmt(rest)}` : ""}`}</Btn>
     </div>
   );
 }
