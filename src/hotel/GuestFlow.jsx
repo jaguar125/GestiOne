@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { H, Icon, Btn, Card, TopBar, RoomBadge, Field, inputStyle } from "./HotelUI.jsx";
 import { hmOf, dayLabel, isNight } from "./hotelLogic.js";
+import { GuestHistory } from "./HotelGuests.jsx";
 import { ID_DOCS, cropToJpeg, fileToDocJpeg, savePhotos, loadPhotos, ageOf, docValidity, guestErrors, guestFullName, normPhone } from "./hotelPhotos.js";
 
 const rid = () => Math.random().toString(36).slice(2, 10);
@@ -364,7 +365,7 @@ export default function GuestFlow({ ctx, info, mode = "night", initialGuest = nu
 }
 
 // ---------- Consultation de la fiche (réception et propriétaire) ----------
-export function GuestView({ ctx, guest, onBack, onAddPhotos }) {
+export function GuestView({ ctx, guest, onBack, onAddPhotos, onOpenReceipt }) {
   const { shopId, now } = ctx;
   const [shots, setShots] = useState(null);
   const doc = ID_DOCS[guest.docType] || ID_DOCS.cni;
@@ -404,6 +405,7 @@ export function GuestView({ ctx, guest, onBack, onAddPhotos }) {
         </div>
       )}
       {hasPhotos && <Btn kind="ghost" full className="mt-3" onClick={onAddPhotos}>Reprendre les photos</Btn>}
+      <GuestHistory ctx={ctx} guest={guest} onOpenReceipt={onOpenReceipt} />
       {zoom && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 no-print" style={{ background: "rgba(0,0,0,0.88)" }} onClick={() => setZoom(null)} role="dialog" aria-label="Photo de la pièce">
           <img src={zoom} alt="Pièce d'identité" className="max-w-full max-h-full rounded-[10px]" />

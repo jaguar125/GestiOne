@@ -95,6 +95,7 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
       { list: [
         r("home", "Tableau de bord", "Accueil de la réception", H.navy, "#67E8F9", "dash", pick(() => onTab("home")), "", "", tab === "home"),
         r("expenses", "Dépenses", "Enregistrer une dépense", H.redSoft, H.red, "money", pick(() => go("expenses")), `−${fmt(todayExp)}`, H.red),
+        r("guests", "Clients", "Fiches, pièces d'identité, passages", "#EEF0FF", "#4F46E5", "users", pick(() => go("guests")), String((ctx.guests || []).length)),
       ] },
       { sub: "S", t: "Réglages de l'entreprise", s: "Mon accès sur ce téléphone", icon: "gear", rows: [syncRow] },
       { sub: "A", t: "Assistance", s: "Aide et contact GestiOne", icon: "help", rows: helpRows },
@@ -108,6 +109,7 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
         r("receipts", "Reçus", "Tous les reçus · annulations", "#F5F3FF", "#6D28D9", "receipt", pick(() => go("receipts"))),
         r("expenses", "Dépenses", "Déduites de la recette du jour", H.redSoft, H.red, "money", pick(() => go("expenses")), `−${fmt(todayExp)}`, H.red),
         r("history", "Historique", "Toutes les opérations, par date", "#E7EEFD", "#1B3361", "history", pick(() => go("history"))),
+        r("guests", "Clients", "Fiches, pièces d'identité, passages", "#EEF0FF", "#4F46E5", "users", pick(() => go("guests")), String((ctx.guests || []).length)),
         r("inventory", "Inventaire", "Occupation des chambres", "#E2F5F2", "#0B7A6E", "clipboard", pick(() => go("inventory"))),
         r("profits", "Bénéfices", "Mois · trimestre · semestre · année", H.goldSoft, H.goldDark, "trend", pick(() => go("profits"))),
       ] },

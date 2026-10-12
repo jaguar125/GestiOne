@@ -68,7 +68,7 @@ const EV = {
   pass: ["clock", "#FFF1F3", "#E11D48"], night: ["moon", "#EEF0FF", "#4F46E5"], resa: ["cal", "#F5F3FF", "#7C3AED"],
   ext: ["plus", "#E0F7FB", "#0E7490"], exp: ["money", "#FEF2F2", "#B91C1C"], cancel: ["ban", "#F1F5F9", "#64748B"],
 };
-export function HistoryScreen({ ctx, onBack, openReceipt }) {
+export function HistoryScreen({ ctx, onBack, openReceipt, openGuest }) {
   const { stays, reservations, expenses, now, fmt, shop } = ctx;
   const rg = useRange(now, "month");
   const [t, setT] = useState("all");
@@ -88,7 +88,9 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
       rows: shown.map((e) => [`${new Date(e.at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} ${hmOf(e.at)}`, e.title + (e.cancelled && e.k !== "cancel" ? " (annulé)" : ""), e.sub, { t: `${e.k === "exp" ? "-" : e.k === "cancel" ? "" : "+"}${fmt(e.amount)}`, color: e.k === "exp" ? "#B91C1C" : e.cancelled ? "#94A3B8" : "#15803D", bold: true }]),
       total: ["Total net", "", "", fmt(fin.net)] }],
   }, receiptInfo(shop, ctx.settings));
-  const openOf = (e) => { const src = e.stay || e.resa; const rc = src && (src.receipts || [])[0]; return rc ? () => openReceipt(rc) : null; };
+  // Nuitée (ou séjour) avec fiche client : ouvre la fiche (identité, pièce, passages). Sinon : le reçu.
+  const guestOf = (e) => { const src = e.stay || e.resa; return src && src.guestId && (ctx.guests || []).some((g) => g.id === src.guestId) ? src.guestId : null; };
+  const openOf = (e) => { const gid = openGuest && guestOf(e); if (gid) return () => openGuest(gid); const src = e.stay || e.resa; const rc = src && (src.receipts || [])[0]; return rc ? () => openReceipt(rc) : null; };
   return (
     <div>
       <TopBar title="Historique" sub="Toutes les opérations de l'hôtel" onBack={onBack} right={<PdfBtn onClick={exportPdf} pushToast={ctx.pushToast} />} />
@@ -116,12 +118,14 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
               {d.items.map((e, i) => {
                 const S = EV[e.k] || EV.pass;
                 const open = openOf(e);
+                const gid = openGuest && guestOf(e);
                 const Tag = open ? "button" : "div";
                 return (
                   <Tag key={e.id} type={open ? "button" : undefined} onClick={open || undefined} className={`${open ? "gb-focus " : ""}w-full text-left min-h-[56px] flex items-center gap-2.5`} style={{ borderBottom: i === d.items.length - 1 ? "none" : "1px solid #F0F2F6", opacity: e.cancelled && e.k !== "cancel" ? 0.7 : 1 }}>
                     <span className="w-9 h-9 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: S[1], color: S[2] }}><Icon name={S[0]} size={17} stroke={2.3} /></span>
                     <span className="flex-1 min-w-0 py-1.5"><span className="block text-[13px] font-extrabold truncate">{e.title}</span><span className="block text-[11px] truncate" style={{ color: H.muted }}>{hmOf(e.at)}{e.sub ? ` · ${e.sub}` : ""}</span></span>
                     <span className="text-right shrink-0"><span className="block text-[13.5px] font-extrabold whitespace-nowrap" style={{ color: e.k === "exp" ? H.red : e.cancelled ? "#94A3B8" : H.green, textDecoration: e.cancelled ? "line-through" : "none" }}>{e.k === "exp" ? "−" : e.k === "cancel" ? "" : "+"}{fmt(e.amount)}</span>{e.amountNote ? <span className="block text-[10px] font-bold" style={{ color: H.muted }}>{e.amountNote}</span> : null}</span>
+                  {gid && <span className="w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "#EEF0FF", color: "#4F46E5" }} title="Fiche client"><Icon name="user" size={14} stroke={2.4} /></span>}
                   </Tag>
                 );
               })}

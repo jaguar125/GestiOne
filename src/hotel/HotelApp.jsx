@@ -24,6 +24,7 @@ import { HistoryScreen, InventoryScreen, ProfitScreen } from "./HotelReports.jsx
 import { HotelMenuDrawer, RulesScreen, AnnounceScreen, FaqScreen, BackupScreen } from "./HotelMenu.jsx";
 import { scheduleHotelReminders } from "./hotelNotifications.js";
 import GuestFlow, { GuestView } from "./GuestFlow.jsx";
+import { GuestsScreen } from "./HotelGuests.jsx";
 import { flushPhotos, purgeOldPhotos, guestFullName } from "./hotelPhotos.js";
 import {
   CashScreen, TarifsScreen, FormuleScreen, RoomsConfigScreen, SyncScreen, ExpensesScreen, StaffScreen,
@@ -443,8 +444,9 @@ export default function HotelApp(props) {
     }
     else if (route.name === "guestView") {
       const gst = guests.find((x) => x.id === route.guestId);
-      routed = gst ? <GuestView ctx={ctx} guest={gst} onBack={back} onAddPhotos={() => setRoute({ name: "guest", mode: "photosOnly", guest: gst, startStep: 2, back: route })} /> : null;
+      routed = gst ? <GuestView ctx={ctx} guest={gst} onBack={back} onAddPhotos={() => setRoute({ name: "guest", mode: "photosOnly", guest: gst, startStep: 2, back: route })} onOpenReceipt={(rc) => setRoute({ name: "receipt", receipt: rc, back: route })} /> : null;
     }
+    else if (route.name === "guests" && !isTech) routed = <GuestsScreen ctx={ctx} onBack={back} onOpen={(id) => setRoute({ name: "guestView", guestId: id, back: route })} />;
     else if (route.name === "tarifs") routed = <TarifsScreen ctx={ctx} onBack={back} onEdit={(t, type) => setRoute({ name: "formule", tariff: t, type, back: { name: "tarifs" } })} />;
     else if (route.name === "formule") routed = <FormuleScreen ctx={ctx} onBack={back} tariff={route.tariff} type={route.type} />;
     else if (route.name === "roomsConfig") routed = <RoomsConfigScreen ctx={ctx} onBack={back} />;
@@ -455,7 +457,7 @@ export default function HotelApp(props) {
     else if (route.name === "receipt" && route.receipt) routed = <ReceiptScreen ctx={ctx} receipt={route.receipt} fresh={route.fresh} onBack={back} onDone={back} />;
     else if (route.name === "receipts" && isOwner) routed = <ReceiptsScreen ctx={ctx} onBack={back} openReceipt={(rc) => setRoute({ name: "receipt", receipt: rc, back: route })} />;
     else if (route.name === "receiptSettings" && isOwner) routed = <ReceiptSettingsScreen ctx={ctx} onBack={back} />;
-    else if (route.name === "history" && isOwner) routed = <HistoryScreen ctx={ctx} onBack={back} openReceipt={(rc) => setRoute({ name: "receipt", receipt: rc, back: route })} />;
+    else if (route.name === "history" && isOwner) routed = <HistoryScreen ctx={ctx} onBack={back} openReceipt={(rc) => setRoute({ name: "receipt", receipt: rc, back: route })} openGuest={(id) => setRoute({ name: "guestView", guestId: id, back: route })} />;
     else if (route.name === "inventory" && isOwner) routed = <InventoryScreen ctx={ctx} onBack={back} />;
     else if (route.name === "profits" && isOwner) routed = <ProfitScreen ctx={ctx} onBack={back} />;
     else if (route.name === "rules" && isOwner) routed = <RulesScreen ctx={ctx} onBack={back} />;
