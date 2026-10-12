@@ -910,6 +910,10 @@ async function speak(text, enabled) {
   }
 }
 
+// Voix du cyber café : même moteur que les boutiques (toujours actif ; les
+// réglages d'annonce du cyber café décident déjà quand parler).
+const cyberSpeak = (text) => speak(text, true);
+
 async function loadKey(key, seed) {
   try {
     const r = await window.storage.get(key);
@@ -1282,7 +1286,9 @@ function GlobalStyle() {
       .gb-cyber button:not([class*="translate"]):not(:disabled):active{ transform:scale(.965); filter:brightness(.97); }
       /* Fenêtres qui montent du bas : plus souples */
       .gb-cyber .gb-slide-up{ animation-timing-function:cubic-bezier(.2,.8,.2,1) !important; }
-      .gb-cyber input:focus, .gb-cyber textarea:focus, .gb-cyber select:focus{ border-color:#06B6D4 !important; box-shadow:0 0 0 3px rgba(34,211,238,.22); outline:none; }
+      /* Saisie : aucun contour autour du texte tapé (le cadre du champ suffit) */
+      .gb-root input:focus, .gb-root textarea:focus, .gb-root select:focus,
+      .gb-root input:focus-visible, .gb-root textarea:focus-visible, .gb-root select:focus-visible{ outline:none !important; box-shadow:none !important; }
       /* Pas de pointillés : bordures pleines et nettes */
       .gb-cyber .border-dashed, .gb-cyber [style*="dashed"]{ border-style:solid !important; }
       @media (prefers-reduced-motion: reduce){ .gb-cyber *, .gb-cyber *::before, .gb-cyber *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important; } }
@@ -17093,21 +17099,7 @@ function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, suppo
           </div>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5" style={{ paddingBottom: "calc(110px + env(safe-area-inset-bottom))" }}>
-          {editorOn && !query && (
-            <button onClick={() => onPick("abonnement")} className="gb-focus w-full text-left mb-3 rounded-[20px] p-3.5 text-white relative overflow-hidden" style={{ background: "linear-gradient(150deg, #10251F 0%, #1C4A3A 100%)", boxShadow: "0 12px 24px -14px rgba(16,37,31,0.8)" }}>
-              <span className="absolute -right-10 -top-12 w-36 h-36 rounded-full" style={{ background: "radial-gradient(circle, rgba(246,196,83,0.38) 0%, rgba(246,196,83,0) 70%)" }} />
-              <span className="relative flex items-center gap-3">
-                <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #F6C453, #C98A1E)" }}><ShieldCheck size={22} color="#10251F" /></span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[10px] font-bold tracking-[0.16em]" style={{ color: "#F6C453" }}>ÉDITEUR GESTIONE</span>
-                  <span className="block font-display font-bold text-[16px]">Espace propriétaire</span>
-                  <span className="block text-[11.5px]" style={{ color: "#B9D3C6" }}>Abonnements et messages des boutiques</span>
-                </span>
-                {ownerUnread > 0 && <span className="min-w-[22px] h-[22px] px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0" style={{ background: "#F6C453", color: "#10251F" }}>{ownerUnread}</span>}
-                <ChevronRight size={18} color="#F6C453" className="shrink-0" />
-              </span>
-            </button>
-          )}
+          {/* Espace propriétaire : plus affiché dans le menu. Accès discret par 7 appuis rapides sur le logo. */}
           {groups.length === 0 && <p className="text-center text-sm opacity-50 py-6">Aucune rubrique trouvée.</p>}
           {groups.map((g) => {
             const col = ADMIN_GROUP_COLORS[g.name] || { fg: "var(--glass)", bg: "var(--paper-dim)" };
@@ -21343,6 +21335,7 @@ function AppInner() {
                     save={{ services: saveCyberServices, sales: saveCyberSales, clients: saveCyberClients, stock: saveCyberStock, moves: saveCyberMoves, events: saveCyberEvents, closes: saveCyberCloses, expenses: saveExpenses, shopMeta: saveShopMeta }}
                     fmt={(n) => formatMoney(Number(n) || 0, shop?.currency)}
                     pushToast={pushToast}
+                    speak={cyberSpeak}
                     notify={(title, body) => { try { phoneNotify(title, body); } catch { /* ignore */ } }}
                     onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }}
                     sync={{ online, pending: pendingSync, lastAt: hotelSync.lastAt, nextAt: hotelSync.nextAt, busy: hotelSync.busy, onSyncNow: () => hotelSyncNow(true) }}
@@ -21350,7 +21343,7 @@ function AppInner() {
                     onOrderLicense={(text, who) => setSupportPrefill({ text, n: Date.now(), ...(who || {}) })}
                     routeSignal={hotelRouteSignal}
                     staffApi={{ vendors: vendors || [], saveVendors, buildVendor: buildCyberVendor, isPinTaken: hotelPinTaken }}
-                    editorOn={hotelEditorOn} onEditorOpen={() => setHotelEditorOpen(true)}
+                    editorOn={false} onEditorOpen={() => setHotelEditorOpen(true)}
                     verifyOwnerPin={verifyAdminPin} faq={CYBER_SUPPORT_FAQ}
                     onOpenSupport={() => { setHotelSupportAsked(true); setSupportPrefill({ text: "", n: Date.now() }); }}
                     onOpenLegal={(d) => setHotelLegal(d || "terms")}
@@ -21372,7 +21365,7 @@ function AppInner() {
                     onOrderLicense={(text, who) => setSupportPrefill({ text, n: Date.now(), ...(who || {}) })}
                     routeSignal={hotelRouteSignal}
                     staffApi={{ vendors: vendors || [], saveVendors, buildVendor: buildHotelVendor, isPinTaken: hotelPinTaken }}
-                    editorOn={hotelEditorOn} onEditorOpen={() => setHotelEditorOpen(true)}
+                    editorOn={false} onEditorOpen={() => setHotelEditorOpen(true)}
                     verifyOwnerPin={verifyAdminPin} faq={HOTEL_SUPPORT_FAQ}
                     onOpenSupport={() => { setHotelSupportAsked(true); setSupportPrefill({ text: "", n: Date.now() }); }}
                     onOpenLegal={(d) => setHotelLegal(d || "terms")}

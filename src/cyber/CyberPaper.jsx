@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { C, FONT_D, Icon } from "./CyberUI.jsx";
 import { drawBarcode, printDoc, shareDoc } from "./cyberReceipt.js";
+import { voiceIdle } from "./cyberVoice.js";
 
 export function Barcode({ code }) {
   const ref = useRef(null);
@@ -77,7 +78,7 @@ export function DocScreen({ ctx, m, info, phone, head, title, onBack, mainLabel,
     try { const how = await printDoc(m, info); if (how === "pdf") pushToast("Reçu enregistré en PDF", "ok"); } catch { pushToast("Impression impossible", "error"); }
     setBusy(false);
   };
-  useEffect(() => { if (autoPrint) { const t = setTimeout(print, 450); return () => clearTimeout(t); } return undefined; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!autoPrint) return undefined; let off = false; const t = setTimeout(() => { voiceIdle().then(() => { if (!off) print(); }); }, 450); return () => { off = true; clearTimeout(t); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="-mx-4 px-4 min-h-screen text-white" style={{ background: C.navy, paddingBottom: 200 }}>
       <div className="pt-4 text-center">

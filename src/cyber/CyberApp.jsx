@@ -18,7 +18,7 @@ import {
   stockLevels, isLow, qtyLabel, lineTotal, lineOfficial, saleDue, salePaid, saleToPay, periodFigures, cashExpected, cyberSettingsOf, announceLevel,
   saleEvent, sayAmount, isLive,
 } from "./cyberLogic.js";
-import { announceVoice } from "./cyberVoice.js";
+import { announceVoice, setSpeaker } from "./cyberVoice.js";
 import { DragBubble } from "../DragBubble.jsx";
 import { momoLabel } from "../MomoPicker.jsx";
 import { SellScreen, PayScreen, ReceiptScreen } from "./CyberSell.jsx";
@@ -34,7 +34,7 @@ const nowIso = () => new Date().toISOString();
 export default function CyberApp(props) {
   const {
     shop, role, userName, staff, services = [], sales = [], clients = [], stock = [], moves = [], events = [], closes = [], expenses = [], save, fmt,
-    pushToast, notify, onLogout, sync, license, licenseStatus, onActivateLicense, pricing, onOrderLicense, routeSignal,
+    pushToast, speak, notify, onLogout, sync, license, licenseStatus, onActivateLicense, pricing, onOrderLicense, routeSignal,
     staffApi, renderInvites, editorOn = false, onEditorOpen, verifyOwnerPin, onOpenSupport, onOpenLegal, faq = [],
   } = props;
   const settings = cyberSettingsOf(shop);
@@ -42,6 +42,8 @@ export default function CyberApp(props) {
   const can = canOf(r);
   const by = userName || (r === "owner" ? "Propriétaire" : "Employé");
   const myDevice = useMemo(() => deviceId(), []);
+  // Même voix que les boutiques (moteur vocal du téléphone).
+  useEffect(() => { setSpeaker(speak || null); return () => setSpeaker(null); }, [speak]);
   const [tab, setTab] = useState("home");
   const [route, setRoute] = useState(null);
   const [menu, setMenu] = useState(false);
@@ -67,10 +69,12 @@ export default function CyberApp(props) {
   const setSettings = (patch) => save.shopMeta({ ...shop, cyberSettings: { ...settings, ...patch } });
 
   // ---------- Annonces : événements partagés entre tous les téléphones ----------
-  const addEvents = (list) => {
+  const addEvents = (list, { speak = true } = {}) => {
     const t = Date.now();
     const keep = events.filter((e) => t - e.at < 3 * DAY).slice(0, 300);
     save.events([...list.map((e) => ({ id: rid(), at: t, by, deviceId: myDevice, ...e })), ...keep]);
+    // Annonce vocale aussi sur le téléphone qui fait l'action.
+    if (speak) list.forEach((e) => speakLocal(e));
   };
   const seenKey = `cyber:seen:${shop?.id}`;
   const seenRef = useRef(null);
@@ -78,6 +82,11 @@ export default function CyberApp(props) {
   const markSeen = (id) => { seenRef.current.add(id); try { localStorage.setItem(seenKey, JSON.stringify([...seenRef.current].slice(-400))); } catch { /* ignore */ } };
   const quietNow = () => { if (settings.quiet === false) return false; const h = new Date().getHours(); return h >= (settings.quietFrom ?? 22) || h < (settings.quietTo ?? 7); };
   const levelFor = (ev) => (ev.type === "demande" ? (r === "owner" ? 2 : 0) : announceLevel(settings, ev.type, r));
+  // Compteur de la cloche : notifications arrivées depuis la dernière ouverture de l'activité.
+  const bellKey = `cyber:bell:${shop?.id}`;
+  const [bellSeenAt, setBellSeenAt] = useState(() => { try { return Number(localStorage.getItem(bellKey)) || 0; } catch { return 0; } });
+  const markBellSeen = () => { const t = Date.now(); setBellSeenAt(t); try { localStorage.setItem(bellKey, String(t)); } catch { /* ignore */ } };
+  const unread = events.filter((e) => e.at > bellSeenAt && (levelFor(e) > 0 || e.by === by)).length;
   const present = (ev, local) => {
     const lvl = levelFor(ev);
     if (lvl <= 0) return;
@@ -85,6 +94,7 @@ export default function CyberApp(props) {
     if (!local) notify?.(shop?.name || "Cyber café", `${ev.title} — ${ev.body || ""}`.trim());
     if (lvl === 2 && !quietNow() && ev.voice) announceVoice(ev.voice, { rate: settings.voiceRate || 1, withChime: settings.chime !== false });
   };
+  const speakLocal = (ev) => { if (levelFor(ev) === 2 && !quietNow() && ev.voice) announceVoice(ev.voice, { rate: settings.voiceRate || 1, withChime: settings.chime !== false }); };
   useEffect(() => {
     const t = Date.now();
     events.slice(0, 30).reverse().forEach((ev) => {
@@ -114,7 +124,9 @@ export default function CyberApp(props) {
     save.sales(nextSales);
     const ev = saleEvent(sale, shop, fmt);
     const list = [ev, ...lowCrossings(levels, after)];
-    addEvents(list);
+    addEvents(list, { speak: false });
+    // Annonce vocale aussi sur le téléphone qui fait la vente.
+    speakLocal(ev);
     list.forEach((e, i) => { if (i > 0) present({ ...e, id: rid() }, true); });
     pushToast(`${ev.title}`, "ok");
     setCart([]); setClient(null);
@@ -204,7 +216,7 @@ export default function CyberApp(props) {
   const notifyOwner = () => { addEvents([{ type: "demande", title: `${by} demande l'assistance`, body: `${by} a besoin d'aide : contactez l'assistance GestiOne depuis le menu.`, voice: `${shop?.name || "Cyber café"}. ${by} vous demande de contacter l'assistance GestiOne.` }]); pushToast("Le propriétaire est prévenu", "ok"); };
 
   const actions = { sell, payCredit, cancelSale, saveClient, saveStockItem, restock, inventory, addExpense, closeDay, saveService, setSettings, restoreBackup, announceTest, notifyOwner };
-  const ctx = { shop, settings, role: r, can, userName: by, staffNames, services, sales, clients, stock, moves, events, closes, expenses, levels, fmt, pushToast, actions, sync, now, H: C };
+  const ctx = { unread, onLogout, shop, settings, role: r, can, userName: by, staffNames, services, sales, clients, stock, moves, events, closes, expenses, levels, fmt, pushToast, actions, sync, now, H: C };
   const go = (name, extra = {}) => setRoute({ name, back: route, ...extra });
   const back = () => setRoute(route?.back || null);
   const openReceipt = (s) => go("receipt", { saleId: s.id });
@@ -236,7 +248,7 @@ export default function CyberApp(props) {
     else if (n === "order" && can.licence) screen = <OrderLicenceScreen ctx={ctx} onBack={back} pricing={pricing} planId={route.planId} onSend={(msg, who) => { onOrderLicense?.(msg, who); setRoute(null); }} />;
     else if (n === "faq") screen = <FaqScreen faq={faq} onBack={back} onSupport={can.support && onOpenSupport ? () => onOpenSupport() : null} />;
     else if (n === "support") screen = <SupportLocked onBack={back} onNotify={() => { notifyOwner(); back(); }} />;
-    else if (n === "activite") screen = <ActivityScreen ctx={ctx} levelFor={levelFor} onBack={back} />;
+    else if (n === "activite") screen = <ActivityScreen key="act" onSeen={markBellSeen} ctx={ctx} levelFor={levelFor} onBack={back} />;
   }
   const isFullBleed = ["receipt", "payreceipt", "closereceipt"].includes(route?.name);
   const showNav = !route;
@@ -268,7 +280,7 @@ function EventBanner({ ev, shop, onClose }) {
   return (
     <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] px-2.5 z-[80]" style={{ top: `calc(${STATUS_H} + 6px)` }}>
       <DragBubble id="cyber-annonce">
-      <button type="button" onClick={onClose} className="cy-drop w-full text-left rounded-[22px] p-3" style={{ background: "rgba(255,255,255,0.98)", border: `1px solid ${C.line}`, boxShadow: "0 22px 44px -16px rgba(10,23,48,0.55)" }}>
+      <button type="button" onClick={onClose} className="cy-drop w-full text-left rounded-[22px] p-3" style={{ background: "#FFFFFF", border: `1px solid ${C.line}`, boxShadow: "0 22px 44px -16px rgba(10,23,48,0.55)" }}>
         <span className="flex items-center gap-2.5">
           <span className="w-10 h-10 rounded-[13px] flex items-center justify-center text-white shrink-0" style={{ background: bg }}><Icon name={ic} size={19} stroke={2.4} /></span>
           <span className="flex-1 min-w-0"><span className="block text-[11px] font-extrabold tracking-[0.04em] truncate" style={{ color: C.muted }}>{(shop?.name || "Cyber café").toUpperCase()} · maintenant</span><span className="block text-[14.5px] font-extrabold truncate">{ev.title}</span></span>
@@ -340,11 +352,11 @@ function HomeScreen({ ctx, go, openMenu, onTab }) {
         <div className="cy-a flex items-center gap-2.5">
           <button type="button" onClick={openMenu} aria-label="Ouvrir le menu" className="gb-focus cy-tap w-[46px] h-[46px] rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#67E8F9,#0891B2)", boxShadow: "0 8px 20px -6px rgba(34,211,238,0.7)" }}><Icon name="monitor" size={23} color={C.navy} stroke={2.3} /></button>
           <span className="flex-1 min-w-0"><span className="block text-[10.5px] font-extrabold tracking-[0.14em]" style={{ color: "#67E8F9" }}>{role === "owner" ? "CYBER CAFÉ" : `${R.label.toUpperCase()} · CYBER CAFÉ`}</span><span className="block text-[19px] font-extrabold truncate" style={{ fontFamily: FONT_D }}>{role === "owner" ? shop?.name : `Bonjour ${userName}`}</span></span>
-          <button type="button" onClick={() => go("synchro")} className="gb-focus cy-tap h-[30px] px-2.5 rounded-full flex items-center gap-1.5 text-[11.5px] font-extrabold shrink-0" style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.16)", color: online ? "#D1FAE5" : "#FDE68A" }}><span className={online ? "cy-live" : ""} style={{ width: 8, height: 8, borderRadius: 4, background: online ? "#34D399" : "#F59E0B" }} />{online ? (sync?.pending ? `${sync.pending} en attente` : "En ligne") : "Hors ligne"}</button>
-          {can.team && <button type="button" onClick={() => go("activite")} aria-label="Activité en direct" className="gb-focus cy-tap w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0 relative" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.16)" }}><Icon name="bell" size={18} />{events.some((e) => now - e.at < 3600000 && e.by !== userName) && <span className="absolute top-[7px] right-2 w-2 h-2 rounded-full" style={{ background: "#FB923C", border: "2px solid #0A1730" }} />}</button>}
-          {!can.cash && <span className="h-[30px] px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-extrabold shrink-0" style={{ background: "rgba(255,255,255,0.1)", color: "#E2E8F0" }}><Icon name="lock" size={12} />Caisse masquée</span>}
+          <button type="button" onClick={() => go("synchro")} aria-label={online ? (sync?.pending ? `${sync.pending} en attente de synchronisation` : "En ligne · synchronisation") : "Hors ligne"} className="gb-focus cy-tap w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0 relative" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.16)" }}><Icon name="sync" size={17} color={online ? "#D1FAE5" : "#FDE68A"} /><span className={online ? "cy-live absolute" : "absolute"} style={{ top: 7, right: 7, width: 8, height: 8, borderRadius: 4, background: online ? "#34D399" : "#F59E0B", border: "1.5px solid #0A1730" }} /></button>
+          <button type="button" onClick={() => go("activite")} aria-label={ctx.unread ? `Notifications : ${ctx.unread} nouvelle${ctx.unread > 1 ? "s" : ""}` : "Notifications"} className="gb-focus cy-tap w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0 relative" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.16)" }}><Icon name="bell" size={18} />{ctx.unread > 0 && <span key={ctx.unread} className="cy-pop absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[11px] font-extrabold text-white" style={{ background: "#EF4444", border: "2px solid #0A1730" }}>{ctx.unread > 99 ? "99+" : ctx.unread}</span>}</button>
+          {ctx.onLogout && <button type="button" onClick={ctx.onLogout} aria-label="Se déconnecter" className="gb-focus cy-tap w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.16)" }}><Icon name="logout" size={18} /></button>}
         </div>
-        <p className="cy-a cy-d1 mt-3.5 text-[12.5px]" style={{ color: "#B6C4DC" }}>{new Date(now).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {role === "owner" ? `${userName}, propriétaire` : shop?.name}</p>
+        <p className="cy-a cy-d1 mt-3.5 text-[12.5px]" style={{ color: "#B6C4DC" }}>{new Date(now).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {role === "owner" ? `${userName}, propriétaire` : shop?.name} · <span style={{ color: online ? "#6EE7B7" : "#FDE68A" }}>{online ? (sync?.pending ? `${sync.pending} en attente` : "en ligne") : "hors ligne"}</span>{!can.cash && " · caisse masquée"}</p>
       </Hero>
       <div className="relative" style={{ marginTop: can.cash ? -70 : -62 }}>
         {can.cash ? (
@@ -418,8 +430,9 @@ function HomeScreen({ ctx, go, openMenu, onTab }) {
 }
 
 // ---------- Activité en direct ----------
-function ActivityScreen({ ctx, levelFor, onBack }) {
+function ActivityScreen({ ctx, levelFor, onBack, onSeen }) {
   const { events } = ctx;
+  useEffect(() => { onSeen?.(); return () => onSeen?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const list = events.filter((e) => levelFor(e) > 0 || e.by === ctx.userName).slice(0, 80);
   return (
     <div style={{ paddingBottom: 40 }}>
