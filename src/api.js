@@ -277,6 +277,8 @@ const ALL_SYNC_KEYS = [
   "avoirs", "cashRegisterEntries", "versements", "auditLog", "snackLots", "heldSales",
   // Hôtel : chambres, forfaits, séjours, réservations
   "hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests",
+  // Cyber café : prestations, tickets, clients, stock, mouvements, annonces, clôtures
+  "cyberServices", "cyberSales", "cyberClients", "cyberStock", "cyberMoves", "cyberEvents", "cyberCloses",
 ];
 
 // Une file par boutique : deux boutiques peuvent avoir la clé "products"
@@ -317,6 +319,7 @@ export const MERGE_KEYS = new Set([
   "sales", "avoirs", "movements", "clients", "expenses", "suppliers", "orders",
   "supplierProducts", "inventories", "snackLots", "products", "categories", "heldSales",
   "hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests",
+  "cyberServices", "cyberSales", "cyberClients", "cyberStock", "cyberMoves", "cyberEvents", "cyberCloses",
 ]);
 const allHaveIds = (list) => Array.isArray(list) && list.every((x) => x && typeof x === "object" && x.id != null && x.id !== "");
 const knownKey = (shopId, key) => `synced_ids:${shopId}:${key}`;

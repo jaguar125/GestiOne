@@ -640,14 +640,14 @@ export function LicenceScreen({ ctx, onBack, license, licenseStatus, onActivate,
 }
 
 // ---------- Commander une licence (message pré-rempli) ----------
-const BIZ_TYPES = ["Hôtel", "Cave", "Bar / Maquis", "Boutique", "Restaurant", "Autre"];
+const BIZ_TYPES = ["Hôtel", "Cyber café", "Cave", "Bar / Maquis", "Boutique", "Autre"];
 export function OrderLicenceScreen({ ctx, onBack, pricing = [], planId, onSend }) {
   const { shop, fmt, pushToast } = ctx;
   const plans = pricing.filter((p) => p.price);
   const [name, setName] = useState(shop?.adminDisplayName || "");
   const [contact, setContact] = useState(shop?.invoicePhone || "");
   const [company, setCompany] = useState(shop?.name || "");
-  const [kind, setKind] = useState("Hôtel");
+  const [kind, setKind] = useState(shop?.type === "cyber" ? "Cyber café" : "Hôtel");
   const [sel, setSel] = useState(planId || plans[0]?.id);
   const cur = plans.find((p) => p.id === sel) || plans[0];
   const send = () => {

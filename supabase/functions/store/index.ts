@@ -19,6 +19,8 @@ const ALLOWED_KEYS = new Set([
   "versements", "auditLog", "snackLots", "heldSales",
   // Hôtel
   "hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests",
+  // Cyber café
+  "cyberServices", "cyberSales", "cyberClients", "cyberStock", "cyberMoves", "cyberEvents", "cyberCloses",
 ]);
 
 // Listes fusionnées côté serveur (par id) au lieu d'être écrasées : une vente
@@ -28,6 +30,8 @@ const MERGE_KEYS = new Set([
   "sales", "avoirs", "movements", "clients", "expenses", "suppliers", "orders",
   "supplierProducts", "inventories", "snackLots", "products", "categories", "heldSales",
   "hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests",
+  // Cyber café
+  "cyberServices", "cyberSales", "cyberClients", "cyberStock", "cyberMoves", "cyberEvents", "cyberCloses",
 ]);
 
 // Listes remplacées en entier, mais dont les lignes annulées restent annulées.

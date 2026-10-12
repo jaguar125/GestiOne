@@ -6,7 +6,7 @@ import {
   Wallet, CreditCard, Truck, Users, Download, Printer, Store, ChevronDown, ChevronLeft, ChevronRight,
   Wine, Martini, Coffee, Milk, GlassWater, Bell,
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
-  Zap, Rocket, Crown, TrendingDown, LayoutGrid, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
+  Zap, Rocket, Crown, TrendingDown, LayoutGrid, Monitor, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
   Phone, Link2, Info, UserCheck, Activity, Flame, Minimize2, Maximize2, Mail, LockKeyhole, ShieldAlert, Timer, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
   PauseCircle,
 } from "lucide-react";
@@ -19,6 +19,7 @@ import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, 
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
 import { HoldSaleSheet, HeldSalesBanner, HistoryTabs, HeldSalesList, heldStockProblems } from "./HeldSales.jsx";
 import HotelApp from "./hotel/HotelApp.jsx";
+import CyberApp from "./cyber/CyberApp.jsx";
 import { flushPhotos as flushHotelPhotos } from "./hotel/hotelPhotos.js";
 import { isPrinterFeatureAvailable, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder } from "./printer.js";
 
@@ -391,7 +392,7 @@ const MOVEMENT_TYPES = {
 // Réglages de l'entreprise partagés entre tous les appareils (clé shopMeta).
 // Un champ absent de cette liste reste sur le téléphone où il a été réglé.
 const SHOP_META_SYNC_FIELDS = [
-  "name", "type", "hotelSettings", "hotelSeeded", "currency", "adminPinHash", "adminDisplayName", "theme", "darkMode", "soundsEnabled",
+  "name", "type", "hotelSettings", "hotelSeeded", "cyberSettings", "cyberSeeded", "currency", "adminPinHash", "adminDisplayName", "theme", "darkMode", "soundsEnabled",
   "voiceNotificationsEnabled", "loyaltyThreshold", "language", "cashRegisterResetHour",
   // Sécurité
   "autoLockMinutes", "protectSensitive",
@@ -418,6 +419,7 @@ const ESTABLISHMENT_TYPES = [
   { id: "snack", label: "Snack · pain fourré" },
   { id: "boutique", label: "Boutique" },
   { id: "hotel", label: "Hôtel" },
+  { id: "cyber", label: "Cyber café" },
   { id: "autre", label: "Autre" },
 ];
 
@@ -2213,10 +2215,10 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
     );
   }
 
-  const TYPE_ICONS = { maquis: Store, cave: Wine, buvette: GlassWater, bar: Beer, snack: Croissant, boutique: ShoppingCart, hotel: Building2 };
+  const TYPE_ICONS = { maquis: Store, cave: Wine, buvette: GlassWater, bar: Beer, snack: Croissant, boutique: ShoppingCart, hotel: Building2, cyber: Monitor };
   const STEP_META = {
     1: { eyebrow: "BIENVENUE SUR GESTIONE", title: "Comment s'appelle votre établissement ?", Icon: Store },
-    2: { eyebrow: "ÉQUIPE", title: type === "hotel" ? "Créez votre premier réceptionniste" : "Créez votre premier vendeur", Icon: UserPlus },
+    2: { eyebrow: "ÉQUIPE", title: type === "hotel" ? "Créez votre premier réceptionniste" : type === "cyber" ? "Créez votre premier employé" : "Créez votre premier vendeur", Icon: UserPlus },
     3: { eyebrow: "DERNIÈRE ÉTAPE", title: "Choisissez votre devise", Icon: Banknote },
   };
   const meta = STEP_META[step];
@@ -2276,7 +2278,7 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
           )}
           {step === 2 && (
             <>
-              <p className="text-xs font-semibold opacity-60 mb-1.5">{type === "hotel" ? "Nom du réceptionniste" : "Nom du vendeur"}</p>
+              <p className="text-xs font-semibold opacity-60 mb-1.5">{type === "hotel" ? "Nom du réceptionniste" : type === "cyber" ? "Nom de l'employé" : "Nom du vendeur"}</p>
               <input autoFocus value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="Ex : Awa, Junior…" className="gb-focus w-full rounded-xl px-4 py-3 text-sm border mb-4" style={{ borderColor: "var(--line)" }} />
               <p className="text-xs font-semibold opacity-60 mb-1.5">Code d'accès (4 chiffres)</p>
               <input value={vendorPin} onChange={(e) => setVendorPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="••••" inputMode="numeric" className="gb-focus w-full rounded-xl px-4 py-3 text-lg font-mono text-center tracking-[0.4em] border mb-4" style={{ borderColor: "var(--line)" }} />
@@ -17251,6 +17253,15 @@ function ShopSupportPage({ shop }) {
 
 // Questions fréquentes de l'assistance pour un hôtel (le reste de la bulle
 // est identique à celle des autres entreprises).
+const CYBER_SUPPORT_FAQ = [
+  { group: "Prestations et tarifs", q: "Comment changer le prix d'une photocopie ou créer un tarif dégressif ?", a: "Menu › Réglages de l'entreprise › Prestations et tarifs. Touchez la prestation, réglez le prix puis ajoutez des tranches (ex. à partir de 10 pages : 25 F). Les anciens tickets gardent leur prix." },
+  { group: "Prestations et tarifs", q: "Comment vendre une prestation qui n'est pas dans la liste ?", a: "Vendre › Prestation libre : écrivez le libellé et le montant." },
+  { group: "Caisse et crédits", q: "Quelle différence entre chiffre d'affaires et encaissé ?", a: "Le chiffre d'affaires compte toutes les ventes, même à crédit. L'encaissé compte l'argent réellement reçu (espèces et Mobile Money). Un paiement de crédit est un encaissement, pas une nouvelle vente." },
+  { group: "Caisse et crédits", q: "Comment faire une vente à crédit ?", a: "Au paiement, choisissez « À crédit » ou « Partiel », puis le client. Le reste dû apparaît dans Crédits ; touchez le client pour encaisser un paiement." },
+  { group: "Équipe et annonces", q: "Que voit un employé ?", a: "Un employé vend et voit seulement ses propres ventes. La caisse, les ventes des autres et les rapports sont réservés à la gérante et au propriétaire." },
+  { group: "Équipe et annonces", q: "Comment régler les annonces vocales ?", a: "Menu › Réglages de l'entreprise › Annonces vocales : choisissez qui reçoit la voix ou le message pour chaque activité. Le stock bas et les réapprovisionnements sont toujours annoncés." },
+  { group: "Utilisation", q: "L'application marche-t-elle sans internet ?", a: "Oui. Les ventes restent sur le téléphone et partent au serveur dès que le réseau revient. Les autres téléphones les reçoivent en quelques secondes." },
+];
 const HOTEL_SUPPORT_FAQ = [
   { id: "delete", danger: true, group: "Compte et sécurité", q: "Comment supprimer définitivement mon compte ?" },
   { group: "Chambres et séjours", q: "Comment ajouter ou renuméroter mes chambres ?", a: "Menu › Réglages de l'entreprise › Chambres & numéros. Ajoutez une chambre ou une série (ex. 113 à 116) et choisissez Ventilée ou Climatisée. Touchez un numéro pour le modifier ou le mettre hors service." },
@@ -18799,6 +18810,14 @@ function AppInner() {
   const [hotelReservations, setHotelReservations] = useState([]);
   const [hotelGuests, setHotelGuests] = useState([]);
   const [hotelSync, setHotelSync] = useState({ lastAt: null, nextAt: null, busy: false });
+  // Cyber café : prestations, tickets, clients, stock, mouvements, annonces, clôtures.
+  const [cyberServices, setCyberServices] = useState([]);
+  const [cyberSales, setCyberSales] = useState([]);
+  const [cyberClients, setCyberClients] = useState([]);
+  const [cyberStock, setCyberStock] = useState([]);
+  const [cyberMoves, setCyberMoves] = useState([]);
+  const [cyberEvents, setCyberEvents] = useState([]);
+  const [cyberCloses, setCyberCloses] = useState([]);
   const [supportPrefill, setSupportPrefill] = useState(null);
   const [hotelRouteSignal, setHotelRouteSignal] = useState(null);
   const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine !== false));
@@ -18907,7 +18926,7 @@ function AppInner() {
         setRole(storedRole);
         setCurrentVendorName(storedVendorName);
         const storedShop = dedupedShops.find((s) => s.id === activeId);
-        setView(storedShop?.type === "hotel" ? "hotel" : storedRole === "admin" ? storedView : (storedView === "admin" ? "sell" : storedView));
+        setView(storedShop?.type === "hotel" || storedShop?.type === "cyber" ? "hotel" : storedRole === "admin" ? storedView : (storedView === "admin" ? "sell" : storedView));
       }
       let storedHomeActive = false;
       try { const r = await window.storage.get("homeScreenActive"); storedHomeActive = JSON.parse(r.value); } catch { storedHomeActive = false; }
@@ -19142,7 +19161,7 @@ function AppInner() {
   // la relecture périodique.
   useEffect(() => {
     if (!activeShopId) return undefined;
-    const setters = { sales: setSales, avoirs: setAvoirs, movements: setMovements, clients: setClients, expenses: setExpenses, suppliers: setSuppliers, orders: setOrders, supplierProducts: setSupplierProducts, inventories: setInventories, snackLots: setSnackLots, heldSales: setHeldSales, products: setProducts, categories: setCategories, hotelRooms: setHotelRooms, hotelTariffs: setHotelTariffs, hotelStays: setHotelStays, hotelReservations: setHotelReservations, hotelGuests: setHotelGuests };
+    const setters = { sales: setSales, avoirs: setAvoirs, movements: setMovements, clients: setClients, expenses: setExpenses, suppliers: setSuppliers, orders: setOrders, supplierProducts: setSupplierProducts, inventories: setInventories, snackLots: setSnackLots, heldSales: setHeldSales, products: setProducts, categories: setCategories, hotelRooms: setHotelRooms, hotelTariffs: setHotelTariffs, hotelStays: setHotelStays, hotelReservations: setHotelReservations, hotelGuests: setHotelGuests, cyberServices: setCyberServices, cyberSales: setCyberSales, cyberClients: setCyberClients, cyberStock: setCyberStock, cyberMoves: setCyberMoves, cyberEvents: setCyberEvents, cyberCloses: setCyberCloses };
     return api.onMergedValue((key, merged, shopId) => {
       if (shopId !== activeShopId || !setters[key]) return;
       if (key === "sales") setSyncVersion((v) => v + 1);
@@ -19195,7 +19214,8 @@ function AppInner() {
           api.pullKey("auditLog", activeShopId),
           api.pullKey("snackLots", activeShopId),
           api.pullKey("heldSales", activeShopId),
-          ...(shopTypeRef.current === "hotel" ? ["hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests"].map((k) => api.pullKey(k, activeShopId)) : []),
+          ...["hotelRooms", "hotelTariffs", "hotelStays", "hotelReservations", "hotelGuests"].map((k) => (shopTypeRef.current === "hotel" ? api.pullKey(k, activeShopId) : Promise.resolve(undefined))),
+          ...["cyberServices", "cyberSales", "cyberClients", "cyberStock", "cyberMoves", "cyberEvents", "cyberCloses"].map((k) => (shopTypeRef.current === "cyber" ? api.pullKey(k, activeShopId) : Promise.resolve(undefined))),
         ]);
         if (cancelled) return;
         // Promise.allSettled (au lieu de Promise.all) : avant, si UNE SEULE
@@ -19204,7 +19224,7 @@ function AppInner() {
         // bloquait la mise à jour de TOUTES les autres données — produits,
         // catégories, ventes, etc. — pas seulement celle en échec. Chaque
         // clé a maintenant sa propre chance indépendante de réussir.
-        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements, freshAuditLog, freshSnackLots, freshHeldSales, freshHotelRooms, freshHotelTariffs, freshHotelStays, freshHotelReservations, freshHotelGuests] =
+        const [freshMeta, freshVendors, freshLicense, freshProducts, freshCategories, freshSales, freshAvoirs, freshMovements, freshClients, freshExpenses, freshSuppliers, freshOrders, freshSupplierProducts, freshInventories, freshCashRegisterEntries, freshVersements, freshAuditLog, freshSnackLots, freshHeldSales, freshHotelRooms, freshHotelTariffs, freshHotelStays, freshHotelReservations, freshHotelGuests, freshCyberServices, freshCyberSales, freshCyberClients, freshCyberStock, freshCyberMoves, freshCyberEvents, freshCyberCloses] =
           results.map((r) => (r.status === "fulfilled" ? r.value : undefined));
         // Annonces vocales des actions faites sur les autres appareils.
         try {
@@ -19302,6 +19322,13 @@ function AppInner() {
           ["hotelStays", freshHotelStays, setHotelStays],
           ["hotelReservations", freshHotelReservations, setHotelReservations],
           ["hotelGuests", freshHotelGuests, setHotelGuests],
+          ["cyberServices", freshCyberServices, setCyberServices],
+          ["cyberSales", freshCyberSales, setCyberSales],
+          ["cyberClients", freshCyberClients, setCyberClients],
+          ["cyberStock", freshCyberStock, setCyberStock],
+          ["cyberMoves", freshCyberMoves, setCyberMoves],
+          ["cyberEvents", freshCyberEvents, setCyberEvents],
+          ["cyberCloses", freshCyberCloses, setCyberCloses],
         ];
         if (Array.isArray(freshAuditLog)) {
           const localIds = new Set((auditRef.current || []).map((e) => e.id));
@@ -19400,7 +19427,7 @@ function AppInner() {
     let off = false;
     loadKey(`snackLots:${activeShopId}`, []).then((v) => { if (!off) setSnackLots(Array.isArray(v) ? v : []); });
     loadKey(`heldSales:${activeShopId}`, []).then((v) => { if (!off) { setHeldSales(Array.isArray(v) ? v : []); setResumedHeldId(null); } });
-    [["hotelRooms", setHotelRooms], ["hotelTariffs", setHotelTariffs], ["hotelStays", setHotelStays], ["hotelReservations", setHotelReservations], ["hotelGuests", setHotelGuests]].forEach(([k, set]) => {
+    [["hotelRooms", setHotelRooms], ["hotelTariffs", setHotelTariffs], ["hotelStays", setHotelStays], ["hotelReservations", setHotelReservations], ["hotelGuests", setHotelGuests], ["cyberServices", setCyberServices], ["cyberSales", setCyberSales], ["cyberClients", setCyberClients], ["cyberStock", setCyberStock], ["cyberMoves", setCyberMoves], ["cyberEvents", setCyberEvents], ["cyberCloses", setCyberCloses]].forEach(([k, set]) => {
       loadKey(`${k}:${activeShopId}`, []).then((v) => { if (!off) set(Array.isArray(v) ? v : []); });
     });
     loadKey(`auditLog:${activeShopId}`, []).then((v) => {
@@ -19486,6 +19513,13 @@ function AppInner() {
       case "hotelStays": return hotelStays;
       case "hotelReservations": return hotelReservations;
       case "hotelGuests": return hotelGuests;
+      case "cyberServices": return cyberServices;
+      case "cyberSales": return cyberSales;
+      case "cyberClients": return cyberClients;
+      case "cyberStock": return cyberStock;
+      case "cyberMoves": return cyberMoves;
+      case "cyberEvents": return cyberEvents;
+      case "cyberCloses": return cyberCloses;
       case "vendors": return vendors;
       case "products": return products;
       case "sales": return sales;
@@ -19769,6 +19803,20 @@ function AppInner() {
   const saveHotelStays = saveHotelKey("hotelStays", setHotelStays);
   const saveHotelReservations = saveHotelKey("hotelReservations", setHotelReservations);
   const saveHotelGuests = saveHotelKey("hotelGuests", setHotelGuests);
+  const saveCyberServices = saveHotelKey("cyberServices", setCyberServices);
+  const saveCyberSales = saveHotelKey("cyberSales", setCyberSales);
+  const saveCyberClients = saveHotelKey("cyberClients", setCyberClients);
+  const saveCyberStock = saveHotelKey("cyberStock", setCyberStock);
+  const saveCyberMoves = saveHotelKey("cyberMoves", setCyberMoves);
+  const saveCyberEvents = saveHotelKey("cyberEvents", setCyberEvents);
+  const saveCyberCloses = saveHotelKey("cyberCloses", setCyberCloses);
+  const buildCyberVendor = ({ name, pin, phone, cyberRole, initial }) => {
+    const rec = { ...(initial || {}), id: initial?.id || uid(), name, phone: phone || "", cyberRole: cyberRole || "employe" };
+    if (!initial) rec.createdAt = new Date().toISOString();
+    if (shop?.backendLinked) { rec.pinHash = api.hashPin(pin); rec.pin = pin; rec.joinCode = initial?.joinCode || generateShopJoinCode(); }
+    else rec.pin = pin;
+    return rec;
+  };
   // Accès du personnel de l'hôtel : même principe que les vendeurs
   // (nom + code PIN à 4 chiffres, code d'invitation), avec un rôle en plus.
   const buildHotelVendor = ({ name, pin, phone, hotelRole, initial }) => {
@@ -19804,7 +19852,7 @@ function AppInner() {
   };
   const hotelSyncNowRef = useRef(null);
   hotelSyncNowRef.current = hotelSyncNow;
-  const isHotelShop = shop?.type === "hotel";
+  const isHotelShop = shop?.type === "hotel" || shop?.type === "cyber";
   const hotelSyncMinutes = Number(shop?.hotelSettings?.syncMinutes) || 10;
   useEffect(() => {
     if (!isHotelShop || !activeShopId) return undefined;
@@ -19983,7 +20031,7 @@ function AppInner() {
   // renseigné pour aujourd'hui — pas seulement au moment de valider une vente.
   const [cashModalAfterVersement, setCashModalAfterVersement] = useState(false);
   useEffect(() => {
-    if (view === "sell" && role && shop && shop.type !== "hotel" && cashSyncReady && !todayCashEntry) {
+    if (view === "sell" && role && shop && shop.type !== "hotel" && shop.type !== "cyber" && cashSyncReady && !todayCashEntry) {
       setCashRegisterModalOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -21216,7 +21264,7 @@ function AppInner() {
     <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}`} style={themeVars}>
       <GlobalStyle />
       <div className="w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] min-h-screen relative" style={{ background: "var(--paper)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
-        {role === "admin" && shop?.type !== "hotel" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} />}
+        {role === "admin" && shop?.type !== "hotel" && shop?.type !== "cyber" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} />}
         {homeScreenActive ? (
           <OnboardingScreen
             shops={shops}
@@ -21236,11 +21284,32 @@ function AppInner() {
           <CurrencyContext.Provider value={shop.currency}><VocabContext.Provider value={{ ...(VOCAB[shopProfile(shop)] || VOCAB.boissons), painFourre: isPainShop(shop) }}>
           <LanguageContext.Provider value={shop.language || "fr"}>
             {!role ? (
-              <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); lastActivityRef.current = Date.now(); try { localStorage.setItem("lastActivityAt", String(Date.now())); } catch { /* ignore */ } logAudit("connexion", autoLoggedOutRef.current ? `Reconnexion de ${name} après déconnexion automatique${autoLoggedOutRef.current !== name ? ` (session précédente : ${autoLoggedOutRef.current})` : ""}` : `Connexion de ${name}`, { by: name, role: r }); autoLoggedOutRef.current = ""; try { localStorage.removeItem("autoLoggedOut"); } catch { /* ignore */ } setRole(r); setCurrentVendorName(name); setView(shop?.type === "hotel" ? "hotel" : isNuit(shop) ? "home" : "sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} notice={autoLoggedOutRef.current} />
-            ) : shop.type === "hotel" ? (
+              <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); lastActivityRef.current = Date.now(); try { localStorage.setItem("lastActivityAt", String(Date.now())); } catch { /* ignore */ } logAudit("connexion", autoLoggedOutRef.current ? `Reconnexion de ${name} après déconnexion automatique${autoLoggedOutRef.current !== name ? ` (session précédente : ${autoLoggedOutRef.current})` : ""}` : `Connexion de ${name}`, { by: name, role: r }); autoLoggedOutRef.current = ""; try { localStorage.removeItem("autoLoggedOut"); } catch { /* ignore */ } setRole(r); setCurrentVendorName(name); setView(shop?.type === "hotel" || shop?.type === "cyber" ? "hotel" : isNuit(shop) ? "home" : "sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} notice={autoLoggedOutRef.current} />
+            ) : shop.type === "hotel" || shop.type === "cyber" ? (
               <>
                 {licenseStatus === "expired" ? (
                   <LicenseLockedScreen role={role} shopName={shop?.name} onActivate={handleActivateLicense} pushToast={pushToast} onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} />
+                ) : shop.type === "cyber" ? (
+                  <CyberApp
+                    shop={shop} role={role} userName={actorName()}
+                    staff={role === "admin" ? null : (vendors || []).find((v) => normName(v.name) === normName(currentVendorName)) || null}
+                    services={cyberServices} sales={cyberSales} clients={cyberClients} stock={cyberStock} moves={cyberMoves} events={cyberEvents} closes={cyberCloses} expenses={expenses || []}
+                    save={{ services: saveCyberServices, sales: saveCyberSales, clients: saveCyberClients, stock: saveCyberStock, moves: saveCyberMoves, events: saveCyberEvents, closes: saveCyberCloses, expenses: saveExpenses, shopMeta: saveShopMeta }}
+                    fmt={(n) => formatMoney(Number(n) || 0, shop?.currency)}
+                    pushToast={pushToast}
+                    notify={(title, body) => { try { phoneNotify(title, body); } catch { /* ignore */ } }}
+                    onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }}
+                    sync={{ online, pending: pendingSync, lastAt: hotelSync.lastAt, nextAt: hotelSync.nextAt, busy: hotelSync.busy, onSyncNow: () => hotelSyncNow(true) }}
+                    license={license} licenseStatus={licenseStatus} onActivateLicense={handleActivateLicense} pricing={LICENSE_PLANS_PRICING}
+                    onOrderLicense={(text, who) => setSupportPrefill({ text, n: Date.now(), ...(who || {}) })}
+                    routeSignal={hotelRouteSignal}
+                    staffApi={{ vendors: vendors || [], saveVendors, buildVendor: buildCyberVendor, isPinTaken: hotelPinTaken }}
+                    editorOn={hotelEditorOn} onEditorOpen={() => setHotelEditorOpen(true)}
+                    verifyOwnerPin={verifyAdminPin} faq={CYBER_SUPPORT_FAQ}
+                    onOpenSupport={() => { setHotelSupportAsked(true); setSupportPrefill({ text: "", n: Date.now() }); }}
+                    onOpenLegal={(d) => setHotelLegal(d || "terms")}
+                    renderInvites={shop.backendLinked ? () => <VendorsSection shop={shop} sales={[]} vendors={vendors || []} saveVendors={saveVendors} pushToast={pushToast} adminPin={shop.adminPin} adminPinHash={shop.adminPinHash} backendLinked={shop.backendLinked} pushNotification={pushNotification} /> : null}
+                  />
                 ) : (
                   <HotelApp
                     shop={shop} role={role} userName={actorName()}
@@ -21279,7 +21348,7 @@ function AppInner() {
                 )}
                 {hotelLegal && <div className="fixed inset-0 z-[70]"><LegalScreen doc={hotelLegal} onSwitch={() => setHotelLegal(hotelLegal === "terms" ? "privacy" : "terms")} onClose={() => setHotelLegal(null)} /></div>}
                 {(role === "admin" || hotelSupportAsked) && licenseStatus !== "expired" && !ownerAccess && !hotelEditorOpen && (
-                  <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} variant="hotel" prefill={supportPrefill} onBuyLicense={() => setHotelRouteSignal({ name: "order", n: Date.now() })} />
+                  <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} variant={shop.type === "hotel" ? "hotel" : undefined} prefill={supportPrefill} onBuyLicense={() => setHotelRouteSignal({ name: "order", n: Date.now() })} />
                 )}
                 {role && locked && (
                   <LockScreen
