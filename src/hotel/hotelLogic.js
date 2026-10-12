@@ -19,9 +19,10 @@ export const DEFAULT_HOTEL_SETTINGS = {
   graceMinutes: 15, // tolérance avant de compter une heure de dépassement
   unitPrice: { vent: 2000, clim: 3000 }, // prix de l'heure (référence, prolongation)
   cleaningRequired: true, // une chambre libérée passe au ménage
-  voiceAlerts: true, // annonces vocales (fin de séjour, rappels)
+  voiceAlerts: true, // annonces vocales de chaque action (location, prolongation, nuitée, paiement…) et rappels
   releaseNotify: true, // notification écrite quand une chambre est libérée
   releaseVoice: true, // annonce vocale quand une chambre est libérée
+  cleaningVoice: true, // annonce vocale au début et à la fin du ménage
   endAlertMinutes: 5, // alerte avant la fin d'un séjour
   reminderHours: [5, 2], // rappels de réservation
   syncMinutes: 10, // synchronisation complète automatique
@@ -340,6 +341,13 @@ export function stayLines(stay) {
 }
 
 // Reçu d'un séjour (photo figée au moment de l'encaissement).
+// Annonces du ménage (écrites et vocales).
+export function cleaningMessage(roomNum, kind) {
+  return kind === "start"
+    ? `Le ménage de la chambre ${roomNum} vient de commencer.`
+    : `Ménage de la chambre ${roomNum} terminé. La chambre ${roomNum} est désormais disponible.`;
+}
+
 export function makeStayReceipt(stay, { kind = "start", amount = 0, given = null, mode = "cash", op = "", by = "", at = Date.now() } = {}) {
   const total = stayTotal(stay);
   const paidAfter = stayPaid(stay);

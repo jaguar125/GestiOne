@@ -687,9 +687,12 @@ export function NewResaScreen({ ctx, onBack, preset, onSaved }) {
   const { rooms, tariffs, stays, reservations, now, fmt, actions, settings, by, pushToast } = ctx;
   const [d0] = dayBounds(now);
   const firstDay = preset?.dayStart ? Math.round((preset.dayStart - d0) / DAY) : 0;
-  const [day, setDay] = useState(Math.max(0, firstDay));
-  const nextHalf = (() => { const d = new Date(now + 60 * 60000); return d.getHours() * 60 + (d.getMinutes() < 30 ? 30 : 60); })();
-  const [mins, setMins] = useState(Math.min(23 * 60 + 30, firstDay > 0 ? 19 * 60 : nextHalf));
+  // Heure proposée : dans une heure, arrondie à la demi-heure suivante. Le soir,
+  // elle peut tomber après minuit : on propose alors le lendemain.
+  const next = (() => { const d = new Date(now + 60 * 60000); d.setSeconds(0, 0); d.setMinutes(d.getMinutes() < 30 ? 30 : 60); return d.getTime(); })();
+  const nextDay = Math.max(0, Math.floor((next - d0) / DAY));
+  const [day, setDay] = useState(firstDay > 0 ? firstDay : nextDay);
+  const [mins, setMins] = useState(firstDay > 0 ? 19 * 60 : Math.round((next - (d0 + nextDay * DAY)) / 60000));
   const [type, setType] = useState(rooms.some((r) => r.type === "vent") ? "vent" : "clim");
   const [tariffId, setTariffId] = useState(null);
   const [roomId, setRoomId] = useState(null);

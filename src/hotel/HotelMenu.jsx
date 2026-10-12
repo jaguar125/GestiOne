@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { H, Icon, Btn, Card, TopBar, Toggle, GroupTitle } from "./HotelUI.jsx";
-import { releaseMessage, hotelCashForDay, isActiveStay, localDayKey, hmOf, dayLabel, DAY } from "./hotelLogic.js";
+import { releaseMessage, cleaningMessage, hotelCashForDay, isActiveStay, localDayKey, hmOf, dayLabel, DAY } from "./hotelLogic.js";
 import { exportBinaryFile } from "../nativeExport.js";
 
 // Numéro d'assistance GestiOne (téléphone et WhatsApp), format international
@@ -118,7 +118,7 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
         r("tarifs", "Tarifs & forfaits", `Heures, prix · nuitée ${settings.checkoutTime}`, H.orangeSoft, H.orange, "tag", pick(() => go("tarifs")), String(ctx.tariffs.filter((t) => t.active !== false).length)),
         r("receiptSettings", "Logo et reçus", settings.receipt.logo ? "Logo, en-tête, message, papier" : "Logo par défaut · ajoutez le vôtre", "#F5F3FF", "#6D28D9", "receipt", pick(() => go("receiptSettings"))),
         r("rules", "Règles automatiques", "Ménage obligatoire, rappels", H.indigoSoft, H.indigo, "sliders", pick(() => go("rules")), settings.cleaningRequired || settings.voiceAlerts ? "Activées" : "Arrêtées", settings.cleaningRequired || settings.voiceAlerts ? H.green : H.muted),
-        r("announce", "Annonce chambre libérée", "Notification écrite et vocale", "#ECF8F6", "#0B6B61", "speaker", pick(() => go("announce")), settings.releaseNotify || settings.releaseVoice ? "Oui" : "Non", settings.releaseNotify || settings.releaseVoice ? H.green : H.muted),
+        r("announce", "Annonces des chambres", "Libération et ménage · écrite et vocale", "#ECF8F6", "#0B6B61", "speaker", pick(() => go("announce")), settings.releaseNotify || settings.releaseVoice ? "Oui" : "Non", settings.releaseNotify || settings.releaseVoice ? H.green : H.muted),
         syncRow,
         r("backup", "Sauvegarde & restauration", "Fichier de sauvegarde de l'hôtel", "#E0F2FE", "#0369A1", "save", pick(() => go("backup")), lastBackup ? ago(lastBackup.at, now) : "À faire", backupOld ? H.orange : H.green),
         r("licence", "Licence", license?.planId === "trial" ? "Essai gratuit de 14 jours" : "Durée, activation, commande", H.goldSoft, H.goldDark, "key", pick(() => go("licence")), lic, H.goldDark),
@@ -259,7 +259,7 @@ export function RulesScreen({ ctx, onBack }) {
       <TopBar title="Règles automatiques" sub="Réglages de l'entreprise · propriétaire" onBack={onBack} />
       <Card className="mt-3 px-3">
         {line("Ménage obligatoire", "Après chaque départ, la chambre passe en ménage avant d'être relouée", settings.cleaningRequired, "cleaningRequired")}
-        {line("Rappels vocaux et écrits", `Fin de séjour · réservations ${settings.reminderHours.join(" h et ")} h avant`, settings.voiceAlerts, "voiceAlerts", true)}
+        {line("Annonces vocales des actions", `Locations, prolongations, nuitées, paiements, réservations · rappels ${settings.reminderHours.join(" h et ")} h avant`, settings.voiceAlerts, "voiceAlerts", true)}
       </Card>
       <p className="mt-3 px-1 text-[12px] leading-relaxed" style={{ color: H.muted }}>Ces règles s'appliquent sur tous les téléphones de l'hôtel après la prochaine synchronisation.</p>
     </div>
@@ -272,7 +272,7 @@ export function AnnounceScreen({ ctx, onBack }) {
   const setS = (patch) => save.shopMeta({ ...shop, hotelSettings: { ...settings, ...patch } });
   return (
     <div>
-      <TopBar title="Annonce chambre libérée" sub="Réglages de l'entreprise · propriétaire" onBack={onBack} />
+      <TopBar title="Annonces des chambres" sub="Libération et ménage · propriétaire" onBack={onBack} />
       <Card className="mt-3 px-3">
         <div className="flex items-start gap-2.5 py-3" style={{ borderBottom: `1px solid ${H.line2}` }}>
           <span className="w-9 h-9 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: H.violetSoft, color: H.violet }}><Icon name="broom" size={18} /></span>
@@ -281,6 +281,13 @@ export function AnnounceScreen({ ctx, onBack }) {
         <div className="min-h-[56px] flex items-center gap-3" style={{ borderBottom: `1px solid ${H.line2}` }}><span className="flex-1 min-w-0 py-2"><span className="block text-[14px] font-extrabold">Notification écrite</span><span className="block text-[11.5px]" style={{ color: H.muted }}>Message affiché sur le téléphone</span></span><Toggle on={settings.releaseNotify} onChange={(v) => setS({ releaseNotify: v })} label="Notification écrite à la libération" /></div>
         <div className="min-h-[56px] flex items-center gap-3" style={{ borderBottom: `1px solid ${H.line2}` }}><span className="flex-1 min-w-0 py-2"><span className="block text-[14px] font-extrabold">Annonce vocale</span><span className="block text-[11.5px]" style={{ color: H.muted }}>Le téléphone prononce le numéro de la chambre</span></span><Toggle on={settings.releaseVoice} onChange={(v) => setS({ releaseVoice: v })} label="Annonce vocale à la libération" /></div>
         <div className="py-3"><Btn kind="ghost" full onClick={() => ctx.announceRelease?.("4")} className="!min-h-[46px] !text-[13.5px] whitespace-nowrap"><Icon name="speaker" size={18} />Tester l'annonce</Btn></div>
+      </Card>
+      <Card className="mt-3 px-3">
+        <div className="flex items-start gap-2.5 py-3" style={{ borderBottom: `1px solid ${H.line2}` }}>
+          <span className="w-9 h-9 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: H.greenSoft, color: H.green }}><Icon name="speaker" size={18} /></span>
+          <span className="flex-1 min-w-0 text-[12.5px] font-bold leading-snug" style={{ color: H.ink2 }}>« {cleaningMessage("8", "start")} »<span className="block mt-1">« {cleaningMessage("8", "done")} »</span><span className="block mt-0.5 text-[11px] font-semibold" style={{ color: H.muted }}>Annoncé sur tous les téléphones de l'hôtel quand le ménage commence (bouton « Commencer ») et quand la chambre est prête.</span></span>
+        </div>
+        <div className="min-h-[56px] flex items-center gap-3"><span className="flex-1 min-w-0 py-2"><span className="block text-[14px] font-extrabold">Annonce vocale du ménage</span><span className="block text-[11.5px]" style={{ color: H.muted }}>Début et fin du ménage de chaque chambre</span></span><Toggle on={settings.cleaningVoice !== false} onChange={(v) => setS({ cleaningVoice: v })} label="Annonce vocale du ménage" /></div>
       </Card>
     </div>
   );

@@ -14,7 +14,7 @@ import {
   H, Icon, Btn, Card, Label, Segmented, Chip, Toggle, Stepper, TopBar, RoomBadge, Field, inputStyle, Sheet, Empty,
 } from "./HotelUI.jsx";
 import {
-  ROOM_TYPES, roomTypeOf, hotelSettingsOf, releaseMessage, defaultTariffs, computeEnd, nightCheckout, isNight, toMs, stayTotal, stayPaid, stayDue,
+  ROOM_TYPES, roomTypeOf, hotelSettingsOf, releaseMessage, cleaningMessage, defaultTariffs, computeEnd, nightCheckout, isNight, toMs, stayTotal, stayPaid, stayDue,
   isActiveStay, isLiveResa, roomConflicts, roomState, STATE_STYLE, sortRooms, freeRoomsFor, hotelCashForDay, remindersDue,
   stayAlertsDue, extensionPrice, overtimeHours, fmtClock, fmtShort, hmOf, pad2, dayBounds, dayLabel, HOUR, DAY, localDayKey,
   makeStayReceipt, makeResaReceipt,
@@ -112,7 +112,7 @@ export default function HotelApp(props) {
     if (room.cleaning) patchRoom(room.id, { cleaning: null });
     if (resa) patchResa(resa.id, { status: "arrived", stayId: stay.id, arrivedAt: nowIso(), guestId: stay.guestId, client: stay.client || resa.client, phone: stay.phone || resa.phone });
     pushToast(`Chambre ${room.num} : ${tariff.name} démarré${isNight(tariff) ? "e" : ""} · fin ${isNight(tariff) ? `demain ${settings.checkoutTime}` : hmOf(end)}`, "ok");
-    if (settings.voiceAlerts) speak?.(`Chambre ${room.num}, ${tariff.name}, démarré.`);
+    say(isNight(tariff) ? `La chambre ${room.num} vient d'être louée pour la nuit.` : `La chambre ${room.num} vient d'être louée, ${tariff.name}.`, `start:${stay.id}`);
     return stay;
   };
 
@@ -121,8 +121,10 @@ export default function HotelApp(props) {
     const newEnd = toMs(stay.end) + hours * HOUR;
     const conflicts = roomConflicts(stay.roomId, toMs(stay.end), newEnd, { stays, reservations, now: Date.now(), excludeStayId: stay.id });
     if (conflicts.length) { pushToast(`Impossible : chambre ${stay.roomNum} réservée à ${hmOf(conflicts[0].start)}`, "error"); return; }
-    patchStay(stay.id, (s) => ({ ...s, end: newEnd, extensions: [...(s.extensions || []), { id: rid(), at: Date.now(), kind: "hour", hours, amount, by }] }));
+    const ext = { id: rid(), at: Date.now(), kind: "hour", hours, amount, by };
+    patchStay(stay.id, (s) => ({ ...s, end: newEnd, extensions: [...(s.extensions || []), ext] }));
     pushToast(`+${hours} h · fin à ${hmOf(newEnd)} · ${fmt(amount)} à encaisser`, "ok");
+    say(`La chambre ${stay.roomNum} vient de prendre ${hours === 1 ? "une heure" : plural(hours, "heure")} de plus.`, `ext:${ext.id}`);
   };
 
   const toNight = (stay) => {
@@ -133,7 +135,9 @@ export default function HotelApp(props) {
     if (conflicts.length) { pushToast(`Impossible : chambre ${stay.roomNum} réservée à ${hmOf(conflicts[0].start)}`, "error"); return; }
     const current = (Number(stay.price) || 0) + (stay.extensions || []).reduce((t, e) => t + (Number(e.amount) || 0), 0);
     const diff = Math.max(0, nightPrice - current);
-    patchStay(stay.id, (s) => ({ ...s, end: newEnd, hours: 0, tariffName: night?.name || "Nuitée", extensions: [...(s.extensions || []), { id: rid(), at: Date.now(), kind: "night", amount: diff, by }] }));
+    const ext = { id: rid(), at: Date.now(), kind: "night", amount: diff, by };
+    patchStay(stay.id, (s) => ({ ...s, end: newEnd, hours: 0, tariffName: night?.name || "Nuitée", extensions: [...(s.extensions || []), ext] }));
+    say(`La chambre ${stay.roomNum} vient d'être conservée pour la nuit.`, `ext:${ext.id}`);
     pushToast(`Passé en nuitée · départ ${dayLabel(newEnd)} ${hmOf(newEnd)}${diff ? ` · ${fmt(diff)} à encaisser` : ""}`, "ok");
   };
 
@@ -142,6 +146,7 @@ export default function HotelApp(props) {
     if (shop?.soundsEnabled !== false) uiSound("add");
     patchStay(stay.id, (s) => ({ ...s, extras: [...(s.extras || []), { id: rid(), at: Date.now(), label, amount, by }] }));
     pushToast(`${label} ajouté : ${fmt(amount)}`, "ok");
+    say(`${label} ajouté à la chambre ${stay.roomNum}, pour ${amount} francs CFA.`);
   };
 
   const collect = (stay, mode = "cash", { given = null, op = "" } = {}) => {
@@ -154,6 +159,7 @@ export default function HotelApp(props) {
     const rc = makeStayReceipt(paid, { kind: "collect", amount: due, given, mode, op: opName, by, at });
     patchStay(stay.id, (s) => ({ ...s, payments: [...(s.payments || []), paid.payments[paid.payments.length - 1]], receipts: [...(s.receipts || []), rc] }));
     pushToast(`${fmt(due)} encaissé (${mode === "momo" ? momoLabel(opName) : PAY_LABEL[mode]})${mode === "cash" && rc.change > 0 ? ` · monnaie ${fmt(rc.change)}` : ""}`, "ok");
+    say(`Paiement de ${Math.round(due)} francs CFA reçu pour la chambre ${stay.roomNum}${mode === "momo" ? `, par ${momoName(opName)}` : ", en espèces"}.`);
     return rc;
   };
 
@@ -171,6 +177,7 @@ export default function HotelApp(props) {
     } : s)));
     if (stay.status === "active" && settings.cleaningRequired) patchRoom(stay.roomId, { cleaning: { state: "wait", since: at, stayId: stay.id } });
     pushToast(`Séjour de la chambre ${stay.roomNum} annulé${refund && paid > 0 ? ` · ${fmt(paid)} remboursé` : ""}`, "ok");
+    say(`Le séjour de la chambre ${stay.roomNum} vient d'être annulé.`);
   };
 
   const seenRef = useRef(new Set());
@@ -180,6 +187,10 @@ export default function HotelApp(props) {
     try { if (localStorage.getItem(`hotelAlert:${k}`)) return false; localStorage.setItem(`hotelAlert:${k}`, String(Date.now())); } catch { /* ignore */ }
     return true;
   };
+  // Annonce vocale d'une action (réglage « Annonces vocales »). La clé évite
+  // que ce téléphone répète l'annonce quand l'action revient par la synchro.
+  const say = (msg, key) => { if (key) once(key); if (settings.voiceAlerts !== false) speak?.(msg); };
+  const plural = (n, w) => `${n} ${w}${n > 1 ? "s" : ""}`;
   // Annonce écrite et vocale d'une chambre libérée (réglable par le propriétaire).
   const announceRelease = (roomNum) => {
     const msg = releaseMessage(roomNum, settings.cleaningRequired);
@@ -206,16 +217,30 @@ export default function HotelApp(props) {
     save.stays(stays.map((s) => (s.id === stay.id ? { ...s, roomId: room.id, roomNum: room.num, movedFrom: stay.roomNum, updatedAt: nowIso() } : s)));
     if (settings.cleaningRequired) save.rooms(rooms.map((r) => (r.id === stay.roomId ? { ...r, cleaning: { state: "wait", since: Date.now() }, updatedAt: nowIso() } : r)));
     pushToast(`Client déplacé de la ${stay.roomNum} à la ${room.num}`, "ok");
+    say(`Le client de la chambre ${stay.roomNum} vient d'être déplacé à la chambre ${room.num}.`);
   };
 
-  const cleaningStart = (room) => patchRoom(room.id, { cleaning: { ...(room.cleaning || {}), state: "doing", by, startedAt: Date.now() } });
+  // Annonce du ménage : sur ce téléphone tout de suite, sur les autres après la synchro.
+  const announceCleaning = (roomNum, kind) => {
+    const msg = cleaningMessage(roomNum, kind);
+    pushToast(kind === "start" ? `Ménage commencé · chambre ${roomNum}` : `Chambre ${roomNum} prête`, "ok");
+    if (settings.releaseNotify) notify?.(kind === "start" ? `Chambre ${roomNum} · ménage en cours` : `Chambre ${roomNum} disponible`, msg);
+    if (settings.cleaningVoice !== false) speak?.(msg);
+  };
+  const cleaningStart = (room) => {
+    const t = Date.now();
+    patchRoom(room.id, { cleaning: { ...(room.cleaning || {}), state: "doing", by, startedAt: t } });
+    once(`clean-start:${room.id}:${t}`);
+    announceCleaning(room.num, "start");
+  };
   // Historique du ménage : chaque chambre garde ses 200 derniers passages.
   const cleaningDone = (room) => {
     const t = Date.now();
     const c = room.cleaning || {};
     const entry = { id: rid(), since: c.since || null, startedAt: c.startedAt || null, doneAt: t, by, stayId: c.stayId || null };
     patchRoom(room.id, { cleaning: null, lastCleanedAt: t, lastCleanedBy: by, cleanLog: [entry, ...(room.cleanLog || [])].slice(0, 200) });
-    pushToast(`Chambre ${room.num} prête`, "ok");
+    once(`clean-done:${room.id}:${t}`);
+    announceCleaning(room.num, "done");
   };
   const setOutOfService = (room, on, note = "") => {
     const t = Date.now();
@@ -223,6 +248,7 @@ export default function HotelApp(props) {
     const issueLog = on ? [{ id: rid(), at: t, note: note || "Problème signalé", by, fixedAt: null }, ...log].slice(0, 100) : log.map((x, i) => (i === 0 && !x.fixedAt ? { ...x, fixedAt: t, fixedBy: by } : x));
     patchRoom(room.id, { outOfService: on, hsNote: on ? note : "", hsSince: on ? t : null, hsBy: on ? by : null, issueLog, ...(on ? { cleaning: null } : {}) });
     pushToast(on ? `Chambre ${room.num} hors service` : `Chambre ${room.num} remise en service`, "ok");
+    say(on ? `La chambre ${room.num} est signalée hors service.` : `La chambre ${room.num} est de nouveau disponible à la location.`);
   };
 
   const saveReservation = (resa) => {
@@ -234,6 +260,7 @@ export default function HotelApp(props) {
     if (!exists) { rc = makeResaReceipt(resa, { by, at: Date.now() }); item = { ...resa, receipts: [rc] }; }
     save.reservations(exists ? reservations.map((r) => (r.id === resa.id ? item : r)) : [item, ...reservations]);
     pushToast(`Réservation enregistrée · chambre ${resa.roomNum} ${dayLabel(toMs(resa.start))} à ${hmOf(toMs(resa.start))}`, "ok");
+    say(exists ? `La réservation de la chambre ${resa.roomNum} vient d'être modifiée.` : `Nouvelle réservation pour la chambre ${resa.roomNum}, ${dayLabel(toMs(resa.start)).toLowerCase()} à ${hmOf(toMs(resa.start)).replace(":", " heures ")}.`);
     return rc || true;
   };
   // Annuler ou supprimer une réservation : propriétaire uniquement.
@@ -248,6 +275,7 @@ export default function HotelApp(props) {
       receipts: (resa.receipts || []).map((r) => ({ ...r, status: "cancelled", cancel })),
     });
     pushToast(del ? "Réservation supprimée · la chambre est de nouveau libre" : "Réservation annulée · la chambre est de nouveau libre", "ok");
+    say(`La réservation de la chambre ${resa.roomNum} vient d'être ${del ? "supprimée" : "annulée"}. La chambre est de nouveau libre.`);
   };
   const arriveReservation = (resa, { skipGuest, payMode, op, given, print } = {}) => {
     const room = roomById(resa.roomId);
@@ -269,6 +297,29 @@ export default function HotelApp(props) {
   };
 
   const actions = { startStay, extendStay, toNight, addExtra, collect, releaseStay, changeRoom, cleaningStart, cleaningDone, setOutOfService, saveReservation, cancelReservation, cancelStay, arriveReservation, patchRoom };
+
+  // ---------- Location, prolongation et nuitée faites sur un autre téléphone ----------
+  useEffect(() => {
+    const t = Date.now(); const fresh = (ms) => ms && t - Number(ms) < 15 * 60000;
+    stays.forEach((st) => {
+      if (st.status === "cancelled") return;
+      if (fresh(toMs(st.start)) && once(`start:${st.id}`) && settings.voiceAlerts !== false) speak?.(isNight(st) ? `La chambre ${st.roomNum} vient d'être louée pour la nuit.` : `La chambre ${st.roomNum} vient d'être louée, ${st.tariffName}.`);
+      (st.extensions || []).forEach((e) => {
+        if (!fresh(e.at) || !once(`ext:${e.id}`) || settings.voiceAlerts === false) return;
+        speak?.(e.kind === "night" ? `La chambre ${st.roomNum} vient d'être conservée pour la nuit.` : `La chambre ${st.roomNum} vient de prendre ${Number(e.hours) === 1 ? "une heure" : `${e.hours} heures`} de plus.`);
+      });
+    });
+  }, [stays]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- Ménage commencé / terminé sur un autre téléphone ----------
+  useEffect(() => {
+    const t = Date.now();
+    rooms.forEach((rm) => {
+      const c = rm.cleaning;
+      if (c && c.state === "doing" && c.startedAt && t - Number(c.startedAt) < 15 * 60000 && once(`clean-start:${rm.id}:${c.startedAt}`)) announceCleaning(rm.num, "start");
+      if (!c && rm.lastCleanedAt && t - Number(rm.lastCleanedAt) < 15 * 60000 && once(`clean-done:${rm.id}:${rm.lastCleanedAt}`)) announceCleaning(rm.num, "done");
+    });
+  }, [rooms]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- Chambre libérée sur un autre téléphone (arrivée par la synchro) ----------
   useEffect(() => {
