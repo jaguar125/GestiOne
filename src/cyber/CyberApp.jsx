@@ -391,7 +391,7 @@ function HomeScreen({ ctx, go, openMenu, onTab }) {
               </div>
             ))}
             {!team.length && <p className="py-4 text-center text-[12.5px]" style={{ color: C.muted }}>Aucune vente aujourd'hui pour l'instant.</p>}
-            {team.length > 0 && <div className="flex justify-between py-2.5 text-[13.5px] font-extrabold" style={{ borderTop: `1.5px dashed ${C.line}` }}><span>Total de l'équipe</span><span style={{ fontFamily: FONT_D }}>{fmt(day.ca)}</span></div>}
+            {team.length > 0 && <div className="flex justify-between py-2.5 text-[13.5px] font-extrabold" style={{ borderTop: `1px solid ${C.line}` }}><span>Total de l'équipe</span><span style={{ fontFamily: FONT_D }}>{fmt(day.ca)}</span></div>}
           </Card>
         </>
       ) : (

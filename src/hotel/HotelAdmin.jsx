@@ -98,10 +98,10 @@ export function SettingsScreen({ ctx, go, license, licenseStatus }) {
   };
   const editorBlock = ctx.editorOn ? (
     <button type="button" onClick={() => ctx.onEditorOpen?.()} className="gb-focus mt-3 w-full text-left rounded-[20px] p-3.5 text-white relative overflow-hidden flex items-center gap-3" style={{ background: "linear-gradient(150deg, #10251F 0%, #1C4A3A 100%)", boxShadow: "0 12px 24px -14px rgba(16,37,31,0.8)" }}>
-      <span className="absolute rounded-full" style={{ right: -40, top: -50, width: 150, height: 150, background: "radial-gradient(circle, rgba(246,196,83,0.38) 0%, rgba(246,196,83,0) 70%)" }} />
-      <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #F6C453, #C98A1E)" }}><Icon name="shield" size={22} color="#10251F" /></span>
-      <span className="relative flex-1 min-w-0"><span className="block text-[10px] font-extrabold tracking-[0.16em]" style={{ color: "#F6C453" }}>ÉDITEUR GESTIONE</span><span className="block text-[16px] font-extrabold">Espace propriétaire</span><span className="block text-[11.5px]" style={{ color: "#B9D3C6" }}>Abonnements et messages des boutiques</span></span>
-      <Icon name="chev" size={18} color="#F6C453" stroke={2.4} />
+      <span className="absolute rounded-full" style={{ right: -40, top: -50, width: 150, height: 150, background: "radial-gradient(circle, rgba(34,211,238,0.38) 0%, rgba(34,211,238,0) 70%)" }} />
+      <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #22D3EE, #0891B2)" }}><Icon name="shield" size={22} color="#10251F" /></span>
+      <span className="relative flex-1 min-w-0"><span className="block text-[10px] font-extrabold tracking-[0.16em]" style={{ color: "#22D3EE" }}>ÉDITEUR GESTIONE</span><span className="block text-[16px] font-extrabold">Espace propriétaire</span><span className="block text-[11.5px]" style={{ color: "#B9D3C6" }}>Abonnements et messages des boutiques</span></span>
+      <Icon name="chev" size={18} color="#22D3EE" stroke={2.4} />
     </button>
   ) : null;
   if (isTech) {
@@ -141,7 +141,7 @@ export function SettingsScreen({ ctx, go, license, licenseStatus }) {
       <div className="mt-3 rounded-[20px] px-3.5 py-3 flex items-center gap-3 text-white" style={{ background: H.navy }}>
         <span onClick={tapIcon} className="w-[42px] h-[42px] rounded-[13px] flex items-center justify-center shrink-0 select-none" style={{ background: H.gold }}><Icon name="bed" size={21} color={H.navy} /></span>
         <span className="flex-1 min-w-0"><span className="block text-[15px] font-extrabold truncate">{shop?.name}</span><span className="block text-[12px]" style={{ color: "#B8C4D6" }}>{rooms.length} chambre{rooms.length > 1 ? "s" : ""} · {ctx.staffCount ? `${ctx.staffCount} membre${ctx.staffCount > 1 ? "s" : ""} d'équipe` : "aucun membre d'équipe"}</span></span>
-        <button type="button" onClick={() => go("licence")} className="gb-focus h-8 px-2.5 rounded-[10px] text-[11.5px] font-extrabold" style={{ background: "rgba(224,169,59,0.18)", color: "#F0C060" }}>{licTxt}</button>
+        <button type="button" onClick={() => go("licence")} className="gb-focus h-8 px-2.5 rounded-[10px] text-[11.5px] font-extrabold" style={{ background: "rgba(34,211,238,0.18)", color: "#F0C060" }}>{licTxt}</button>
       </div>
       {editorBlock}
       <GroupTitle>GESTION</GroupTitle>
@@ -160,9 +160,9 @@ export function SettingsScreen({ ctx, go, license, licenseStatus }) {
       <div className="mt-4 mb-1.5 px-1 flex items-center gap-2"><span className="flex-1 text-[11.5px] font-extrabold tracking-[0.06em]" style={{ color: H.muted }}>RAPPORTS ET FINANCES</span><span className="h-[22px] px-2 rounded-[7px] text-[10.5px] font-extrabold flex items-center gap-1" style={{ background: H.goldSoft, color: H.goldDark }}><Icon name="lock" size={11} stroke={2.6} />Propriétaire uniquement</span></div>
       <div className="flex flex-col gap-2.5">
         {[
-          ["history", "Historique", "Ventes, séjours, réservations, dépenses et annulations, par date", "history", "linear-gradient(135deg,#1F3F73,#0E1C33)", "rgba(14,28,51,0.8)"],
+          ["history", "Historique", "Ventes, séjours, réservations, dépenses et annulations, par date", "history", "linear-gradient(135deg,#1B3361,#0A1730)", "rgba(14,28,51,0.8)"],
           ["inventory", "Inventaire", "Chambres occupées, heures vendues, taux d'occupation, par chambre", "clipboard", "linear-gradient(135deg,#14B8A6,#0B7A6E)", "rgba(11,122,110,0.8)"],
-          ["profits", "Bénéfices", "Recettes − dépenses : mensuel, trimestriel, semestriel, annuel", "trend", "linear-gradient(135deg,#F0C463,#C98A1E)", "rgba(201,138,30,0.8)"],
+          ["profits", "Bénéfices", "Recettes − dépenses : mensuel, trimestriel, semestriel, annuel", "trend", "linear-gradient(135deg,#F0C463,#0891B2)", "rgba(8,145,178,0.8)"],
         ].map(([id, t, sub, ic, grad, sh]) => (
           <button key={id} type="button" onClick={() => go(id)} className="gb-focus relative overflow-hidden w-full text-left rounded-[22px] p-3.5 flex items-center gap-3 text-white" style={{ background: grad, boxShadow: `0 12px 24px -14px ${sh}` }}>
             <span className="absolute rounded-full" style={{ right: -30, top: -30, width: 110, height: 110, background: "rgba(255,255,255,0.10)" }} />
@@ -627,7 +627,7 @@ export function LicenceScreen({ ctx, onBack, license, licenseStatus, onActivate,
       <Label right={<span className="text-[11.5px]" style={{ color: H.muted }}>Mobile Money ou carte</span>}>Choisir une licence</Label>
       <div className="flex flex-col gap-2">
         {plans.map((p) => { const on = p.id === sel; return (
-          <button key={p.id} type="button" onClick={() => setSel(p.id)} aria-pressed={on} className="gb-focus rounded-[16px] min-h-[58px] px-3.5 flex items-center gap-3 text-left" style={{ background: on ? "#FFFBF2" : "#fff", border: on ? `2px solid ${H.gold}` : `1.5px solid ${H.line}` }}>
+          <button key={p.id} type="button" onClick={() => setSel(p.id)} aria-pressed={on} className="gb-focus rounded-[16px] min-h-[58px] px-3.5 flex items-center gap-3 text-left" style={{ background: on ? "#F0FBFE" : "#fff", border: on ? `2px solid ${H.gold}` : `1.5px solid ${H.line}` }}>
             <span className="w-[34px] h-[34px] rounded-[11px] flex items-center justify-center text-[11.5px] font-extrabold shrink-0" style={{ background: p.iconBg || H.goldSoft, color: p.iconColor || H.goldDark }}>{(p.duration || "").replace(" mois", "M")}</span>
             <span className="flex-1 min-w-0"><span className="block text-[14px] font-extrabold">{p.name} {p.popular && <span className="text-[10px] font-extrabold rounded-[6px] px-1.5 py-[1px]" style={{ background: H.goldSoft, color: "#8A5A0B" }}>Populaire</span>}</span><span className="block text-[11.5px]" style={{ color: H.muted }}>{p.duration}</span></span>
             <span className="text-[16px] font-extrabold">{fmt(p.price)}</span>
@@ -669,7 +669,7 @@ export function OrderLicenceScreen({ ctx, onBack, pricing = [], planId, onSend }
       <Label>Licence souhaitée</Label>
       <div className="grid grid-cols-2 gap-2">
         {plans.map((p) => { const on = p.id === sel; return (
-          <button key={p.id} type="button" onClick={() => setSel(p.id)} aria-pressed={on} className="gb-focus relative rounded-[16px] min-h-[70px] px-3 py-2.5 text-left flex flex-col justify-between" style={{ background: on ? "#FFFBF2" : "#fff", border: on ? `2px solid ${H.gold}` : `1.5px solid ${H.line}` }}>
+          <button key={p.id} type="button" onClick={() => setSel(p.id)} aria-pressed={on} className="gb-focus relative rounded-[16px] min-h-[70px] px-3 py-2.5 text-left flex flex-col justify-between" style={{ background: on ? "#F0FBFE" : "#fff", border: on ? `2px solid ${H.gold}` : `1.5px solid ${H.line}` }}>
             <span className="text-[13.5px] font-extrabold pr-6">{p.name} <span className="text-[11.5px] font-semibold" style={{ color: H.muted }}>· {p.duration}</span></span>
             <span className="text-[16px] font-extrabold" style={{ color: p.iconColor || H.navy }}>{fmt(p.price)}</span>
             {on && <span className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: H.gold }}><Icon name="check" size={12} color={H.navy} stroke={3.2} /></span>}

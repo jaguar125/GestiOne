@@ -2,11 +2,11 @@
 // (couleurs, icônes dessinées à la main, boutons, en-têtes, interrupteurs).
 
 export const H = {
-  navy: "#12233D", navy2: "#1D3B63", gold: "#E0A93B", goldDark: "#B7791F", goldSoft: "#FCF3E1",
-  ground: "#F4F5F8", card: "#FFFFFF", ink: "#0F172A", ink2: "#334155", muted: "#64748B", line: "#E2E6EC", line2: "#EEF0F4",
+  navy: "#0A1730", navy2: "#1B3361", gold: "#22D3EE", goldDark: "#0E7490", goldSoft: "#E0F7FB",
+  ground: "#EEF2F8", card: "#FFFFFF", ink: "#0F172A", ink2: "#334155", muted: "#64748B", line: "#DDE4EE", line2: "#EEF0F4",
   green: "#15803D", greenSoft: "#E8F7EE", red: "#B91C1C", redSoft: "#FDECEC", orange: "#C2410C", orangeSoft: "#FFF1E2",
   violet: "#5B3CC4", violetSoft: "#F0EBFE", indigo: "#4F46E5", indigoSoft: "#EEF0FF",
-  shadow: "0 2px 12px rgba(18,35,61,0.06)",
+  shadow: "0 2px 12px rgba(10,23,48,0.06)",
 };
 
 const P = {
@@ -79,7 +79,7 @@ export function Icon({ name, size = 18, color = "currentColor", stroke = 2.2, st
 export function Btn({ children, onClick, kind = "navy", disabled, full, className = "", style, icon, type = "button", ariaLabel }) {
   const K = {
     navy: { background: H.navy, color: "#fff", border: "none" },
-    gold: { background: H.gold, color: H.navy, border: "none", boxShadow: "0 10px 22px rgba(201,138,30,0.30)" },
+    gold: { background: H.gold, color: H.navy, border: "none", boxShadow: "0 10px 22px rgba(8,145,178,0.30)" },
     green: { background: H.green, color: "#fff", border: "none" },
     red: { background: H.red, color: "#fff", border: "none" },
     indigo: { background: H.indigo, color: "#fff", border: "none" },

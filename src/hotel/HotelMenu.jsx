@@ -75,7 +75,7 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
   const helpRows = [
     r("support", "Écrire à l'équipe GestiOne", "Messagerie · réponse rapide", "#E0F2FE", "#0369A1", "chat", pick(onSupport)),
     faq?.length ? r("faq", "Questions fréquentes", "Réservations, reçus, synchronisation…", "#EDF2F7", "#3B5B7A", "book", pick(() => go("faq"))) : null,
-    isOwner ? r("order", "Commander une licence", "Message pré-rempli · paiement Mobile Money", "#FCF3E1", "#B7791F", "cart", pick(() => go("order"))) : null,
+    isOwner ? r("order", "Commander une licence", "Message pré-rempli · paiement Mobile Money", "#E0F7FB", "#0E7490", "cart", pick(() => go("order"))) : null,
     GESTIONE_SUPPORT_PHONE ? r("call", "Appeler · WhatsApp", "Assistance du lundi au samedi", "#ECFDF3", "#15803D", "phone", () => { try { window.open(`https://wa.me/${GESTIONE_SUPPORT_PHONE}`, "_blank"); } catch { /* ignore */ } }) : null,
     onLegal ? r("legal", "Conditions et confidentialité", "Documents GestiOne", "#F1F5F9", "#475569", "shield", pick(() => onLegal("terms"))) : null,
   ].filter(Boolean);
@@ -93,7 +93,7 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
     blocks = [
       { title: "AU QUOTIDIEN" },
       { list: [
-        r("home", "Tableau de bord", "Accueil de la réception", H.navy, "#F6D27A", "dash", pick(() => onTab("home")), "", "", tab === "home"),
+        r("home", "Tableau de bord", "Accueil de la réception", H.navy, "#67E8F9", "dash", pick(() => onTab("home")), "", "", tab === "home"),
         r("expenses", "Dépenses", "Enregistrer une dépense", H.redSoft, H.red, "money", pick(() => go("expenses")), `−${fmt(todayExp)}`, H.red),
       ] },
       { sub: "S", t: "Réglages de l'entreprise", s: "Mon accès sur ce téléphone", icon: "gear", rows: [syncRow] },
@@ -101,13 +101,13 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
     ];
   } else {
     blocks = [
-      { list: [r("home", "Tableau de bord", "Recette, occupation, alertes", H.navy, "#F6D27A", "dash", pick(() => onTab("home")))] },
+      { list: [r("home", "Tableau de bord", "Recette, occupation, alertes", H.navy, "#67E8F9", "dash", pick(() => onTab("home")))] },
       { title: "FINANCES", own: true },
       { list: [
         r("cash", "Caisse & reçus", "Encaissements, reçus du jour", H.greenSoft, H.green, "wallet", pick(() => onTab("cash")), fmt(cash.total), H.green),
         r("receipts", "Reçus", "Tous les reçus · annulations", "#F5F3FF", "#6D28D9", "receipt", pick(() => go("receipts"))),
         r("expenses", "Dépenses", "Déduites de la recette du jour", H.redSoft, H.red, "money", pick(() => go("expenses")), `−${fmt(todayExp)}`, H.red),
-        r("history", "Historique", "Toutes les opérations, par date", "#E7EEFD", "#1F3F73", "history", pick(() => go("history"))),
+        r("history", "Historique", "Toutes les opérations, par date", "#E7EEFD", "#1B3361", "history", pick(() => go("history"))),
         r("inventory", "Inventaire", "Occupation des chambres", "#E2F5F2", "#0B7A6E", "clipboard", pick(() => go("inventory"))),
         r("profits", "Bénéfices", "Mois · trimestre · semestre · année", H.goldSoft, H.goldDark, "trend", pick(() => go("profits"))),
       ] },
@@ -149,11 +149,11 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
       <div className="absolute left-0 top-0 bottom-0 flex flex-col" style={{ width: "min(350px, 88vw)", background: "#F4F6FA", boxShadow: "14px 0 44px rgba(0,0,0,0.32)", transform: shown ? "translateX(0)" : "translateX(-102%)", transition: "transform 200ms ease-out" }}>
         <div className="flex-1 overflow-y-auto overscroll-contain" style={{ paddingBottom: "calc(18px + env(safe-area-inset-bottom))" }}>
           {/* En-tête sombre : la barre d'état du téléphone reste lisible. */}
-          <div className="relative overflow-hidden text-white px-4 pb-4" style={{ paddingTop: "calc(max(40px, env(safe-area-inset-top)) + 12px)", background: "linear-gradient(145deg, #0B1628 0%, #14294A 55%, #1F3F73 100%)" }}>
-            <span className="absolute rounded-full" style={{ right: -50, top: -60, width: 190, height: 190, background: "radial-gradient(circle, rgba(224,169,59,0.38) 0%, rgba(224,169,59,0) 70%)" }} />
+          <div className="relative overflow-hidden text-white px-4 pb-4" style={{ paddingTop: "calc(max(40px, env(safe-area-inset-top)) + 12px)", background: "linear-gradient(145deg, #0B1628 0%, #14294A 55%, #1B3361 100%)" }}>
+            <span className="absolute rounded-full" style={{ right: -50, top: -60, width: 190, height: 190, background: "radial-gradient(circle, rgba(34,211,238,0.38) 0%, rgba(34,211,238,0) 70%)" }} />
             <span className="absolute rounded-full" style={{ left: -40, bottom: -80, width: 170, height: 170, background: "radial-gradient(circle, rgba(96,165,250,0.18) 0%, rgba(96,165,250,0) 70%)" }} />
             <div className="relative flex items-center gap-3">
-              <span onClick={tapIcon} className="select-none w-[50px] h-[50px] rounded-[16px] flex items-center justify-center shrink-0" style={{ border: "2px solid rgba(255,255,255,0.25)", background: "linear-gradient(135deg, #F6D27A, #C98A1E)", boxShadow: "0 8px 18px -6px rgba(201,138,30,0.7)", transform: pulse ? "scale(0.95)" : "scale(1)", transition: "transform 90ms" }}><Icon name="bed" size={24} color={H.navy} stroke={2.4} /></span>
+              <span onClick={tapIcon} className="select-none w-[50px] h-[50px] rounded-[16px] flex items-center justify-center shrink-0" style={{ border: "2px solid rgba(255,255,255,0.25)", background: "linear-gradient(135deg, #67E8F9, #0891B2)", boxShadow: "0 8px 18px -6px rgba(8,145,178,0.7)", transform: pulse ? "scale(0.95)" : "scale(1)", transition: "transform 90ms" }}><Icon name="bed" size={24} color={H.navy} stroke={2.4} /></span>
               <div className="flex-1 min-w-0">
                 <p className="text-[10.5px] font-extrabold tracking-[0.16em]" style={{ color: "#E9C77F" }}>GESTIONE HÔTEL</p>
                 <p className="text-[18px] font-extrabold truncate">{shop?.name || "Mon hôtel"}</p>
@@ -163,7 +163,7 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
             </div>
             {isOwner ? (
               <div className="relative mt-3.5 grid grid-cols-3 gap-[7px]">
-                {[["Recette du jour", fmt(cash.total), "#6EE7B7"], ["Occupation", `${occ} %`, "#FFFFFF"], ["Licence", lic, "#F6D27A"]].map(([l, v, c]) => (
+                {[["Recette du jour", fmt(cash.total), "#6EE7B7"], ["Occupation", `${occ} %`, "#FFFFFF"], ["Licence", lic, "#67E8F9"]].map(([l, v, c]) => (
                   <button key={l} type="button" onClick={pick(() => (l === "Licence" ? go("licence") : l === "Occupation" ? onTab("rooms") : onTab("cash")))} className="gb-focus text-left rounded-[13px] px-2.5 py-2 min-w-0" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
                     <span className="block text-[9.5px] font-bold" style={{ color: "#AEBBD2" }}>{l}</span>
                     <span className="block text-[13.5px] font-extrabold whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: c }}>{v}</span>
@@ -186,9 +186,9 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
           <div className="px-3 pt-1">
             {ctx.editorOn && (
               <button type="button" onClick={pick(() => ctx.onEditorOpen?.())} className="gb-focus mt-2 w-full text-left rounded-[18px] p-3 text-white flex items-center gap-3" style={{ background: "linear-gradient(150deg, #10251F, #1C4A3A)" }}>
-                <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #F6C453, #C98A1E)" }}><Icon name="shieldok" size={20} color="#10251F" /></span>
-                <span className="flex-1 min-w-0"><span className="block text-[9.5px] font-extrabold tracking-[0.15em]" style={{ color: "#F6C453" }}>ÉDITEUR GESTIONE</span><span className="block text-[14.5px] font-extrabold">Espace propriétaire</span></span>
-                <Icon name="chev" size={16} color="#F6C453" stroke={2.4} />
+                <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #22D3EE, #0891B2)" }}><Icon name="shieldok" size={20} color="#10251F" /></span>
+                <span className="flex-1 min-w-0"><span className="block text-[9.5px] font-extrabold tracking-[0.15em]" style={{ color: "#22D3EE" }}>ÉDITEUR GESTIONE</span><span className="block text-[14.5px] font-extrabold">Espace propriétaire</span></span>
+                <Icon name="chev" size={16} color="#22D3EE" stroke={2.4} />
               </button>
             )}
 
@@ -212,8 +212,8 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
               const open = navy ? openS : openA;
               return (
                 <div key={i} className="mt-2.5 rounded-[18px] overflow-hidden" style={{ background: "#fff", border: `1.5px solid ${navy ? "#C7D2E5" : "#BFE7E0"}`, boxShadow: navy ? "0 10px 22px -14px rgba(14,28,51,0.7)" : "0 10px 22px -16px rgba(11,122,110,0.6)" }}>
-                  <button type="button" onClick={() => (navy ? setOpenS(!openS) : setOpenA(!openA))} aria-expanded={open} className="gb-focus w-full min-h-[60px] flex items-center gap-3 px-3 text-left" style={{ background: navy ? "linear-gradient(135deg,#14294A,#1F3F73)" : "linear-gradient(135deg,#ECFDF5,#E0F2FE)", color: navy ? "#fff" : H.ink }}>
-                    <span className="w-[38px] h-[38px] rounded-[12px] flex items-center justify-center shrink-0" style={{ background: navy ? "linear-gradient(135deg,#F6D27A,#C98A1E)" : "#fff" }}><Icon name={b.icon} size={19} color={navy ? H.navy : "#0B7A6E"} /></span>
+                  <button type="button" onClick={() => (navy ? setOpenS(!openS) : setOpenA(!openA))} aria-expanded={open} className="gb-focus w-full min-h-[60px] flex items-center gap-3 px-3 text-left" style={{ background: navy ? "linear-gradient(135deg,#14294A,#1B3361)" : "linear-gradient(135deg,#ECFDF5,#E0F2FE)", color: navy ? "#fff" : H.ink }}>
+                    <span className="w-[38px] h-[38px] rounded-[12px] flex items-center justify-center shrink-0" style={{ background: navy ? "linear-gradient(135deg,#67E8F9,#0891B2)" : "#fff" }}><Icon name={b.icon} size={19} color={navy ? H.navy : "#0B7A6E"} /></span>
                     <span className="flex-1 min-w-0"><span className="block text-[14.5px] font-extrabold">{b.t}</span><span className="block text-[11px] truncate" style={{ opacity: 0.78 }}>{b.s}</span></span>
                     <span className="text-[10.5px] font-extrabold px-[7px] py-[3px] rounded-[7px]" style={{ background: navy ? "rgba(255,255,255,0.16)" : "#fff" }}>{b.rows.length}</span>
                     <Icon name="down" size={16} stroke={2.6} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
@@ -449,7 +449,7 @@ export function BackupScreen({ ctx, onBack, verifyOwnerPin }) {
     <div>
       <TopBar title="Sauvegarde et restauration" sub="Réglages de l'entreprise · propriétaire" onBack={onBack} />
 
-      <div className="mt-3 rounded-[22px] p-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(145deg, #0B1628 0%, #14294A 60%, #1F3F73 100%)", boxShadow: "0 14px 28px -16px rgba(11,22,40,0.8)" }}>
+      <div className="mt-3 rounded-[22px] p-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(145deg, #0B1628 0%, #14294A 60%, #1B3361 100%)", boxShadow: "0 14px 28px -16px rgba(11,22,40,0.8)" }}>
         <span className="absolute rounded-full" style={{ right: -40, top: -50, width: 160, height: 160, background: "radial-gradient(circle, rgba(96,165,250,0.3) 0%, rgba(96,165,250,0) 70%)" }} />
         <div className="relative flex items-center gap-3">
           <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#34D399,#059669)" }}><Icon name="shieldok" size={22} color="#fff" /></span>

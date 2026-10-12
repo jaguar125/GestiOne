@@ -188,7 +188,7 @@ export function receiptHtml(r, info, fmt) {
 *{box-sizing:border-box}body{margin:0;font-family:"Courier New",monospace;color:#000;font-size:11.5px}
 .t{width:${w};margin:0 auto;padding:4px 2px}.c{text-align:center}.n{font-family:Arial,sans-serif;font-weight:800;font-size:16px;margin-top:6px}
 .s{font-size:10.5px}.k{display:inline-block;margin-top:6px;border:1.5px solid #000;padding:2px 8px;font-family:Arial,sans-serif;font-weight:800;font-size:11px;letter-spacing:1px}
-.d{border-top:1.5px dashed #000;margin:8px 0}.e{border-top:1.5px solid #000;margin:5px 0}.r{display:flex;justify-content:space-between;gap:8px}
+.d{border-top:1px solid #000;margin:8px 0}.e{border-top:1.5px solid #000;margin:5px 0}.r{display:flex;justify-content:space-between;gap:8px}
 .room{font-family:Arial,sans-serif;font-weight:800;font-size:20px}.tot{font-size:14px;font-weight:800}.x{font-family:Arial,sans-serif;font-weight:800;font-size:12.5px}
 img{max-width:70px;max-height:70px}.an{color:#000;font-family:Arial,sans-serif;font-weight:800;border:2px solid #000;padding:2px 6px;display:inline-block;margin-top:6px}
 </style></head><body><div class="t">

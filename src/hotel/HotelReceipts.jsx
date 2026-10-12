@@ -18,7 +18,7 @@ export function ReceiptTicket({ r, info, fmt }) {
   const m = receiptModel(r, info, fmt);
   const row = ([a, b], i) => <div key={i} className="flex justify-between gap-2"><span>{a}</span><b className="text-right">{b}</b></div>;
   return (
-    <div className="mx-auto" style={{ width: "100%", maxWidth: 330, filter: "drop-shadow(0 14px 22px rgba(18,35,61,0.18))" }}>
+    <div className="mx-auto" style={{ width: "100%", maxWidth: 330, filter: "drop-shadow(0 14px 22px rgba(10,23,48,0.18))" }}>
       <div className="relative px-5 pt-5 pb-4" style={{ background: "#fff", fontFamily: MONO, color: "#111827", fontSize: 11.5 }}>
         {m.cancelled && <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden="true"><span className="text-[38px] font-extrabold px-3 rounded-[8px]" style={{ color: "rgba(190,18,60,0.35)", border: "4px solid rgba(190,18,60,0.35)", transform: "rotate(-18deg)", fontFamily: "inherit" }}>ANNULÉ</span></div>}
         <div className="flex flex-col items-center text-center">
@@ -83,7 +83,7 @@ export function ReceiptScreen({ ctx, receipt, onDone, onBack, fresh }) {
         <Btn kind="ghost" disabled={busy} onClick={pdf} className="!px-2 !text-[13px]"><Icon name="download" size={16} stroke={2.3} />PDF</Btn>
         <Btn kind="ghost" onClick={onDone} className="!px-2 !text-[13px]">{fresh || Date.now() - toMs(receipt.at) < 60000 ? "Ne pas imprimer" : "Fermer"}</Btn>
       </div>
-      <Btn kind="navy" full disabled={busy} onClick={print} className="mt-2 !min-h-[56px] !text-[16px]" style={{ background: "linear-gradient(135deg,#17305A,#0E1C33)" }}><Icon name="printer" size={20} color={H.gold} stroke={2.3} />{busy ? "Impression…" : "Imprimer le reçu"}</Btn>
+      <Btn kind="navy" full disabled={busy} onClick={print} className="mt-2 !min-h-[56px] !text-[16px]" style={{ background: "linear-gradient(135deg,#17305A,#0A1730)" }}><Icon name="printer" size={20} color={H.gold} stroke={2.3} />{busy ? "Impression…" : "Imprimer le reçu"}</Btn>
     </div>
   );
 }
@@ -102,7 +102,7 @@ export function CashGiven({ amount, given, setGiven, fmt }) {
   return (
     <div className="rounded-[18px] p-3" style={{ background: "#fff", boxShadow: H.shadow }}>
       <p className="text-[11.5px] font-extrabold tracking-[0.05em]" style={{ color: H.muted }}>SOMME REÇUE DU CLIENT</p>
-      <div className="mt-1.5 flex items-center gap-2 rounded-[14px] px-3" style={{ height: 54, border: `2px solid ${H.gold}`, background: "#FFFBF2" }}>
+      <div className="mt-1.5 flex items-center gap-2 rounded-[14px] px-3" style={{ height: 54, border: `2px solid ${H.gold}`, background: "#F0FBFE" }}>
         <input aria-label="Somme reçue" inputMode="numeric" value={given ? String(given) : ""} placeholder="0" onChange={(e) => setGiven(Math.max(0, Number(e.target.value.replace(/\D/g, "")) || 0))} className="flex-1 min-w-0 bg-transparent outline-none text-[24px] font-extrabold" style={{ fontFamily: MONO, color: H.navy }} />
         <span className="text-[14px] font-extrabold" style={{ color: H.goldDark }}>FCFA</span>
       </div>
@@ -126,8 +126,8 @@ export function PaySheet({ title, amount, fmt, defaultPrint = true, onClose, onC
   const ok = mode !== "cash" || given >= amount;
   return (
     <Sheet title={title} onClose={onClose}>
-      <div className="rounded-[18px] px-4 py-3 text-white flex items-center justify-between" style={{ background: "linear-gradient(135deg,#0E1C33,#1F3F73)" }}>
-        <span className="text-[12px] font-bold" style={{ color: "#B8C4D6" }}>À encaisser</span><span className="text-[22px] font-extrabold" style={{ color: "#F6D27A" }}>{fmt(amount)}</span>
+      <div className="rounded-[18px] px-4 py-3 text-white flex items-center justify-between" style={{ background: "linear-gradient(135deg,#0A1730,#1B3361)" }}>
+        <span className="text-[12px] font-bold" style={{ color: "#B8C4D6" }}>À encaisser</span><span className="text-[22px] font-extrabold" style={{ color: "#67E8F9" }}>{fmt(amount)}</span>
       </div>
       <div className="mt-2.5 grid grid-cols-2 gap-2">{[["cash", "Espèces"], ["momo", "Mobile Money"]].map(([id, l]) => <Chip key={id} on={mode === id} onClick={() => setMode(id)}>{l}</Chip>)}</div>
       {mode === "cash" && <div className="mt-2.5"><CashGiven amount={amount} given={given} setGiven={setGiven} fmt={fmt} /></div>}
@@ -176,7 +176,7 @@ export function CancelSheet({ ctx, kind, item, onClose, onDone }) {
 }
 
 // ---------- Liste des reçus (propriétaire) ----------
-const KIND_INFO = { start: ["Séjour", "#FFF1F3", "#BE123C"], night: ["Nuitée", "#EEF0FF", "#4338CA"], resa: ["Réservation", "#F5F3FF", "#6D28D9"], collect: ["Règlement", "#FCF3E1", "#B7791F"] };
+const KIND_INFO = { start: ["Séjour", "#FFF1F3", "#BE123C"], night: ["Nuitée", "#EEF0FF", "#4338CA"], resa: ["Réservation", "#F5F3FF", "#6D28D9"], collect: ["Règlement", "#E0F7FB", "#0E7490"] };
 export function ReceiptsScreen({ ctx, onBack, openReceipt }) {
   const { stays, reservations, now, fmt } = ctx;
   const [f, setF] = useState("today");
@@ -196,9 +196,9 @@ export function ReceiptsScreen({ ctx, onBack, openReceipt }) {
   return (
     <div>
       <TopBar title="Reçus" sub="Tous les reçus · tous les réceptionnistes" onBack={onBack} />
-      <div className="mt-3 rounded-[22px] p-4 text-white grid grid-cols-3 gap-2" style={{ background: "linear-gradient(135deg,#0E1C33,#1F3F73)" }}>
+      <div className="mt-3 rounded-[22px] p-4 text-white grid grid-cols-3 gap-2" style={{ background: "linear-gradient(135deg,#0A1730,#1B3361)" }}>
         <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Reçus du jour</span><span className="block text-[20px] font-extrabold">{today.length}</span></span>
-        <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Encaissé</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#F6D27A" }}>{fmt(cashed)}</span></span>
+        <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Encaissé</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#67E8F9" }}>{fmt(cashed)}</span></span>
         <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Annulés</span><span className="block text-[20px] font-extrabold" style={{ color: "#FDA4AF" }}>{today.filter((r) => r.status === "cancelled").length}</span></span>
       </div>
       <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">

@@ -394,7 +394,7 @@ const MOVEMENT_TYPES = {
 // Réglages de l'entreprise partagés entre tous les appareils (clé shopMeta).
 // Un champ absent de cette liste reste sur le téléphone où il a été réglé.
 const SHOP_META_SYNC_FIELDS = [
-  "name", "type", "hotelSettings", "hotelSeeded", "cyberSettings", "cyberSeeded", "currency", "adminPinHash", "adminDisplayName", "theme", "darkMode", "soundsEnabled",
+  "name", "type", "hotelSettings", "hotelSeeded", "cyberSettings", "cyberSeeded", "currency", "adminPinHash", "adminDisplayName", "theme", "designV2", "darkMode", "soundsEnabled",
   "voiceNotificationsEnabled", "loyaltyThreshold", "language", "cashRegisterResetHour",
   // Sécurité
   "autoLockMinutes", "protectSensitive",
@@ -434,6 +434,10 @@ const CURRENCIES = [
 ];
 
 const THEME_PRESETS = [
+  // Thème « Cyber » : design du Cyber café (bleu nuit, cyan, animations),
+  // appliqué par défaut à toutes les entreprises. Même présentation que
+  // « Bleu nuit » (Accueil · Vendre · Stock · Rapports · Plus).
+  { id: "cyber", label: "Cyber · bleu nuit & cyan", glass: "#0A1730", glassLight: "#1B3361", cap: "#0891B2", cap2: "#22D3EE" },
   { id: "emeraude", label: "Émeraude", glass: "#0E3B2A", glassLight: "#175943", cap: "#E8A33D" },
   { id: "ocean", label: "Océan", glass: "#0B3B5C", glassLight: "#12557E", cap: "#5FD1F2" },
   { id: "rubis", label: "Rubis", glass: "#5C1A2B", glassLight: "#7A2438", cap: "#F2A65A" },
@@ -445,7 +449,8 @@ const THEME_PRESETS = [
   // Vendre · Stock · Rapports · Plus, paiement et ticket plein écran).
   { id: "nuit", label: "Bleu nuit & orange", glass: "#0E2240", glassLight: "#16325C", cap: "#F27A1A" },
 ];
-const isNuit = (shop) => shop?.theme === "nuit";
+const isNuit = (shop) => shop?.theme === "nuit" || shop?.theme === "cyber" || !shop?.theme;
+const DEFAULT_THEME = "cyber";
 const NUIT_PAY = { especes: "#1FA25B", mobile: "#2D6BE0", credit: "#E0433A" };
 // Opérateurs proposés quand le client paie par Mobile Money (enregistrés
 // comme « Mobile Money » dans la caisse, avec l'opérateur en détail).
@@ -458,6 +463,7 @@ const MOBILE_OPERATORS = [
   { id: "Autre", short: "…", bg: "#6B7686", fg: "#fff" },
 ];
 function getTheme(id) { return THEME_PRESETS.find((t) => t.id === id) || THEME_PRESETS[0]; }
+const isCyberTheme = (shop) => !shop?.theme || shop.theme === "cyber";
 
 /* ---------- Licence / activation ---------- */
 
@@ -1216,7 +1222,7 @@ function exportSalesCSV(sales, pushToast) {
 function GlobalStyle() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Sora:wght@600;700;800&display=swap');
       html, body { overflow-x: hidden; width: 100%; max-width: 100vw; }
       /* "clip" coupe le débordement horizontal SANS créer de zone de
          défilement : indispensable pour que les en-têtes "sticky" restent
@@ -1241,6 +1247,45 @@ function GlobalStyle() {
       .gb-root input::placeholder, .gb-root textarea::placeholder { color: var(--ink); opacity: 0.4; }
       .gb-root .font-display{ font-family:'Space Grotesk',sans-serif; }
       .gb-root .font-mono{ font-family:'IBM Plex Mono',monospace; }
+      /* ===== Design « Cyber » (toutes les entreprises) ===== */
+      .gb-cyber{ font-family:'Plus Jakarta Sans','Inter',sans-serif; }
+      .gb-cyber .font-display{ font-family:'Sora','Space Grotesk',sans-serif; letter-spacing:-0.01em; }
+      @keyframes gbcUp{ from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:none;} }
+      @keyframes gbcFade{ from{opacity:0;} to{opacity:1;} }
+      @keyframes gbcSheen{ from{ background-position:-140% 0, 0 0; } to{ background-position:240% 0, 0 0; } }
+      @keyframes gbcGlow{ 0%,100%{ box-shadow:0 0 0 0 rgba(34,211,238,.45), 0 10px 22px -10px rgba(8,145,178,.8); } 50%{ box-shadow:0 0 0 7px rgba(34,211,238,0), 0 10px 22px -10px rgba(8,145,178,.8); } }
+      @keyframes gbcFloat{ 0%,100%{ transform:translate(0,0); } 50%{ transform:translate(-14px,10px); } }
+      /* Entrée en cascade des grilles (produits, tuiles, chiffres) et des listes */
+      .gb-cyber .grid > *{ animation:gbcUp .46s cubic-bezier(.2,.8,.2,1) both; }
+      .gb-cyber .grid > *:nth-child(2){ animation-delay:.04s; } .gb-cyber .grid > *:nth-child(3){ animation-delay:.08s; }
+      .gb-cyber .grid > *:nth-child(4){ animation-delay:.12s; } .gb-cyber .grid > *:nth-child(5){ animation-delay:.16s; }
+      .gb-cyber .grid > *:nth-child(6){ animation-delay:.2s; } .gb-cyber .grid > *:nth-child(7){ animation-delay:.24s; }
+      .gb-cyber .grid > *:nth-child(8){ animation-delay:.28s; } .gb-cyber .grid > *:nth-child(n+9){ animation-delay:.32s; }
+      .gb-cyber .flex-col > *:not(.fixed):not(.sticky){ animation:gbcFade .4s ease both; }
+      /* Blocs bleu nuit : dégradé et halo cyan, comme le Cyber café */
+      .gb-cyber [style*="background: var(--glass)"]{
+        background-color:#0A1730 !important;
+        background-image: radial-gradient(circle at 88% -20%, rgba(34,211,238,.30) 0%, rgba(34,211,238,0) 55%), linear-gradient(135deg,#1B3361 0%,#0A1730 70%) !important;
+      }
+      /* Boutons d'action : dégradé cyan avec reflet animé */
+      .gb-cyber [style*="background: var(--cap)"]{
+        background-color:#0891B2 !important;
+        background-image: linear-gradient(110deg, rgba(255,255,255,0) 35%, rgba(255,255,255,.32) 50%, rgba(255,255,255,0) 65%), linear-gradient(135deg,#22D3EE 0%,#06B6D4 45%,#0E7490 100%) !important;
+        background-size: 250% 100%, 100% 100% !important; background-repeat:no-repeat !important;
+        animation: gbcSheen 3.6s ease-in-out infinite;
+      }
+      .gb-cyber button[style*="background: var(--cap)"]{ box-shadow:0 10px 22px -10px rgba(8,145,178,.85); }
+      /* Cartes : ombre douce et bordure nette */
+      .gb-cyber [style*="background: var(--card)"]{ box-shadow:0 6px 18px -14px rgba(10,23,48,.45); }
+      /* Retour tactile sur tous les boutons (sauf ceux déjà positionnés par transformation) */
+      .gb-cyber button{ transition: transform .12s ease, filter .12s ease, background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease; }
+      .gb-cyber button:not([class*="translate"]):not(:disabled):active{ transform:scale(.965); filter:brightness(.97); }
+      /* Fenêtres qui montent du bas : plus souples */
+      .gb-cyber .gb-slide-up{ animation-timing-function:cubic-bezier(.2,.8,.2,1) !important; }
+      .gb-cyber input:focus, .gb-cyber textarea:focus, .gb-cyber select:focus{ border-color:#06B6D4 !important; box-shadow:0 0 0 3px rgba(34,211,238,.22); outline:none; }
+      /* Pas de pointillés : bordures pleines et nettes */
+      .gb-cyber .border-dashed, .gb-cyber [style*="dashed"]{ border-style:solid !important; }
+      @media (prefers-reduced-motion: reduce){ .gb-cyber *, .gb-cyber *::before, .gb-cyber *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important; } }
       .gb-scroll::-webkit-scrollbar{ display:none; }
       .gb-scroll{ -ms-overflow-style:none; scrollbar-width:none; }
       .ticket-edge{
@@ -4262,12 +4307,12 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
         <div className="flex gap-2">
           <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] pl-3.5 pr-1.5 rounded-2xl" style={{ background: "#fff" }}>
             <Search size={17} color="#5B6470" className="shrink-0" />
-            <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={searchKey} placeholder="Produit ou code-barres" aria-label="Rechercher un produit ou saisir un code-barres" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" style={{ color: "#16202A" }} />
+            <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={searchKey} placeholder="Rechercher…" aria-label="Rechercher un produit ou saisir un code-barres" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" style={{ color: "#16202A" }} />
             <button onClick={startVoiceSearch} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: listening ? "var(--danger)" : "#F0EFEA" }} aria-label="Recherche vocale">
               <Mic size={16} color={listening ? "#fff" : "#16202A"} className={listening ? "gb-pop" : ""} />
             </button>
           </label>
-          <button onClick={() => setScannerOpen(true)} className="gb-focus shrink-0 min-h-[50px] px-3.5 rounded-2xl flex items-center gap-2 text-white text-[14px] font-bold" style={{ background: "#E8761C" }} aria-label="Scanner avec la caméra">
+          <button onClick={() => setScannerOpen(true)} className="gb-focus shrink-0 min-h-[50px] px-3.5 rounded-2xl flex items-center gap-2 text-white text-[14px] font-bold" style={{ background: "var(--cap)" }} aria-label="Scanner avec la caméra">
             <ScanLine size={19} color="#fff" /> Scanner
           </button>
         </div>
@@ -4278,7 +4323,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       {/* Touches rapides supprimées : les produits favoris s'affichent en premier dans la liste. */}
       <HeldSalesBanner heldSales={heldSales} fmt={fmt} nuit={nuit} onOpen={() => onOpenHeld?.()} />
       {nuit ? (
-        <div role="tablist" aria-label="Catégories" className="flex gap-2 overflow-x-auto gb-scroll px-4 mt-4 pb-1">
+        <div role="tablist" aria-label="Catégories" className="flex flex-wrap gap-2 px-4 mt-4 pb-1">
           {["all", ...categories.map((c) => c.id)].map((c) => {
             const on = cat === c;
             return (
@@ -4758,7 +4803,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
                 <PauseCircle size={18} />
                 {resumedHeld ? "Remettre en attente" : "Mettre en attente"}
               </button>
-              <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus flex-1 min-w-0 min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : nuit ? "var(--cap)" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : nuit ? "0 10px 22px rgba(242,122,26,0.35)" : "0 10px 22px rgba(30,142,80,0.3)" }}>
+              <button onClick={confirmCheckout} disabled={cartItems.length === 0} className="gb-focus flex-1 min-w-0 min-h-[56px] rounded-2xl py-3.5 font-bold text-[15px] disabled:opacity-40 active:scale-[0.98] transition-transform flex items-center justify-center gap-2" style={{ background: avoirProduit ? "#534AB7" : nuit ? "var(--cap)" : "#1E8E50", color: "#fff", boxShadow: avoirProduit ? "none" : nuit ? "0 10px 22px var(--cap-soft)" : "0 10px 22px rgba(30,142,80,0.3)" }}>
                   <Check size={19} />
                   {payAvoir ? (due > 0 ? (avoirShortfall > 0 ? `Valider · avoir ${fmt(payAvoirUsed)}${due - avoirShortfall > 0 ? ` + ${fmt(due - avoirShortfall)}` : ""} + crédit ${fmt(avoirShortfall)}` : `Valider · avoir ${fmt(payAvoirUsed)} + ${fmt(due)}`) : `Valider · payé par l'avoir`) : avoirProduit && !avoirMonnaie && (payment === "credit" || cashShortfall) ? (payment === "credit" || !(Number(amountReceived) > 0) ? `Crédit ${fmt(total)} · avoir produit` : `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))} · avoir produit`) : avoirProduit ? `Encaisser ${fmt(total)} · articles en réserve${avoirMonnaie ? " + monnaie en avoir" : ""}` : (payment === "mixte" ? `Encaisser ${fmt(total)} · espèces + mobile` : cashShortfall && !avoirMonnaie ? `Encaisser ${fmt(Number(amountReceived) || 0)} + crédit ${fmt(total - (Number(amountReceived) || 0))}` : `Encaisser ${fmt(total)}`)}
                 </button>
@@ -8807,7 +8852,7 @@ function ShopForm({ shops, onSave, onCancel, pushToast }) {
     setLoading(true);
     try {
       await onSave(
-        { id: uid(), name: trimmed, type: finalType, currency, salesNotificationsEnabled: true, theme: shopProfile({ type: finalType, name: trimmed }) === "boutique" ? "prune" : "emeraude", darkMode: false, soundsEnabled: true, joinCode: generateShopJoinCode(), adminPin: DEFAULT_ADMIN_PIN },
+        { id: uid(), name: trimmed, type: finalType, currency, salesNotificationsEnabled: true, theme: DEFAULT_THEME, designV2: true, darkMode: false, soundsEnabled: true, joinCode: generateShopJoinCode(), adminPin: DEFAULT_ADMIN_PIN },
         { id: uid(), name: vendorName.trim(), pin: vendorPin }
       );
     } finally {
@@ -9158,7 +9203,7 @@ function SettingToggle({ Icon, color, title, desc, on, onChange, danger }) {
 
 function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
   const fmt = useFmt();
-  const initial = { salesNotificationsEnabled: true, theme: "emeraude", darkMode: false, soundsEnabled: true, ...shop };
+  const initial = { salesNotificationsEnabled: true, theme: DEFAULT_THEME, darkMode: false, soundsEnabled: true, ...shop };
   const [f, setF] = useState(initial);
   const [btPrintDisabled, setBtPrintDisabled] = useState(false);
   useEffect(() => { setBtPrintDisabled(isBluetoothPrintDisabled()); }, []);
@@ -9184,7 +9229,7 @@ function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
     try { await shareText(`Rejoindre ${shop.name}`, `Bonjour, voici le code pour rejoindre « ${shop.name} » sur GestiOne : ${shop.joinCode}\nOuvrez GestiOne › Rejoindre une entreprise, puis saisissez ce code.`); } catch { /* annulé */ }
   };
   const selectedCurrency = CURRENCIES.find((c) => c.code === f.currency) || CURRENCIES[0];
-  const theme = getTheme(f.theme || "emeraude");
+  const theme = getTheme(f.theme || DEFAULT_THEME);
   const typeId = ESTABLISHMENT_TYPES.some((t) => t.id === f.type) ? f.type : "autre";
   const TS = typeStyleOf(typeId);
   const typeLabel = customType.trim() || ESTABLISHMENT_TYPES.find((t) => t.id === f.type)?.label || "—";
@@ -9400,7 +9445,7 @@ function BoutiquesSection({ shops, activeShopId, onSwitchShop, onCreateShop, onD
           const st = typeStyleOf(typeId);
           const typeLabel = ESTABLISHMENT_TYPES.find((t) => t.id === s.type)?.label || s.type || "";
           const cur = CURRENCIES.find((c) => c.code === s.currency) || CURRENCIES[0];
-          const th = getTheme(s.theme || "emeraude");
+          const th = getTheme(s.theme || DEFAULT_THEME);
           return (
             <div key={s.id} className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: `1.5px solid ${isActive ? "#1E9E6A" : "var(--line)"}`, boxShadow: isActive ? "0 10px 24px -16px rgba(30,158,106,0.7)" : "0 4px 14px -12px rgba(22,32,42,0.3)" }}>
               <div className="h-1.5" style={{ background: `linear-gradient(90deg, ${th.glass}, ${th.glassLight}, ${th.cap})` }} />
@@ -17799,7 +17844,7 @@ function VoiceSettingsCard({ prefs, onChange, expanded, onToggleExpanded }) {
 
 /* ---------- Thème « Bleu nuit » : Accueil et menu Plus ---------- */
 
-const NUIT = { navy: "#0E2240", navy2: "#16325C", orange: "#F27A1A", orange2: "#FF9A3D", blue: "#2D6BE0", green: "#1FA25B", red: "#E0433A", purple: "#7B4DDB", mut: "#6B7686" };
+const NUIT = { navy: "var(--glass)", navy2: "var(--glass-light)", orange: "var(--cap)", orange2: "var(--cap-2)", blue: "#2D6BE0", green: "#1FA25B", red: "#E0433A", purple: "#7B4DDB", mut: "#6B7686" };
 
 function NuitKpi({ label, value, sub, Icon, from, to, onClick }) {
   return (
@@ -18154,7 +18199,7 @@ function NuitStockScreen({ products, categories, sales, movements, inventories, 
           </label>
           <button onClick={() => setScan(true)} className="gb-focus w-12 h-12 rounded-[16px] flex items-center justify-center shrink-0" style={{ background: "var(--card)", border: "1px solid var(--line)", color: NUIT.navy }} aria-label="Scanner"><ScanLine size={19} /></button>
         </div>
-        <div className="flex gap-2 overflow-x-auto gb-scroll -mx-4 px-4 mt-2.5">
+        <div className="flex flex-wrap gap-2 mt-2.5">
           {[["all", "Tout"], ["low", `Stock faible (${low.length})`], ...categories.map((c) => [c.id, c.label])].map(([id, label]) => (
             <button key={id} onClick={() => setFilter(id)} className="gb-focus shrink-0 h-9 px-3.5 rounded-full text-[12.5px] font-bold whitespace-nowrap" style={filter === id ? { background: NUIT.orange, color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>{label}</button>
           ))}
@@ -18873,7 +18918,13 @@ function AppInner() {
 
   useEffect(() => {
     (async () => {
-      const loadedShops = await loadKey("shops", []);
+      let loadedShops = await loadKey("shops", []);
+      // Nouveau design (celui du Cyber café) appliqué une fois à toutes les
+      // entreprises déjà créées. Le thème reste modifiable dans Apparence.
+      if (Array.isArray(loadedShops) && loadedShops.some((x) => x && !x.designV2)) {
+        loadedShops = loadedShops.map((x) => (x && !x.designV2 ? { ...x, theme: DEFAULT_THEME, designV2: true } : x));
+        window.storage.set("shops", JSON.stringify(loadedShops)).catch(() => {});
+      }
       let storedActiveId = null;
       try { const r = await window.storage.get("activeShopId"); storedActiveId = JSON.parse(r.value); } catch { storedActiveId = null; }
       const activeId = loadedShops.length > 0 ? (loadedShops.some((s) => s.id === storedActiveId) ? storedActiveId : loadedShops[0].id) : null;
@@ -19230,6 +19281,9 @@ function AppInner() {
             const current = (prevShops || []).find((s) => s.id === activeShopId);
             if (!current) return prevShops;
             const merged = { ...current, ...freshMeta };
+            // Un appareil resté sur une ancienne version renvoie l'ancien
+            // thème : le nouveau design choisi ici est conservé.
+            if (current.designV2 && !freshMeta.designV2) { merged.theme = current.theme; merged.designV2 = true; }
             const changed = SHOP_META_SYNC_FIELDS.some((k) => JSON.stringify(current[k]) !== JSON.stringify(merged[k]));
             if (!changed) return prevShops;
             const nextShops = prevShops.map((s) => (s.id === activeShopId ? merged : s));
@@ -20147,7 +20201,7 @@ function AppInner() {
   };
 
   const handleOnboardingComplete = async (shopMeta, vendor, serverShopLicense) => {
-    const newShop = { salesNotificationsEnabled: true, theme: shopProfile(shopMeta) === "boutique" ? "prune" : "emeraude", darkMode: false, soundsEnabled: true, ...shopMeta };
+    const newShop = { salesNotificationsEnabled: true, theme: DEFAULT_THEME, designV2: true, darkMode: false, soundsEnabled: true, ...shopMeta };
     const nextShops = [newShop];
     setShops(nextShops);
     window.storage.set("shops", JSON.stringify(nextShops)).catch(() => {});
@@ -20190,7 +20244,7 @@ function AppInner() {
   };
 
   const handleJoinShopComplete = async (shopObj, pulled, autoRole, autoVendorName, shopLicense) => {
-    const newShop = { salesNotificationsEnabled: true, theme: "emeraude", darkMode: false, soundsEnabled: true, ...shopObj };
+    const newShop = { salesNotificationsEnabled: true, theme: DEFAULT_THEME, designV2: true, darkMode: false, soundsEnabled: true, ...shopObj };
     // Reconnexion à une entreprise déjà présente : on la met à jour au lieu
     // de l'ajouter une deuxième fois dans la liste.
     const nextShops = uniqueShops([...(shops || []), newShop]);
@@ -21245,14 +21299,15 @@ function AppInner() {
     );
   }
 
-  const activeTheme = getTheme(shop?.theme || "emeraude");
+  const activeTheme = getTheme(shop?.theme || DEFAULT_THEME);
   const isDark = !!shop?.darkMode;
   const nuit = isNuit(shop);
-  const themeVars = { "--glass": activeTheme.glass, "--glass-light": activeTheme.glassLight, "--cap": activeTheme.cap, ...(nuit && !isDark ? { "--paper": "#F2F4F8", "--paper-dim": "#E6EAF1", "--line": "#E1E6EE" } : {}) };
+  const cyberLook = isCyberTheme(shop);
+  const themeVars = { "--glass": activeTheme.glass, "--glass-light": activeTheme.glassLight, "--cap": activeTheme.cap, "--cap-2": activeTheme.cap2 || (activeTheme.id === "nuit" ? "#FF9A3D" : activeTheme.cap), "--cap-soft": activeTheme.id === "nuit" ? "rgba(242,122,26,0.18)" : cyberLook ? "rgba(34,211,238,0.18)" : `${activeTheme.cap}2E`, ...(nuit && !isDark ? { "--paper": "#F2F4F8", "--paper-dim": "#E6EAF1", "--line": "#E1E6EE" } : {}), ...(cyberLook && !isDark ? { "--paper": "#EEF2F8", "--paper-dim": "#E2E8F0", "--line": "#DDE4EE", "--ink": "#0F172A" } : {}) };
   const tr = (key) => (TRANSLATIONS[shop?.language || "fr"] && TRANSLATIONS[shop?.language || "fr"][key]) || TRANSLATIONS.fr[key] || key;
 
   return (
-    <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}`} style={themeVars}>
+    <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}${cyberLook ? " gb-cyber" : ""}`} style={themeVars}>
       <GlobalStyle />
       <div className="w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] min-h-screen relative" style={{ background: "var(--paper)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
         {role === "admin" && shop?.type !== "hotel" && shop?.type !== "cyber" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} />}
@@ -21493,12 +21548,12 @@ function AppInner() {
                       const on = t.id === "more" ? NUIT_MORE_VIEWS.has(view) : view === t.id;
                       return (
                         <button key={t.id} onClick={() => { setAdminMenuOpen(false); setView(t.id); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2" aria-current={on ? "page" : undefined}>
-                          <span className="relative flex flex-col items-center gap-1 px-2.5 py-1 rounded-[12px]" style={{ background: on ? "rgba(242,122,26,0.16)" : "transparent" }}>
+                          <span className="relative flex flex-col items-center gap-1 px-2.5 py-1 rounded-[12px]" style={{ background: on ? "var(--cap-soft)" : "transparent" }}>
                             <t.Icon size={19} color={on ? "var(--cap)" : "#9FB0C8"} />
                             {t.id === "history" && heldSales.length > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "#E8771E" }}>{heldSales.length}</span>}
                             {t.id === "stock" && lowStockCount > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{lowStockCount}</span>}
                             {t.id === "more" && creditCount > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{creditCount}</span>}
-                            <span className="text-[10.5px] font-semibold" style={{ color: on ? "#FF9A3D" : "#9FB0C8" }}>{t.id === "sell" && shopProfile(shop) === "boutique" ? "Boutique" : t.label}</span>
+                            <span className="text-[10.5px] font-semibold" style={{ color: on ? "var(--cap-2)" : "#9FB0C8" }}>{t.id === "sell" && shopProfile(shop) === "boutique" ? "Boutique" : t.label}</span>
                           </span>
                         </button>
                       );

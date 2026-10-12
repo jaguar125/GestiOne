@@ -455,14 +455,14 @@ export default function HotelApp(props) {
 function BottomNav({ tab, setTab, onMenu, menuOpen, badges }) {
   const items = [{ id: "home", label: "Accueil", icon: "home" }, { id: "rooms", label: "Chambres", icon: "bed" }, { id: "rent", label: "Louer", icon: "plus", center: true }, { id: "cash", label: "Caisse", icon: "wallet" }, { id: "menu", label: "Menu", icon: "grid", menu: true }];
   return (
-    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 z-30 no-print" style={{ paddingBottom: "calc(10px + env(safe-area-inset-bottom))", background: "linear-gradient(to top, #F4F5F8 70%, rgba(244,245,248,0))", paddingTop: 14 }}>
-      <nav aria-label="Menu de l'hôtel" className="rounded-[24px] grid items-center" style={{ height: 68, background: "#fff", boxShadow: "0 6px 24px rgba(18,35,61,0.14)", gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 z-30 no-print" style={{ paddingBottom: "calc(10px + env(safe-area-inset-bottom))", background: "linear-gradient(to top, #EEF2F8 70%, rgba(244,245,248,0))", paddingTop: 14 }}>
+      <nav aria-label="Menu de l'hôtel" className="rounded-[24px] grid items-center" style={{ height: 68, background: "#fff", boxShadow: "0 6px 24px rgba(10,23,48,0.14)", gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((it) => {
           const on = tab === it.id;
           if (it.menu) {
             return (
               <button key={it.id} type="button" onClick={onMenu} aria-label="Menu" aria-expanded={!!menuOpen} className="gb-focus flex flex-col items-center gap-[3px] text-[10.5px] font-extrabold" style={{ color: H.navy }}>
-                <span className="flex items-center justify-center" style={{ width: 34, height: 30, borderRadius: 10, background: "linear-gradient(135deg,#17305A,#0E1C33)", boxShadow: "0 6px 14px -6px rgba(14,28,51,0.8)" }}><Icon name="grid" size={16} color="#fff" stroke={2.3} /></span>
+                <span className="flex items-center justify-center" style={{ width: 34, height: 30, borderRadius: 10, background: "linear-gradient(135deg,#17305A,#0A1730)", boxShadow: "0 6px 14px -6px rgba(14,28,51,0.8)" }}><Icon name="grid" size={16} color="#fff" stroke={2.3} /></span>
                 {it.label}
               </button>
             );
@@ -470,7 +470,7 @@ function BottomNav({ tab, setTab, onMenu, menuOpen, badges }) {
           if (it.center) {
             return (
               <button key={it.id} type="button" onClick={() => setTab(it.id)} className="gb-focus flex flex-col items-center gap-[3px] text-[10.5px] font-extrabold" style={{ marginTop: -30, color: H.navy }} aria-current={on ? "page" : undefined}>
-                <span className="flex items-center justify-center" style={{ width: 56, height: 56, borderRadius: 19, background: H.gold, border: "4px solid #F4F5F8", boxShadow: "0 8px 18px rgba(201,138,30,0.45)" }}><Icon name="plus" size={24} color={H.navy} stroke={2.8} /></span>
+                <span className="flex items-center justify-center" style={{ width: 56, height: 56, borderRadius: 19, background: H.gold, border: "4px solid #EEF2F8", boxShadow: "0 8px 18px rgba(8,145,178,0.45)" }}><Icon name="plus" size={24} color={H.navy} stroke={2.8} /></span>
                 {it.label}
               </button>
             );
@@ -619,7 +619,7 @@ function StayRow({ s, now, fmt, onClick, actions }) {
 }
 
 // ---------- Chambres : plan, en cours, réservations, ménage ----------
-const NAVY_GRAD = "linear-gradient(135deg, #0E1C33 0%, #17305A 55%, #1F3F73 100%)";
+const NAVY_GRAD = "linear-gradient(135deg, #0A1730 0%, #17305A 55%, #1B3361 100%)";
 const GOLD_GRAD = "linear-gradient(135deg, #E9B84E, #D3962A)";
 // Couleurs des séjours selon l'état : occupée, bientôt fini, dépassée, nuitée.
 const SG = {
@@ -643,7 +643,7 @@ function LiveDot() {
   return <span className="relative inline-flex w-2 h-2 shrink-0"><span className="absolute inset-0 rounded-full animate-ping" style={{ background: "#34D399", opacity: 0.6 }} /><span className="relative w-2 h-2 rounded-full" style={{ background: "#34D399" }} /></span>;
 }
 function HeroStat({ label, value, color, sub }) {
-  return <span className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}><span className="block text-[10px] font-bold truncate" style={{ color: "#AEBBD2" }}>{label}</span><span className="block text-[14px] font-extrabold whitespace-nowrap overflow-hidden text-ellipsis" style={{ color }}>{value}</span>{sub && <span className="block font-mono text-[11px] font-bold" style={{ color: "#F6D27A" }}>{sub}</span>}</span>;
+  return <span className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}><span className="block text-[10px] font-bold truncate" style={{ color: "#AEBBD2" }}>{label}</span><span className="block text-[14px] font-extrabold whitespace-nowrap overflow-hidden text-ellipsis" style={{ color }}>{value}</span>{sub && <span className="block font-mono text-[11px] font-bold" style={{ color: "#67E8F9" }}>{sub}</span>}</span>;
 }
 
 function PlanHero({ ctx, compact }) {
@@ -657,12 +657,12 @@ function PlanHero({ ctx, compact }) {
   if (compact) return (
     <div className="rounded-[20px] px-3.5 py-2.5 text-white flex items-center gap-3" style={{ background: NAVY_GRAD, boxShadow: "0 10px 22px -12px rgba(14,28,51,0.6)" }}>
       <span className="flex-1 min-w-0"><span className="block text-[17px] font-extrabold leading-tight">Chambres</span><span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "#C9D3E6" }}><LiveDot />{hmOf(now)}{next ? ` · prochaine fin Ch. ${next.roomNum} ${fmtClock(toMs(next.end) - now)}` : ""}</span></span>
-      <span className="h-8 px-2.5 rounded-[10px] text-[13px] font-extrabold flex items-center shrink-0" style={{ background: "rgba(224,169,59,0.18)", color: "#F6D27A" }}>{pct} % occupé</span>
+      <span className="h-8 px-2.5 rounded-[10px] text-[13px] font-extrabold flex items-center shrink-0" style={{ background: "rgba(34,211,238,0.18)", color: "#67E8F9" }}>{pct} % occupé</span>
     </div>
   );
   return (
     <div className="mt-1 rounded-[26px] p-4 text-white relative overflow-hidden" style={{ background: NAVY_GRAD, boxShadow: "0 14px 30px -12px rgba(14,28,51,0.6)" }}>
-      <div className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(224,169,59,0.35) 0%, rgba(224,169,59,0) 70%)" }} />
+      <div className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(34,211,238,0.35) 0%, rgba(34,211,238,0) 70%)" }} />
       <div className="relative flex items-center gap-2.5">
         <div className="flex-1 min-w-0">
           <p className="text-[11px] font-bold tracking-[0.12em] truncate uppercase" style={{ color: "#E9C77F" }}>{shop?.name || "Mon hôtel"}</p>
@@ -670,7 +670,7 @@ function PlanHero({ ctx, compact }) {
           <p className="mt-0.5 flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: "#C9D3E6" }}><LiveDot />En direct · {hmOf(now)} · {dateTxt}</p>
         </div>
         <svg width="78" height="78" viewBox="0 0 78 78" role="img" aria-label={`Taux d'occupation ${pct} %`} className="shrink-0">
-          <defs><linearGradient id="hgold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#F6D27A" /><stop offset="1" stopColor="#D99A2B" /></linearGradient></defs>
+          <defs><linearGradient id="hgold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#67E8F9" /><stop offset="1" stopColor="#D99A2B" /></linearGradient></defs>
           <circle cx="39" cy="39" r="31" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="8" />
           <circle cx="39" cy="39" r="31" fill="none" stroke="url(#hgold)" strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(pct / 100) * C} ${C}`} transform="rotate(-90 39 39)" />
           <text x="39" y="41" textAnchor="middle" fontSize="17" fontWeight="800" fill="#fff">{pct}%</text>
@@ -678,7 +678,7 @@ function PlanHero({ ctx, compact }) {
         </svg>
       </div>
       <div className="relative mt-3 grid grid-cols-3 gap-2">
-        <HeroStat label="En cours" value={fmt(active.reduce((t, s) => t + stayTotal(s), 0))} color="#F6D27A" />
+        <HeroStat label="En cours" value={fmt(active.reduce((t, s) => t + stayTotal(s), 0))} color="#67E8F9" />
         <HeroStat label="À encaisser" value={fmt(active.reduce((t, s) => t + stayDue(s), 0))} color="#FDBA74" />
         <HeroStat label="Prochaine fin" value={next ? `Ch. ${next.roomNum}` : "—"} sub={next ? fmtClock(toMs(next.end) - now) : null} color="#fff" />
       </div>
@@ -702,7 +702,7 @@ function EnCoursHero({ ctx, compact }) {
   return (
     <div className="mt-1 rounded-[26px] p-4 text-white relative overflow-hidden" style={{ background: NAVY_GRAD, boxShadow: "0 14px 30px -12px rgba(14,28,51,0.6)" }}>
       <div className="absolute rounded-full" style={{ left: -50, bottom: -70, width: 190, height: 190, background: "radial-gradient(circle, rgba(244,63,94,0.28) 0%, rgba(244,63,94,0) 70%)" }} />
-      <div className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(224,169,59,0.35) 0%, rgba(224,169,59,0) 70%)" }} />
+      <div className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(34,211,238,0.35) 0%, rgba(34,211,238,0) 70%)" }} />
       <div className="relative flex items-start gap-2.5">
         <div className="flex-1 min-w-0">
           <p className="text-[11px] font-bold tracking-[0.12em]" style={{ color: "#E9C77F" }}>SÉJOURS EN COURS</p>
@@ -722,7 +722,7 @@ function EnCoursHero({ ctx, compact }) {
         </>
       )}
       <div className="relative mt-3 grid grid-cols-3 gap-2">
-        <HeroStat label="Montant total" value={fmt(active.reduce((t, s) => t + stayTotal(s), 0))} color="#F6D27A" />
+        <HeroStat label="Montant total" value={fmt(active.reduce((t, s) => t + stayTotal(s), 0))} color="#67E8F9" />
         <HeroStat label="Déjà encaissé" value={fmt(active.reduce((t, s) => t + stayPaid(s), 0))} color="#6EE7B7" />
         <HeroStat label="Reste à payer" value={fmt(active.reduce((t, s) => t + stayDue(s), 0))} color="#FDBA74" />
       </div>
@@ -733,7 +733,7 @@ function EnCoursHero({ ctx, compact }) {
 function RoomsTabs({ tab, setTab, compact }) {
   const opts = [["plan", "Plan"], ["encours", "En cours"], ["resa", "Réservations"], ["menage", "Ménage"]];
   return (
-    <div className={`${compact ? "mt-2" : "mt-3"} p-1 rounded-[17px] grid gap-[3px]`} style={{ background: "#fff", boxShadow: "0 4px 16px -4px rgba(18,35,61,0.12)", gridTemplateColumns: "minmax(0,0.8fr) minmax(0,1fr) minmax(0,1.45fr) minmax(0,1fr)" }}>
+    <div className={`${compact ? "mt-2" : "mt-3"} p-1 rounded-[17px] grid gap-[3px]`} style={{ background: "#fff", boxShadow: "0 4px 16px -4px rgba(10,23,48,0.12)", gridTemplateColumns: "minmax(0,0.8fr) minmax(0,1fr) minmax(0,1.45fr) minmax(0,1fr)" }}>
       {opts.map(([id, l]) => { const on = tab === id; return <button key={id} type="button" onClick={() => setTab(id)} aria-pressed={on} className="gb-focus min-h-[40px] rounded-[13px] text-[12px] font-extrabold whitespace-nowrap overflow-hidden px-1" style={{ background: on ? GOLD_GRAD : "transparent", color: on ? H.navy : H.ink2, boxShadow: on ? "0 4px 10px -3px rgba(211,150,42,0.6)" : "none" }}>{l}</button>; })}
     </div>
   );
@@ -757,7 +757,7 @@ function RoomsScreen({ ctx, tab, setTab, openStay, rentRoom, newResa }) {
   return (
     <div>
       {!isTech && (
-        <div className="sticky z-30 -mx-4 px-4 pb-2.5" style={{ top: STATUS_H, background: "#F4F5F8", boxShadow: compact ? "0 10px 16px -14px rgba(18,35,61,0.45)" : "none" }}>
+        <div className="sticky z-30 -mx-4 px-4 pb-2.5" style={{ top: STATUS_H, background: "#EEF2F8", boxShadow: compact ? "0 10px 16px -14px rgba(10,23,48,0.45)" : "none" }}>
           <div className="pt-1.5" />
           {premium ? (tab === "plan" ? <PlanHero ctx={ctx} compact={compact} /> : <EnCoursHero ctx={ctx} compact={compact} />) : (
             <TopBar title="Chambres" sub={`${rooms.length} chambre${rooms.length > 1 ? "s" : ""} · mise à jour en direct`}
@@ -868,7 +868,7 @@ function PlanTab({ ctx, openStay, rentRoom, goTab, filter = "all" }) {
         const T = roomTypeOf(t);
         const mp = minPrice(t);
         return (
-          <div key={t} className="mb-3 rounded-[22px] p-3" style={{ background: "#fff", boxShadow: "0 6px 18px -10px rgba(18,35,61,0.25)" }}>
+          <div key={t} className="mb-3 rounded-[22px] p-3" style={{ background: "#fff", boxShadow: "0 6px 18px -10px rgba(10,23,48,0.25)" }}>
             <div className="mb-2.5 flex items-center gap-2">
               <span className="h-6 px-2 rounded-[8px] text-[11px] font-extrabold flex items-center gap-1.5" style={{ background: T.tint, color: T.ink }}><Icon name={t === "clim" ? "snow" : "fan"} size={13} stroke={2.3} />{T.plural}</span>
               <span className="flex-1 text-[11px] font-bold truncate" style={{ color: H.muted }}>{list.length} chambre{list.length > 1 ? "s" : ""}{mp ? ` · dès ${fmt(mp)}` : ""}</span>
@@ -919,7 +919,7 @@ function BusyCard({ s, now, fmt, onClick }) {
         <span className="text-[10.5px] font-bold" style={{ color: H.muted }}>{k === "over" ? "de dépassement" : "temps restant"}</span>
         <span className="mt-1.5 h-[7px] rounded-full overflow-hidden" style={{ background: "#EEF0F5" }}><span className="block h-[7px] rounded-full" style={{ width: `${pct}%`, background: G.grad }} /></span>
         <span className="mt-1 flex justify-between gap-1 text-[10px] font-bold" style={{ color: H.muted }}><span>Arr. {hmOf(start)}</span><span>{isNight(s) ? `Départ ${hmOf(end)}` : `Fin ${hmOf(end)}`}</span></span>
-        <span className="mt-2 pt-2 flex items-center gap-1.5 min-w-0" style={{ borderTop: "1px dashed #E2E6EC" }}>
+        <span className="mt-2 pt-2 flex items-center gap-1.5 min-w-0" style={{ borderTop: "1px solid #E5EAF1" }}>
           <span className="w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-extrabold shrink-0" style={{ background: G.soft, color: G.ink }}>{s.client ? initials(s.client) : <Icon name="users" size={13} />}</span>
           <span className="min-w-0 flex-1"><span className="block text-[11.5px] font-extrabold truncate">{s.client || "Client"}</span><span className="block text-[10.5px] font-bold truncate" style={{ color: "#475569" }}>{fmt(stayTotal(s))}</span></span>
           <span className="text-[9px] font-extrabold rounded-[7px] px-1.5 py-0.5 whitespace-nowrap shrink-0" style={due > 0 ? { background: "#FFEDD5", color: "#C2410C" } : { background: "#DCFCE7", color: H.green }}>{due > 0 ? "À encaisser" : "Payé"}</span>
@@ -982,7 +982,7 @@ function StayCard({ s, now, fmt, settings, tariffs, actions, onOpen, onPay }) {
   const elapsed = now - start;
   const tags = [
     [`Par ${s.by || "—"}`, "users", "#F1F5F9", "#334155"],
-    extras > 0 ? [`${(s.extras || []).length} conso. · ${fmt(extras)}`, "glass", "#FCF3E1", "#B7791F"] : null,
+    extras > 0 ? [`${(s.extras || []).length} conso. · ${fmt(extras)}`, "glass", "#E0F7FB", "#0E7490"] : null,
     s.guestId ? ["Fiche + pièce d'identité", "shield", "#E0E7FF", "#4338CA"] : null,
     k === "low" ? [`Alerte ${settings.endAlertMinutes} min avant la fin`, "bell", "#FEE2E2", "#B91C1C"] : null,
     (s.receipts || []).length ? [`Reçu ${s.receipts[s.receipts.length - 1].no}`, "receipt", "#F1F5F9", "#475569"] : null,
@@ -992,7 +992,7 @@ function StayCard({ s, now, fmt, settings, tariffs, actions, onOpen, onPay }) {
   else if (!night && hasNight) acts.push(["Nuitée", "moon", "indigo", () => actions.toNight(s)]);
   acts.push(["Libérer", "logout", "navy", () => actions.releaseStay(s)]);
   const AK = {
-    gold: { background: GOLD_GRAD, color: H.navy, border: "1.5px solid #E0A93B", boxShadow: "0 6px 14px -6px rgba(211,150,42,0.7)" },
+    gold: { background: GOLD_GRAD, color: H.navy, border: "1.5px solid #22D3EE", boxShadow: "0 6px 14px -6px rgba(211,150,42,0.7)" },
     green: { background: "linear-gradient(135deg,#22C55E,#15803D)", color: "#fff", border: "1.5px solid #15803D", boxShadow: "0 6px 14px -6px rgba(21,128,61,0.7)" },
     indigo: { background: "#EEF0FF", color: "#4338CA", border: "1.5px solid #C7D2FE" },
     navy: { background: "#fff", color: H.navy, border: "1.5px solid #D5DBE5" },
@@ -1026,7 +1026,7 @@ function StayCard({ s, now, fmt, settings, tariffs, actions, onOpen, onPay }) {
       <div className="mx-3.5 mt-3">
         <div className="relative h-2 rounded-full" style={{ background: "#EEF0F5" }}>
           <span className="absolute left-0 top-0 h-2 rounded-full" style={{ width: `${pctN}%`, background: G.grad }} />
-          <span className="absolute w-4 h-4 rounded-full" style={{ top: -4, left: `calc(${pctN}% - 8px)`, background: "#fff", border: `3px solid ${G.ink}`, boxSizing: "border-box", boxShadow: "0 2px 6px rgba(18,35,61,0.25)" }} />
+          <span className="absolute w-4 h-4 rounded-full" style={{ top: -4, left: `calc(${pctN}% - 8px)`, background: "#fff", border: `3px solid ${G.ink}`, boxSizing: "border-box", boxShadow: "0 2px 6px rgba(10,23,48,0.25)" }} />
         </div>
         <div className="mt-1.5 flex justify-between text-[10.5px] font-bold" style={{ color: H.muted }}><span>Arrivée <b style={{ color: H.ink }}>{hmOf(start)}</b></span><span>{night ? "Départ" : "Fin"} <b style={{ color: H.ink }}>{night ? `${dayLabel(end, now)} ${hmOf(end)}` : hmOf(end)}</b></span></div>
       </div>
@@ -1521,13 +1521,13 @@ function ArrivalPayScreen({ ctx, resa, onBack, onConfirm }) {
   return (
     <div>
       <TopBar title="Arrivée du client" sub="Étape finale · paiement" onBack={onBack} />
-      <div className="mt-3 rounded-[22px] p-4 text-white" style={{ background: "linear-gradient(135deg,#0E1C33,#1F3F73)" }}>
+      <div className="mt-3 rounded-[22px] p-4 text-white" style={{ background: "linear-gradient(135deg,#0A1730,#1B3361)" }}>
         <div className="flex items-center gap-3">
           <RoomBadge num={resa.roomNum} type={resa.type} size={52} tone={{ bg: "rgba(255,255,255,0.14)", fg: "#fff" }} />
           <span className="flex-1 min-w-0"><span className="block text-[16px] font-extrabold">Chambre {resa.roomNum} · {T.label}</span><span className="block text-[12px] truncate" style={{ color: "#C9D3E6" }}>{resa.tariffName} · {isNight(resa) ? `départ ${dayLabel(toMs(resa.end), now)} ${hmOf(toMs(resa.end))}` : `jusqu'à ${hmOf(start + (Number(resa.hours) || 0) * HOUR)}`}</span></span>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2">
-          {[["Prix", fmt(price), "#fff"], ["Acompte", fmt(deposit), "#6EE7B7"], ["Reste à payer", fmt(rest), "#F6D27A"]].map(([l, v, c]) => <span key={l} className="rounded-[13px] p-2" style={{ background: "rgba(255,255,255,0.08)" }}><span className="block text-[10px] font-bold" style={{ color: "#AEBBD2" }}>{l}</span><span className="block text-[14px] font-extrabold whitespace-nowrap" style={{ color: c }}>{v}</span></span>)}
+          {[["Prix", fmt(price), "#fff"], ["Acompte", fmt(deposit), "#6EE7B7"], ["Reste à payer", fmt(rest), "#67E8F9"]].map(([l, v, c]) => <span key={l} className="rounded-[13px] p-2" style={{ background: "rgba(255,255,255,0.08)" }}><span className="block text-[10px] font-bold" style={{ color: "#AEBBD2" }}>{l}</span><span className="block text-[14px] font-extrabold whitespace-nowrap" style={{ color: c }}>{v}</span></span>)}
         </div>
       </div>
       <Card className="mt-3 px-3.5 py-3 flex items-center gap-3">

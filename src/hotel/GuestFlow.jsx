@@ -282,7 +282,7 @@ export default function GuestFlow({ ctx, info, mode = "night", initialGuest = nu
               const cur = !img && k === currentSide[0];
               return (
                 <button key={k} type="button" onClick={() => setCam(k)} className="gb-focus text-left" aria-label={img ? `Reprendre la photo ${l}` : `Photographier ${l}`}>
-                  <span className="block relative overflow-hidden rounded-[12px]" style={{ aspectRatio: String(doc.ratio), background: img ? "#000" : cur ? "#FFFBF2" : H.ground, border: `2px ${img ? "solid" : "dashed"} ${img ? "#C9EBD5" : cur ? H.gold : H.line}` }}>
+                  <span className="block relative overflow-hidden rounded-[12px]" style={{ aspectRatio: String(doc.ratio), background: img ? "#000" : cur ? "#F0FBFE" : H.ground, border: `2px ${img ? "solid" : "dashed"} ${img ? "#C9EBD5" : cur ? H.gold : H.line}` }}>
                     {img ? <img src={img} alt={`${doc.long} · ${l}`} className="absolute inset-0 w-full h-full" style={{ objectFit: "cover" }} /> : (
                       <span className="absolute inset-0 flex flex-col items-center justify-center gap-1" style={{ color: cur ? H.goldDark : "#94A3B8" }}>
                         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z" /><circle cx="12" cy="13" r="3.5" /></svg>
@@ -354,7 +354,7 @@ export default function GuestFlow({ ctx, info, mode = "night", initialGuest = nu
       </div>
       <div className="mt-4 flex gap-2.5">
         <button type="button" onClick={() => setStep(1)} aria-label="Modifier la fiche" className="gb-focus w-14 h-14 shrink-0 rounded-[18px] flex items-center justify-center" style={{ background: "#fff", border: `1.5px solid ${H.line}`, color: H.navy }}><Icon name="edit" size={20} /></button>
-        <button type="button" disabled={saving} onClick={() => validate(withPhotos)} className="gb-focus flex-1 min-w-0 h-14 rounded-[18px] px-3 flex items-center justify-center gap-2 text-[15px] font-extrabold whitespace-nowrap overflow-hidden disabled:opacity-60" style={{ background: H.gold, color: H.navy, boxShadow: "0 10px 22px rgba(201,138,30,0.30)" }}>
+        <button type="button" disabled={saving} onClick={() => validate(withPhotos)} className="gb-focus flex-1 min-w-0 h-14 rounded-[18px] px-3 flex items-center justify-center gap-2 text-[15px] font-extrabold whitespace-nowrap overflow-hidden disabled:opacity-60" style={{ background: H.gold, color: H.navy, boxShadow: "0 10px 22px rgba(8,145,178,0.30)" }}>
           <Icon name="check" size={18} stroke={2.8} /><span className="truncate">{saving ? "Enregistrement…" : cta}</span>
         </button>
       </div>

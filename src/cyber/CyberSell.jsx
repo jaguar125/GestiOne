@@ -176,7 +176,7 @@ function ConfigSheet({ ctx, svc, onClose, onAdd }) {
             <span className="text-[13px]" style={{ color: "#B6C4DC" }}>{pages} × {fmt(u)}{mult > 1 ? " (A3)" : ""}</span>
             <span className="text-[17px] font-extrabold" style={{ fontFamily: FONT_D, color: "#67E8F9" }}>{fmt(total)}</span>
           </div>
-          {next && <p className="mt-2 pt-2 text-[11.5px] font-bold" style={{ borderTop: "1px dashed rgba(255,255,255,0.22)", color: "#FDE68A" }}>Encore {toNext} page{toNext > 1 ? "s" : ""} et toutes les pages passent à {fmt(next.price * mult)}</p>}
+          {next && <p className="mt-2 pt-2 text-[11.5px] font-bold" style={{ borderTop: "1px solid rgba(255,255,255,0.16)", color: "#FDE68A" }}>Encore {toNext} page{toNext > 1 ? "s" : ""} et toutes les pages passent à {fmt(next.price * mult)}</p>}
           <p className="mt-1 text-[11px]" style={{ color: "#8FA3C2" }}>{qty} feuille{qty > 1 ? "s" : ""} {fmtA} utilisée{qty > 1 ? "s" : ""}</p>
         </div>
         <TierTable svc={svc} qty={pages} mult={mult} fmt={fmt} />

@@ -135,7 +135,7 @@ const KINDS = {
   ghost: { bg: "#fff", ink: C.navy, border: `1.5px solid ${C.line}` },
   soft: { bg: "#F7F9FC", ink: C.ink2, border: `1.5px solid ${C.line}` },
   danger: { bg: "#FEF2F2", ink: C.red, border: "1.5px solid #FECACA" },
-  dashed: { bg: "transparent", ink: C.ink2, border: "1.5px dashed #94A3B8" },
+  dashed: { bg: "#FFFFFF", ink: C.ink2, border: "1.5px solid #CBD5E1" },
 };
 export function Btn({ children, onClick, kind = "cyan", disabled, full, className = "", style, icon, big, type = "button", ariaLabel }) {
   const K = KINDS[kind] || KINDS.cyan;

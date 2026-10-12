@@ -11,8 +11,8 @@ import { hotelFinance, hotelEvents, hotelOccupancy, periodBounds, dayBounds, loc
 import { receiptInfo } from "./hotelReceipts.js";
 import { exportReportPdf } from "./hotelPdf.js";
 
-const navyGrad = "linear-gradient(135deg, #0E1C33 0%, #17305A 60%, #1F3F73 100%)";
-const cardStyle = { background: "#fff", boxShadow: "0 4px 14px -8px rgba(18,35,61,0.25)" };
+const navyGrad = "linear-gradient(135deg, #0A1730 0%, #17305A 60%, #1B3361 100%)";
+const cardStyle = { background: "#fff", boxShadow: "0 4px 14px -8px rgba(10,23,48,0.25)" };
 export const fmtK = (n) => { const a = Math.abs(n), s = n < 0 ? "−" : ""; if (a >= 1e6) return `${s}${(a / 1e6).toFixed(2).replace(".", ",")} M`; if (a >= 1e4) return `${s}${Math.round(a / 1000)} k`; return `${s}${Math.round(a).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ")}`; };
 const dFr = (ms) => new Date(ms).toLocaleDateString("fr-FR");
 
@@ -66,7 +66,7 @@ function RangePicker({ rg }) {
 // ---------- Historique ----------
 const EV = {
   pass: ["clock", "#FFF1F3", "#E11D48"], night: ["moon", "#EEF0FF", "#4F46E5"], resa: ["cal", "#F5F3FF", "#7C3AED"],
-  ext: ["plus", "#FCF3E1", "#B7791F"], exp: ["money", "#FEF2F2", "#B91C1C"], cancel: ["ban", "#F1F5F9", "#64748B"],
+  ext: ["plus", "#E0F7FB", "#0E7490"], exp: ["money", "#FEF2F2", "#B91C1C"], cancel: ["ban", "#F1F5F9", "#64748B"],
 };
 export function HistoryScreen({ ctx, onBack, openReceipt }) {
   const { stays, reservations, expenses, now, fmt, shop } = ctx;
@@ -83,7 +83,7 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
   const sign = (e) => (e.k === "exp" ? -1 : 1);
   const exportPdf = () => exportReportPdf(`Historique-${localDayKey(rg.from)}-au-${localDayKey(rg.to - 1)}.pdf`, {
     title: "Historique", subtitle: `Du ${dFr(rg.from)} au ${dFr(rg.to - 1)} · ${shown.length} opération${shown.length > 1 ? "s" : ""}`,
-    kpis: [{ label: "Recettes", value: fmt(fin.income), color: "#15803D" }, { label: "Dépenses", value: fmt(fin.expensesTotal), color: "#B91C1C" }, { label: "Net", value: fmt(fin.net), color: "#B7791F" }, { label: "Séjours", value: String(fin.counts.pass + fin.counts.night), color: "#1F3F73" }],
+    kpis: [{ label: "Recettes", value: fmt(fin.income), color: "#15803D" }, { label: "Dépenses", value: fmt(fin.expensesTotal), color: "#B91C1C" }, { label: "Net", value: fmt(fin.net), color: "#0E7490" }, { label: "Séjours", value: String(fin.counts.pass + fin.counts.night), color: "#1B3361" }],
     sections: [{ title: "Opérations", head: ["Date", "Opération", "Détail", "Montant"], widths: [1.15, 2.3, 2.1, 1.1], align: ["left", "left", "left", "right"],
       rows: shown.map((e) => [`${new Date(e.at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} ${hmOf(e.at)}`, e.title + (e.cancelled && e.k !== "cancel" ? " (annulé)" : ""), e.sub, { t: `${e.k === "exp" ? "-" : e.k === "cancel" ? "" : "+"}${fmt(e.amount)}`, color: e.k === "exp" ? "#B91C1C" : e.cancelled ? "#94A3B8" : "#15803D", bold: true }]),
       total: ["Total net", "", "", fmt(fin.net)] }],
@@ -98,7 +98,7 @@ export function HistoryScreen({ ctx, onBack, openReceipt }) {
         <div className="mt-2 grid grid-cols-3 gap-2">
           <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Recettes</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#6EE7B7" }}>{fmtK(fin.income)} F</span></span>
           <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Dépenses</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#FDA4AF" }}>{fmtK(fin.expensesTotal)} F</span></span>
-          <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Net</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#F6D27A" }}>{fmtK(fin.net)} F</span></span>
+          <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Net</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#67E8F9" }}>{fmtK(fin.net)} F</span></span>
         </div>
         <div className="mt-2.5 grid grid-cols-4 gap-1.5 text-[10.5px] font-bold" style={{ color: "#C9D3E6" }}>
           {[["passages", fin.counts.pass], ["nuitées", fin.counts.night], ["réservations", fin.counts.resa], ["annulations", fin.counts.cancel]].map(([l, n]) => <span key={l}><b className="block text-[16px] text-white">{n}</b>{l}</span>)}
@@ -150,7 +150,7 @@ export function InventoryScreen({ ctx, onBack }) {
   const typeShare = (fin.byType.vent + fin.byType.clim) || 1;
   const exportPdf = () => exportReportPdf(`Inventaire-${localDayKey(rg.from)}-au-${localDayKey(rg.to - 1)}.pdf`, {
     title: "Inventaire des chambres", subtitle: `Du ${dFr(rg.from)} au ${dFr(rg.to - 1)} · ${rooms.length} chambres`,
-    kpis: [{ label: "Taux d'occupation", value: `${occ.pct} %`, color: "#0B7A6E" }, { label: "Séjours", value: String(occ.stays), color: "#E11D48" }, { label: "Heures vendues", value: `${occ.soldHours} h`, color: "#4F46E5" }, { label: "Panier moyen", value: fmt(basket), color: "#B7791F" }],
+    kpis: [{ label: "Taux d'occupation", value: `${occ.pct} %`, color: "#0B7A6E" }, { label: "Séjours", value: String(occ.stays), color: "#E11D48" }, { label: "Heures vendues", value: `${occ.soldHours} h`, color: "#4F46E5" }, { label: "Panier moyen", value: fmt(basket), color: "#0E7490" }],
     sections: [
       { title: "Par chambre", head: ["Chambre", "Type", "Séjours", "Heures", "Recette"], widths: [1, 1.4, 1, 1, 1.4], align: ["left", "left", "right", "right", "right"],
         rows: perRoom.map((x) => [x.room.num, roomTypeOf(x.room.type).label, String(x.stays), String(Math.round(x.ms / 3600000)), { t: fmt(x.amount), bold: true }]),
@@ -174,7 +174,7 @@ export function InventoryScreen({ ctx, onBack }) {
         <div className="mt-3 rounded-[22px] p-3.5" style={cardStyle}>
           <div className="flex items-baseline"><span className="flex-1 text-[14.5px] font-extrabold">Taux d'occupation par jour</span><span className="text-[11px] font-bold" style={{ color: H.muted }}>moy. {occ.pct} %</span></div>
           <div className="mt-3 flex items-end gap-[3px]" style={{ height: 120, borderBottom: `1px solid ${H.line}` }}>
-            {days.map((x) => <span key={x.d} title={`${dFr(x.d)} : ${x.pct ?? 0} %`} className="flex-1" style={{ height: `${Math.max(2, ((x.pct || 0) / 100) * 120)}px`, borderRadius: "5px 5px 2px 2px", background: x.pct == null ? "#EEF0F5" : x.pct >= 80 ? "linear-gradient(180deg,#F0C463,#C98A1E)" : "linear-gradient(180deg,#2DD4BF,#0B7A6E)" }} />)}
+            {days.map((x) => <span key={x.d} title={`${dFr(x.d)} : ${x.pct ?? 0} %`} className="flex-1" style={{ height: `${Math.max(2, ((x.pct || 0) / 100) * 120)}px`, borderRadius: "5px 5px 2px 2px", background: x.pct == null ? "#EEF0F5" : x.pct >= 80 ? "linear-gradient(180deg,#F0C463,#0891B2)" : "linear-gradient(180deg,#2DD4BF,#0B7A6E)" }} />)}
           </div>
           <div className="mt-1 flex gap-[3px] text-[9px] font-bold" style={{ color: "#94A3B8" }}>{days.map((x, i) => <span key={x.d} className="flex-1 text-center">{days.length <= 12 || i % Math.ceil(days.length / 8) === 0 ? new Date(x.d).getDate() : ""}</span>)}</div>
         </div>
@@ -240,7 +240,7 @@ export function ProfitScreen({ ctx, onBack }) {
   const inProgress = sel.to > now && sel.from <= now;
   const exportPdf = () => exportReportPdf(`Benefices-${String(sel.label).replace(/[^\wÀ-ÿ]+/g, "-")}.pdf`, {
     title: "Bénéfices", subtitle: `${sel.label.charAt(0).toUpperCase()}${sel.label.slice(1)}${inProgress ? " (en cours)" : ""}`,
-    kpis: [{ label: "Recettes", value: fmt(cur.income), color: "#15803D" }, { label: "Dépenses", value: fmt(cur.expensesTotal), color: "#B91C1C" }, { label: "Bénéfice net", value: fmt(cur.net), color: cur.net < 0 ? "#B91C1C" : "#B7791F" }, { label: "Marge", value: `${marge} %`, color: "#1F3F73" }],
+    kpis: [{ label: "Recettes", value: fmt(cur.income), color: "#15803D" }, { label: "Dépenses", value: fmt(cur.expensesTotal), color: "#B91C1C" }, { label: "Bénéfice net", value: fmt(cur.net), color: cur.net < 0 ? "#B91C1C" : "#0E7490" }, { label: "Marge", value: `${marge} %`, color: "#1B3361" }],
     sections: [
       { title: "Par période", head: ["Période", "Recettes", "Dépenses", "Bénéfice"], widths: [1.6, 1, 1, 1],
         rows: rows.slice().reverse().map((x) => [x.label.charAt(0).toUpperCase() + x.label.slice(1), { t: fmt(x.f.income), color: "#15803D" }, { t: fmt(x.f.expensesTotal), color: "#B91C1C" }, { t: fmt(x.f.net), bold: true, color: x.f.net < 0 ? "#B91C1C" : "#0F172A" }]) },
@@ -262,11 +262,11 @@ export function ProfitScreen({ ctx, onBack }) {
         </div>
       )}
       <div className="mt-3 rounded-[26px] p-4 text-white relative overflow-hidden" style={{ background: navyGrad, boxShadow: "0 14px 30px -12px rgba(14,28,51,0.6)" }}>
-        <div className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(224,169,59,0.4) 0%, rgba(224,169,59,0) 70%)" }} />
+        <div className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(34,211,238,0.4) 0%, rgba(34,211,238,0) 70%)" }} />
         <div className="relative flex items-center justify-between"><span className="text-[11.5px] font-extrabold tracking-[0.08em] uppercase" style={{ color: "#E9C77F" }}>Bénéfice net{inProgress ? " · en cours" : ""}</span><OwnerBadge /></div>
         <div className="relative flex items-baseline gap-2 flex-wrap"><span className="text-[30px] font-extrabold tracking-tight" style={{ color: cur.net < 0 ? "#FDA4AF" : "#fff" }}>{fmt(cur.net)}</span>{trend != null && <span className="h-[22px] px-2 rounded-[7px] text-[11px] font-extrabold flex items-center" style={{ background: trend >= 0 ? "rgba(52,211,153,0.18)" : "rgba(244,63,94,0.2)", color: trend >= 0 ? "#6EE7B7" : "#FDA4AF" }}>{trend >= 0 ? "+" : ""}{trend} % vs période préc.</span>}</div>
         <div className="relative mt-3 grid grid-cols-3 gap-2">
-          {[["Recettes", `${fmtK(cur.income)} F`, "#6EE7B7"], ["Dépenses", `${fmtK(cur.expensesTotal)} F`, "#FDA4AF"], ["Marge", `${marge} %`, "#F6D27A"]].map(([l, v, c]) => <span key={l} className="rounded-[13px] p-2" style={{ background: "rgba(255,255,255,0.08)" }}><span className="block text-[10px] font-bold" style={{ color: "#AEBBD2" }}>{l}</span><span className="block text-[14px] font-extrabold whitespace-nowrap" style={{ color: c }}>{v}</span></span>)}
+          {[["Recettes", `${fmtK(cur.income)} F`, "#6EE7B7"], ["Dépenses", `${fmtK(cur.expensesTotal)} F`, "#FDA4AF"], ["Marge", `${marge} %`, "#67E8F9"]].map(([l, v, c]) => <span key={l} className="rounded-[13px] p-2" style={{ background: "rgba(255,255,255,0.08)" }}><span className="block text-[10px] font-bold" style={{ color: "#AEBBD2" }}>{l}</span><span className="block text-[14px] font-extrabold whitespace-nowrap" style={{ color: c }}>{v}</span></span>)}
         </div>
       </div>
       <div className="mt-3 rounded-[22px] p-3.5" style={cardStyle}>
@@ -276,7 +276,7 @@ export function ProfitScreen({ ctx, onBack }) {
         <div className="mt-3 flex items-end gap-2" style={{ height: 150, borderBottom: `1px solid ${H.line}` }}>
           {rows.map((x) => (
             <span key={x.from} className="flex-1 h-full flex items-end justify-center gap-[2px]" title={`${x.label} : ${fmt(x.f.income)} / ${fmt(x.f.expensesTotal)}`}>
-              <span style={{ width: "42%", height: `${Math.max(2, (x.f.income / max) * 146)}px`, borderRadius: "4px 4px 1px 1px", background: "linear-gradient(180deg,#34D399,#059669)", outline: x.from === sel.from ? "2px solid #E0A93B" : "none", outlineOffset: 1 }} />
+              <span style={{ width: "42%", height: `${Math.max(2, (x.f.income / max) * 146)}px`, borderRadius: "4px 4px 1px 1px", background: "linear-gradient(180deg,#34D399,#059669)", outline: x.from === sel.from ? "2px solid #22D3EE" : "none", outlineOffset: 1 }} />
               <span style={{ width: "42%", height: `${Math.max(2, (x.f.expensesTotal / max) * 146)}px`, borderRadius: "4px 4px 1px 1px", background: "linear-gradient(180deg,#FDA4AF,#E11D48)" }} />
             </span>
           ))}
@@ -286,7 +286,7 @@ export function ProfitScreen({ ctx, onBack }) {
       <div className="mt-3 rounded-[22px] px-3.5 py-1.5" style={cardStyle}>
         <div className="grid gap-1 py-2 text-[10px] font-extrabold" style={{ gridTemplateColumns: "minmax(0,1fr) 70px 66px 78px", color: H.muted, borderBottom: `1px solid ${H.line2}` }}><span>PÉRIODE</span><span className="text-right">RECETTES</span><span className="text-right">DÉPENSES</span><span className="text-right">BÉNÉFICE</span></div>
         {rows.slice().reverse().map((x) => (
-          <div key={x.from} className="grid gap-1 py-2.5 text-[12px] font-bold items-center" style={{ gridTemplateColumns: "minmax(0,1fr) 70px 66px 78px", borderBottom: `1px solid #F3F4F7`, background: x.from === sel.from ? "#FFFBF2" : "transparent" }}>
+          <div key={x.from} className="grid gap-1 py-2.5 text-[12px] font-bold items-center" style={{ gridTemplateColumns: "minmax(0,1fr) 70px 66px 78px", borderBottom: `1px solid #F3F4F7`, background: x.from === sel.from ? "#F0FBFE" : "transparent" }}>
             <span className="font-extrabold truncate first-letter:uppercase">{x.label}</span><span className="text-right" style={{ color: H.green }}>{fmtK(x.f.income)}</span><span className="text-right" style={{ color: "#BE123C" }}>{fmtK(x.f.expensesTotal)}</span><span className="text-right font-extrabold" style={{ color: x.f.net < 0 ? "#BE123C" : H.ink }}>{fmtK(x.f.net)}</span>
           </div>
         ))}
