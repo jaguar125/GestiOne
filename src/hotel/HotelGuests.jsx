@@ -40,7 +40,8 @@ export function GuestsScreen({ ctx, onBack, onOpen }) {
   const [cFrom, setCFrom] = useState(localDayKey(firstOfMonth));
   const [cTo, setCTo] = useState(localDayKey(now));
   let from = -Infinity, to = Infinity;
-  if (r === "d7") { from = d0 - 6 * DAY; to = d0 + DAY; }
+  if (r === "today") { from = d0; to = d0 + DAY; }
+  else if (r === "d7") { from = d0 - 6 * DAY; to = d0 + DAY; }
   else if (r === "month") { from = firstOfMonth; to = d0 + DAY; }
   else if (r === "custom") { const a = dayKeyToMs(cFrom), b = dayKeyToMs(cTo); if (Number.isFinite(a) && Number.isFinite(b)) { from = Math.min(a, b); to = Math.max(a, b) + DAY; } }
   const rows = useMemo(() => guests.map((g) => ({ g, a: guestActivity(g, stays, reservations) })), [guests, stays, reservations]);
@@ -65,7 +66,7 @@ export function GuestsScreen({ ctx, onBack, onOpen }) {
         {q && <button type="button" onClick={() => setQ("")} aria-label="Effacer la recherche" className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: H.ground }}><Icon name="x" size={14} /></button>}
       </label>
       <div className="mt-2.5 flex flex-wrap gap-1.5">
-        {[["all", "Tous"], ["d7", "7 jours"], ["month", "Ce mois"], ["custom", "Plage…"]].map(([id, l]) => <Chip key={id} on={r === id} onClick={() => setR(id)} className="!min-h-[36px] !px-3 !text-[12px]">{l}</Chip>)}
+        {[["all", "Tous"], ["today", "Aujourd'hui"], ["d7", "7 jours"], ["month", "Ce mois"], ["custom", "Plage…"]].map(([id, l]) => <Chip key={id} on={r === id} onClick={() => setR(id)} className="!min-h-[36px] !px-3 !text-[12px]">{l}</Chip>)}
       </div>
       {r === "custom" && (
         <div className="mt-2 rounded-[16px] p-2 flex items-center gap-1.5" style={{ background: "#fff", border: `1.5px solid ${H.gold}` }}>
