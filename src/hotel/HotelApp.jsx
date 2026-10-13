@@ -696,7 +696,7 @@ function LiveDot() {
   return <span className="relative inline-flex w-2 h-2 shrink-0"><span className="absolute inset-0 rounded-full animate-ping" style={{ background: "#34D399", opacity: 0.6 }} /><span className="relative w-2 h-2 rounded-full" style={{ background: "#34D399" }} /></span>;
 }
 function HeroStat({ label, value, color, sub }) {
-  return <span className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}><span className="block text-[10px] font-bold truncate" style={{ color: "#AEBBD2" }}>{label}</span><span className="block text-[14px] font-extrabold whitespace-nowrap overflow-hidden text-ellipsis" style={{ color }}>{value}</span>{sub && <span className="block font-mono text-[11px] font-bold" style={{ color: "#67E8F9" }}>{sub}</span>}</span>;
+  return <span className="rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}><span className="block text-[10px] font-bold truncate" style={{ color: "#AEBBD2" }}>{label}</span><span className="block text-[13px] font-extrabold leading-tight" style={{ color, overflowWrap: "anywhere" }}>{value}</span>{sub && <span className="block font-mono text-[11px] font-bold" style={{ color: "#67E8F9" }}>{sub}</span>}</span>;
 }
 
 function PlanHero({ ctx, compact }) {
@@ -1001,18 +1001,60 @@ function EnCoursChips({ ctx, f, setF }) {
 function EnCoursTab({ ctx, openStay, f = "all" }) {
   const { stays, now, fmt, actions, settings, tariffs, openReceipt } = ctx;
   const [payFor, setPayFor] = useState(null);
+  const [zoom, setZoom] = useState(null); // { id, rect } : chambre agrandie
   const all = stays.filter(isActiveStay).sort((a, b) => urgency(a, now) - urgency(b, now));
   const isAlert = (s) => { const k = stayKind(s, now); return k === "over" || k === "low"; };
   const list = all.filter((s) => (f === "all" ? true : f === "n" ? isNight(s) : f === "h" ? !isNight(s) : isAlert(s)));
   return (
     <div>
       {list.length > 0 && <p className="mt-3 flex items-center gap-1.5 text-[11.5px] font-bold" style={{ color: H.muted }}><Icon name="sliders" size={14} />Triés par urgence · les alertes d'abord</p>}
-      <div className="mt-2.5 flex flex-col gap-3">
-        {list.length === 0 ? <Empty icon="clock" title={f === "a" ? "Aucune alerte" : "Aucune chambre en cours"} text="Les chambres louées apparaissent ici avec leur compte à rebours." /> : list.map((s) => (
-          <StayCard key={s.id} s={s} now={now} fmt={fmt} settings={settings} tariffs={tariffs} actions={actions} onOpen={() => openStay(s)} onPay={() => setPayFor(s)} />
-        ))}
-      </div>
+      {list.length === 0 ? <div className="mt-2.5"><Empty icon="clock" title={f === "a" ? "Aucune alerte" : "Aucune chambre en cours"} text="Les chambres louées apparaissent ici avec leur compte à rebours." /></div> : (
+        <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+          {list.map((s) => (
+            <div key={s.id} data-stay={s.id} className="min-w-0 grid" style={{ visibility: zoom?.id === s.id ? "hidden" : "visible" }}>
+              <BusyCard s={s} now={now} fmt={fmt} onClick={(e) => setZoom({ id: s.id, rect: e.currentTarget.getBoundingClientRect() })} />
+            </div>
+          ))}
+        </div>
+      )}
+      {zoom && (() => { const zs = stays.find((x) => x.id === zoom.id && isActiveStay(x)); return zs ? (
+        <StayZoom rect={zoom.rect} onClosed={() => setZoom(null)} onDetails={() => { setZoom(null); openStay(zs); }}>
+          {(close) => <StayCard s={zs} now={now} fmt={fmt} settings={settings} tariffs={tariffs} actions={actions} onOpen={close} onPay={() => setPayFor(zs)} />}
+        </StayZoom>
+      ) : null; })()}
       {payFor && <PaySheet title={`Encaisser · chambre ${payFor.roomNum}`} amount={stayDue(payFor)} fmt={fmt} defaultPrint={settings.receipt.ask !== false} onClose={() => setPayFor(null)} onConfirm={({ mode, op, given, print }) => { const rc = actions.collect(payFor, mode, { given, op }); setPayFor(null); if (rc && print) openReceipt(rc); }} />}
+    </div>
+  );
+}
+
+// Agrandissement d'une miniature : la fiche part de la place de la miniature,
+// grossit au centre de l'écran, puis y retourne quand on la touche à nouveau.
+function StayZoom({ rect, children, onClosed, onDetails }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  const [from, setFrom] = useState(null);
+  useEffect(() => {
+    const box = boxRef.current; if (!box || !rect) { setOpen(true); return undefined; }
+    const b = box.getBoundingClientRect();
+    const sx = rect.width / b.width;
+    setFrom(`translate(${rect.left + rect.width / 2 - (b.left + b.width / 2)}px, ${rect.top + rect.height / 2 - (b.top + b.height / 2)}px) scale(${sx})`);
+    const t = requestAnimationFrame(() => requestAnimationFrame(() => setOpen(true)));
+    return () => cancelAnimationFrame(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const close = () => { setOpen(false); setTimeout(onClosed, 300); };
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center px-3 no-print" role="dialog" aria-modal="true" aria-label="Détails de la chambre"
+      style={{ paddingTop: "max(36px, env(safe-area-inset-top))", paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
+      <div className="absolute inset-0" onClick={close} style={{ background: "rgba(10,23,48,0.55)", backdropFilter: "blur(3px)", opacity: open ? 1 : 0, transition: "opacity .28s ease" }} />
+      <div ref={boxRef} className="relative w-full max-w-[420px] max-h-full overflow-y-auto rounded-[24px]"
+        style={{ transform: open ? "none" : from || "scale(0.6)", opacity: open ? 1 : from ? 0.6 : 0, transition: "transform .3s cubic-bezier(.2,.9,.25,1.05), opacity .25s ease", transformOrigin: "center center", boxShadow: "0 30px 60px -20px rgba(0,0,0,0.6)" }}>
+        {children(close)}
+        <div className="flex gap-2 mt-2">
+          <button type="button" onClick={onDetails} className="gb-focus flex-1 min-h-[44px] rounded-[14px] text-[13px] font-extrabold flex items-center justify-center gap-1.5" style={{ background: "#fff", color: H.navy }}><Icon name="clipboard" size={16} />Fiche du séjour</button>
+          <button type="button" onClick={close} className="gb-focus flex-1 min-h-[44px] rounded-[14px] text-[13px] font-extrabold flex items-center justify-center gap-1.5" style={{ background: "rgba(255,255,255,0.16)", color: "#fff", border: "1px solid rgba(255,255,255,0.35)" }}><Icon name="x" size={16} />Réduire</button>
+        </div>
+      </div>
     </div>
   );
 }
