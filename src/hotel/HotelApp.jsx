@@ -817,10 +817,11 @@ function RoomsScreen({ ctx, tab, setTab, openStay, rentRoom, newResa }) {
               right={tab === "resa" ? <Btn kind="indigo" icon="plus" onClick={() => newResa()} className="!min-h-[44px] !px-3.5 !text-[13px]">Réserver</Btn> : null} />
           )}
           <RoomsTabs tab={tab} setTab={setTab} compact={compact} />
-          {tab === "plan" && rooms.length > 0 && <PlanStickyBar ctx={ctx} filter={planFilter} setFilter={setPlanFilter} compact={compact} />}
-          {tab === "encours" && <EnCoursChips ctx={ctx} f={encFilter} setF={setEncFilter} />}
         </div>
       )}
+      {/* Compteurs et filtres : ils défilent avec la liste (seul l'en-tête reste fixe). */}
+      {!isTech && tab === "plan" && rooms.length > 0 && <PlanStickyBar ctx={ctx} filter={planFilter} setFilter={setPlanFilter} compact={false} />}
+      {!isTech && tab === "encours" && <EnCoursChips ctx={ctx} f={encFilter} setF={setEncFilter} />}
       {tab === "plan" && !isTech && <PlanTab ctx={ctx} openStay={openStay} rentRoom={rentRoom} goTab={setTab} filter={planFilter} />}
       {tab === "encours" && !isTech && <EnCoursTab ctx={ctx} openStay={openStay} f={encFilter} />}
       {tab === "resa" && !isTech && <ResaTab ctx={ctx} newResa={newResa} openStay={openStay} count={resaCount} />}

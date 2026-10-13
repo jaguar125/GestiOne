@@ -21390,6 +21390,8 @@ function AppInner() {
                 {(role === "admin" || hotelSupportAsked) && licenseStatus !== "expired" && !ownerAccess && !hotelEditorOpen && (
                   <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} variant={shop.type === "hotel" ? "hotel" : undefined} prefill={supportPrefill} onBuyLicense={() => setHotelRouteSignal({ name: "order", n: Date.now() })} />
                 )}
+                {/* Bouton « revenir en haut », juste au-dessus de la bulle de messagerie */}
+                {licenseStatus !== "expired" && !ownerAccess && !hotelEditorOpen && <ScrollTopBubble bottom={(role === "admin" || hotelSupportAsked) ? 172 : 104} />}
                 {role && locked && (
                   <LockScreen
                     userName={actorName()}

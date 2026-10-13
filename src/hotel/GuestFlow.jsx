@@ -165,14 +165,34 @@ export default function GuestFlow({ ctx, info, mode = "night", initialGuest = nu
     if (p.length < 8 || g.id) return null;
     return guests.find((x) => normPhone(x.phone) === p) || null;
   }, [g.phone, g.id, guests]);
-  const useKnown = async () => {
-    setG({ ...EMPTY, ...known });
-    pushToast(`Fiche de ${guestFullName(known)} reprise`, "ok");
-    if (known.photos?.length) {
-      const got = await loadPhotos(shopId, known.photos);
+  // Recherche automatique dans les fiches déjà enregistrées : nom, prénoms,
+  // date et lieu de naissance (et n° de pièce) comparés pendant la saisie.
+  const norm = (v) => String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const matches = useMemo(() => {
+    if (g.id) return [];
+    const ln = norm(g.lastName), fn = norm(g.firstName), bp = norm(g.birthPlace), dn = norm(g.docNumber);
+    if (ln.length < 2 && !(dn.length >= 4)) return [];
+    return guests.map((x) => {
+      const xl = norm(x.lastName), xf = norm(x.firstName);
+      let score = 0; const same = [];
+      if (ln && xl === ln) { score += 1; same.push("nom"); } else if (ln.length >= 2 && xl.startsWith(ln)) score += 0.5; else if (!(dn.length >= 4 && norm(x.docNumber) === dn)) return null;
+      if (fn && xf === fn) { score += 1; same.push("prénoms"); } else if (fn && !xf.startsWith(fn)) score -= 0.5;
+      if (g.birthDate && x.birthDate === g.birthDate) { score += 1; same.push("date de naissance"); }
+      if (bp && norm(x.birthPlace) === bp) { score += 1; same.push("lieu de naissance"); }
+      if (dn.length >= 4 && norm(x.docNumber) === dn) { score += 2; same.push("n° de pièce"); }
+      return { x, score, same, exact: same.length >= 3 };
+    }).filter((m) => m && m.score > 0).sort((a, b) => b.score - a.score).slice(0, 4);
+  }, [g.lastName, g.firstName, g.birthDate, g.birthPlace, g.docNumber, g.id, guests]); // eslint-disable-line react-hooks/exhaustive-deps
+  const takeGuest = async (x) => {
+    setG({ ...EMPTY, ...x });
+    pushToast(`Fiche de ${guestFullName(x)} reprise : vérifiez les informations`, "ok");
+    if (x.photos?.length) {
+      const got = await loadPhotos(shopId, x.photos);
       if (Object.keys(got).length) setShots(got);
     }
   };
+  const useKnown = () => takeGuest(known);
+  const forget = () => { setG({ ...EMPTY }); setShots({}); setNewSides({}); };
   // Photos déjà enregistrées (arrivée d'une réservation, fiche reprise).
   useEffect(() => {
     if (initialGuest?.photos?.length) loadPhotos(shopId, initialGuest.photos).then((got) => { if (Object.keys(got).length) setShots(got); });
@@ -193,6 +213,8 @@ export default function GuestFlow({ ctx, info, mode = "night", initialGuest = nu
       doc.sides.forEach(([k]) => { if (newSides[k] && shots[k]) fresh[k] = shots[k]; });
       if (withPhotos && Object.keys(fresh).length) photos = [...photos.filter((p) => !fresh[p.side]), ...(await savePhotos(shopId, id, fresh))];
       const guest = { ...g, id, lastName: g.lastName.trim().toUpperCase(), firstName: g.firstName.trim(), birthPlace: g.birthPlace.trim(), phone: g.phone.trim(), city: g.city.trim(), district: g.district.trim(), address: (g.address || "").trim(), docNumber: g.docNumber.trim().toUpperCase(), photos, photosPending: !withPhotos, visits: (g.visits || 0) + (mode === "photos" || mode === "arrival" ? 0 : 1), createdAt: g.createdAt || at, updatedAt: at, by: g.by || by };
+      if (info?.room) guest.lastVisit = { at, room: info.room.num, type: info.room.type, tariff: info.tariff?.name || "", price: Number(info.price) || 0, mode };
+      guest.updatedAt = at;
       await onDone(guest);
     } finally { setSaving(false); }
   };
@@ -213,6 +235,31 @@ export default function GuestFlow({ ctx, info, mode = "night", initialGuest = nu
         <TopBar title="Fiche du client" sub={mode === "resa" ? "Obligatoire pour une réservation" : mode === "arrival" ? "Arrivée du client réservé" : "Obligatoire pour une nuitée"} onBack={onCancel} />
         <Steps step={1} />
         <StayBanner info={info} fmt={fmt} now={now} />
+        {g.id && guests.some((x) => x.id === g.id) && (
+          <div className="mt-3 rounded-[16px] px-3 py-2.5 flex items-center gap-2.5" style={{ background: "#ECFDF5", border: "1.5px solid #A7F3D0" }}>
+            <Icon name="check" size={18} color={H.green} stroke={2.6} />
+            <span className="flex-1 min-w-0"><span className="block text-[13px] font-extrabold" style={{ color: "#065F46" }}>Fiche de {guestFullName(g)} reprise</span><span className="block text-[11.5px]" style={{ color: "#047857" }}>{g.visits || 1} visite{(g.visits || 1) > 1 ? "s" : ""}{g.lastVisit?.at ? ` · dernière le ${new Date(g.lastVisit.at).toLocaleDateString("fr-FR")}${g.lastVisit.room ? `, ch. ${g.lastVisit.room}` : ""}` : ""} · vérifiez puis continuez</span></span>
+            <button type="button" onClick={forget} className="gb-focus h-8 px-2.5 rounded-[10px] text-[11.5px] font-extrabold shrink-0" style={{ background: "#fff", color: H.ink2, border: `1px solid ${H.line}` }}>Ce n'est pas lui</button>
+          </div>
+        )}
+        {matches.length > 0 && (
+          <div className="mt-3 rounded-[18px] p-2.5" style={{ background: H.indigoSoft, border: "1.5px solid #C7CBFA" }}>
+            <p className="px-1 text-[11px] font-extrabold tracking-[0.04em]" style={{ color: "#3730A3" }}>CLIENT{matches.length > 1 ? "S" : ""} DÉJÀ ENREGISTRÉ{matches.length > 1 ? "S" : ""}</p>
+            <div className="mt-1.5 flex flex-col gap-1.5">
+              {matches.map(({ x, same, exact }) => (
+                <button key={x.id} type="button" onClick={() => takeGuest(x)} className="gb-focus w-full rounded-[14px] px-2.5 py-2 flex items-center gap-2.5 text-left" style={{ background: "#fff", border: `1.5px solid ${exact ? H.green : "#DDE1FB"}` }}>
+                  <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0 text-[13px] font-extrabold" style={{ background: exact ? H.greenSoft : H.indigoSoft, color: exact ? H.green : H.indigo }}>{(x.lastName || "?").charAt(0)}{(x.firstName || "").charAt(0)}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13.5px] font-extrabold leading-snug">{guestFullName(x)}{exact && <span className="ml-1.5 text-[10px] font-extrabold px-1.5 py-0.5 rounded-[6px] align-middle" style={{ background: H.greenSoft, color: H.green }}>IDENTIQUE</span>}</span>
+                    <span className="block text-[11.5px]" style={{ color: H.muted }}>Né(e) le {x.birthDate ? new Date(x.birthDate).toLocaleDateString("fr-FR") : "—"} à {x.birthPlace || "—"} · {(x.photos || []).length ? "pièce photographiée" : "sans photo"}</span>
+                    {same.length > 0 && <span className="block text-[11px] font-bold" style={{ color: exact ? H.green : H.indigo }}>Identique : {same.join(", ")}</span>}
+                  </span>
+                  <span className="text-[11.5px] font-extrabold shrink-0" style={{ color: H.indigo }}>Reprendre</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <Section icon="users" tint={H.goldSoft} ink={H.goldDark} title="Identité">
           <div className="grid grid-cols-2 gap-2">
             <In label="Nom *" err={errors.lastName} show={show}><input value={g.lastName} onChange={(e) => set("lastName", e.target.value)} autoCapitalize="characters" style={{ ...bad("lastName"), textTransform: "uppercase", fontWeight: 700 }} /></In>

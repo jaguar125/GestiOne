@@ -204,6 +204,12 @@ export function TarifsScreen({ ctx, onBack, onEdit }) {
   const list = tariffs.filter((t) => t.type === type).sort((a, b) => (Number(a.hours) || 99) - (Number(b.hours) || 99));
   const nightRef = list.find((t) => isNight(t));
   const flip = (t) => save.tariffs(tariffs.map((x) => (x.id === t.id ? { ...x, active: x.active === false, updatedAt: new Date().toISOString() } : x)));
+  // Supprimer un forfait (les séjours passés gardent le nom et le prix appliqués).
+  const [askDel, setAskDel] = useState(null);
+  const remove = (t) => { save.tariffs(tariffs.filter((x) => x.id !== t.id)); setAskDel(null); ctx.pushToast?.(`Forfait « ${t.name} » supprimé`, "ok"); };
+  // Doublons (même type, même durée, même prix) : signalés pour être supprimés.
+  const dupIds = new Set(); const seenKey = new Map();
+  list.forEach((t) => { const k = `${Number(t.hours) || 0}|${Number(t.price) || 0}`; if (seenKey.has(k)) dupIds.add(t.id); else seenKey.set(k, t.id); });
   const { h, m } = parseHM(settings.checkoutTime);
   const shiftCheckout = (d) => { const total = Math.min(18 * 60, Math.max(8 * 60, h * 60 + m + d)); setS({ checkoutTime: `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}` }); };
   return (
@@ -229,13 +235,28 @@ export function TarifsScreen({ ctx, onBack, onEdit }) {
             if (pct > 0) { tag = `−${pct} %`; tagBg = H.greenSoft; tagInk = H.green; } else if (pct < 0) { tag = `+${-pct} %`; tagBg = H.orangeSoft; tagInk = H.orange; } else { tag = "Prix normal"; tagBg = "#F1F3F6"; tagInk = "#475569"; }
           }
           return (
-            <div key={t.id} className="rounded-[18px] px-3 py-2.5 flex items-center gap-3" style={{ background: "#fff", boxShadow: H.shadow, opacity: off ? 0.55 : 1 }}>
-              <button type="button" onClick={() => onEdit(t, type)} className="gb-focus flex-1 min-w-0 flex items-center gap-3 text-left">
+            <div key={t.id} className="rounded-[18px] px-3 pt-2.5 pb-2" style={{ background: "#fff", boxShadow: H.shadow, border: askDel === t.id ? `1.5px solid ${H.red}` : "1.5px solid transparent" }}>
+              <div className="flex items-center gap-3" style={{ opacity: off ? 0.55 : 1 }}>
+                <button type="button" onClick={() => onEdit(t, type)} className="gb-focus flex-1 min-w-0 flex items-center gap-3 text-left">
                 <span className="w-11 h-11 rounded-[14px] flex flex-col items-center justify-center shrink-0 font-extrabold leading-none" style={{ background: hrs ? T.tint : H.navy, color: hrs ? T.ink : H.gold }}><span className="text-[14px]">{hrs || "N"}</span><span className="text-[9px] mt-0.5">{hrs ? "H" : "NUIT"}</span></span>
                 <span className="flex-1 min-w-0"><span className="block text-[14px] font-extrabold truncate">{t.name}</span><span className="block text-[11.5px] truncate" style={{ color: H.muted }}>{detail}</span></span>
                 <span className="text-right shrink-0"><span className="block text-[16px] font-extrabold">{fmt(Number(t.price) || 0)}</span><span className="inline-block text-[10.5px] font-extrabold rounded-[6px] px-1.5 py-0.5 mt-0.5" style={{ background: tagBg, color: tagInk }}>{tag}</span></span>
               </button>
-              <Toggle on={!off} onChange={() => flip(t)} label={`Forfait ${t.name} proposé`} />
+              </div>
+              {dupIds.has(t.id) && <p className="mt-1.5 text-[11px] font-bold rounded-[8px] px-2 py-1" style={{ background: H.orangeSoft, color: H.orange }}>Doublon : un autre forfait identique existe. Vous pouvez supprimer celui-ci.</p>}
+              {askDel === t.id ? (
+                <div className="mt-2 pt-2 flex items-center gap-2" style={{ borderTop: `1px solid ${H.line2}` }}>
+                  <span className="flex-1 min-w-0 text-[12.5px] font-extrabold" style={{ color: H.red }}>Supprimer « {t.name} » ?</span>
+                  <button type="button" onClick={() => setAskDel(null)} className="gb-focus h-9 px-3 rounded-[11px] text-[12.5px] font-extrabold" style={{ background: H.ground, color: H.ink2 }}>Non</button>
+                  <button type="button" onClick={() => remove(t)} className="gb-focus h-9 px-3 rounded-[11px] text-[12.5px] font-extrabold text-white" style={{ background: H.red }}>Supprimer</button>
+                </div>
+              ) : (
+                <div className="mt-2 pt-2 flex items-center gap-2" style={{ borderTop: `1px solid ${H.line2}` }}>
+                  <span className="flex-1 min-w-0 flex items-center gap-2 text-[12px] font-bold" style={{ color: off ? H.muted : H.green }}><Toggle on={!off} onChange={() => flip(t)} label={`Forfait ${t.name} proposé`} />{off ? "Masqué" : "Proposé"}</span>
+                  <button type="button" onClick={() => onEdit(t, type)} aria-label={`Modifier ${t.name}`} className="gb-focus h-9 px-3 rounded-[11px] text-[12.5px] font-extrabold flex items-center gap-1.5" style={{ background: "#EEF3FE", color: "#2457B8" }}><Icon name="edit" size={14} />Modifier</button>
+                  <button type="button" onClick={() => setAskDel(t.id)} aria-label={`Supprimer ${t.name}`} className="gb-focus h-9 px-3 rounded-[11px] text-[12.5px] font-extrabold flex items-center gap-1.5" style={{ background: H.redSoft, color: H.red }}><Icon name="trash" size={14} />Supprimer</button>
+                </div>
+              )}
             </div>
           );
         })}
