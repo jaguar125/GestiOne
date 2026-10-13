@@ -15,6 +15,8 @@ const navyGrad = "linear-gradient(135deg, #0A1730 0%, #17305A 60%, #1B3361 100%)
 const cardStyle = { background: "#fff", boxShadow: "0 4px 14px -8px rgba(10,23,48,0.25)" };
 export const fmtK = (n) => { const a = Math.abs(n), s = n < 0 ? "−" : ""; if (a >= 1e6) return `${s}${(a / 1e6).toFixed(2).replace(".", ",")} M`; if (a >= 1e4) return `${s}${Math.round(a / 1000)} k`; return `${s}${Math.round(a).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ")}`; };
 const dFr = (ms) => new Date(ms).toLocaleDateString("fr-FR");
+// Nombre entier avec espaces (« 61 000 »), sans abréviation.
+const num = (n) => `${n < 0 ? "−" : ""}${String(Math.round(Math.abs(Number(n) || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, " ")}`;
 
 function PdfBtn({ onClick, pushToast }) {
   const [busy, setBusy] = useState(false);
@@ -25,6 +27,19 @@ function PdfBtn({ onClick, pushToast }) {
     setBusy(false);
   };
   return <button type="button" onClick={go} disabled={busy} aria-label="Télécharger en PDF" className="gb-focus h-10 px-3 rounded-[13px] text-[12px] font-extrabold flex items-center gap-1.5 shrink-0 disabled:opacity-60" style={{ background: "#fff", border: `1.5px solid ${H.line}`, color: H.navy }}><Icon name={busy ? "sync" : "download"} size={15} stroke={2.4} />{busy ? "PDF…" : "PDF"}</button>;
+}
+// Montants en entier, une ligne par montant : rien n'est abrégé ni coupé.
+function MoneyRows({ rows }) {
+  return (
+    <div className="mt-2.5 rounded-[16px] px-3" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)" }}>
+      {rows.map(([l, v, c, strong], i) => (
+        <div key={l} className="flex items-center justify-between gap-3 py-2.5" style={{ borderTop: i ? "1px solid rgba(255,255,255,0.12)" : "none" }}>
+          <span className={`min-w-0 ${strong ? "text-[13px] font-extrabold text-white" : "text-[12.5px] font-bold"}`} style={strong ? undefined : { color: "#C9D3E6" }}>{l}</span>
+          <span className={`text-right font-extrabold whitespace-nowrap ${strong ? "text-[19px]" : "text-[16px]"}`} style={{ color: c }}>{v}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 function OwnerBadge() {
   return <span className="inline-flex items-center gap-1 h-[22px] px-2 rounded-[7px] text-[10.5px] font-extrabold" style={{ background: H.goldSoft, color: H.goldDark }}><Icon name="lock" size={11} stroke={2.6} />Propriétaire</span>;
@@ -46,7 +61,7 @@ const dateInput = { flex: 1, minWidth: 0, height: 42, borderRadius: 11, border: 
 function RangePicker({ rg }) {
   return (
     <>
-      <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">
+      <div className="mt-3 flex flex-wrap gap-1.5">
         {[["today", "Aujourd'hui"], ["d7", "7 jours"], ["month", "Ce mois"], ["custom", "Plage…"]].map(([id, l]) => <Chip key={id} on={rg.r === id} onClick={() => rg.setR(id)} className="!min-h-[36px] !px-3 !text-[12px]">{l}</Chip>)}
       </div>
       <div className="mt-2 rounded-[16px] p-2 flex items-center gap-1.5" style={{ background: "#fff", border: `1.5px solid ${rg.r === "custom" ? H.gold : "#fff"}` }}>
@@ -97,16 +112,12 @@ export function HistoryScreen({ ctx, onBack, openReceipt, openGuest }) {
       <RangePicker rg={rg} />
       <div className="mt-3 rounded-[22px] p-4 text-white" style={{ background: navyGrad }}>
         <div className="flex items-center justify-between"><span className="text-[11.5px] font-extrabold tracking-[0.08em]" style={{ color: "#E9C77F" }}>RÉSUMÉ DE LA PÉRIODE</span><OwnerBadge /></div>
-        <div className="mt-2 grid grid-cols-3 gap-2">
-          <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Recettes</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#6EE7B7" }}>{fmtK(fin.income)} F</span></span>
-          <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Dépenses</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#FDA4AF" }}>{fmtK(fin.expensesTotal)} F</span></span>
-          <span><span className="block text-[10.5px] font-bold" style={{ color: "#AEBBD2" }}>Net</span><span className="block text-[16px] font-extrabold whitespace-nowrap" style={{ color: "#67E8F9" }}>{fmtK(fin.net)} F</span></span>
-        </div>
-        <div className="mt-2.5 grid grid-cols-4 gap-1.5 text-[10.5px] font-bold" style={{ color: "#C9D3E6" }}>
+        <MoneyRows rows={[["Recettes", fmt(fin.income), "#6EE7B7"], ["Dépenses", `${fin.expensesTotal > 0 ? "− " : ""}${fmt(fin.expensesTotal)}`, "#FDA4AF"], ["Net de la période", fmt(fin.net), fin.net < 0 ? "#FDA4AF" : "#67E8F9", true]]} />
+        <div className="mt-3 pt-3 grid grid-cols-4 gap-1.5 text-[10.5px] font-bold" style={{ color: "#C9D3E6", borderTop: "1px solid rgba(255,255,255,0.14)" }}>
           {[["passages", fin.counts.pass], ["nuitées", fin.counts.night], ["réservations", fin.counts.resa], ["annulations", fin.counts.cancel]].map(([l, n]) => <span key={l}><b className="block text-[16px] text-white">{n}</b>{l}</span>)}
         </div>
       </div>
-      <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">
+      <div className="mt-3 flex flex-wrap gap-1.5">
         {[["all", "Tout"], ["pass", "Passages"], ["night", "Nuitées"], ["resa", "Réservations"], ["exp", "Dépenses"], ["cancel", "Annulations"]].map(([id, l]) => <Chip key={id} on={t === id} onClick={() => setT(id)} color={H.goldDark} line={H.line} className="!min-h-[34px] !px-3 !text-[11.5px]">{l}</Chip>)}
       </div>
       {days.length === 0 ? <div className="mt-3"><Empty icon="history" title="Aucune opération" text="Rien sur cette période pour ce filtre." /></div> : days.map((d) => {
@@ -207,7 +218,7 @@ export function InventoryScreen({ ctx, onBack }) {
         </div>
         <div className="rounded-[22px] p-3.5" style={cardStyle}>
           <p className="text-[13.5px] font-extrabold">Par réceptionniste</p>
-          <div className="mt-1.5 text-[12px] font-bold leading-[1.9]">{users.length === 0 ? <span style={{ color: H.muted }}>—</span> : users.slice(0, 5).map(([u, a]) => <div key={u} className="flex gap-1"><span className="flex-1 truncate">{u}</span><b className="whitespace-nowrap">{fmtK(a)}</b></div>)}</div>
+          <div className="mt-1.5 text-[12px] font-bold leading-[1.9]">{users.length === 0 ? <span style={{ color: H.muted }}>—</span> : users.slice(0, 5).map(([u, a]) => <div key={u} className="flex gap-1"><span className="flex-1 min-w-0">{u}</span><b className="whitespace-nowrap">{fmt(a)}</b></div>)}</div>
         </div>
       </div>
     </div>
@@ -269,9 +280,7 @@ export function ProfitScreen({ ctx, onBack }) {
         <div className="absolute rounded-full" style={{ right: -40, top: -50, width: 170, height: 170, background: "radial-gradient(circle, rgba(34,211,238,0.4) 0%, rgba(34,211,238,0) 70%)" }} />
         <div className="relative flex items-center justify-between"><span className="text-[11.5px] font-extrabold tracking-[0.08em] uppercase" style={{ color: "#E9C77F" }}>Bénéfice net{inProgress ? " · en cours" : ""}</span><OwnerBadge /></div>
         <div className="relative flex items-baseline gap-2 flex-wrap"><span className="text-[30px] font-extrabold tracking-tight" style={{ color: cur.net < 0 ? "#FDA4AF" : "#fff" }}>{fmt(cur.net)}</span>{trend != null && <span className="h-[22px] px-2 rounded-[7px] text-[11px] font-extrabold flex items-center" style={{ background: trend >= 0 ? "rgba(52,211,153,0.18)" : "rgba(244,63,94,0.2)", color: trend >= 0 ? "#6EE7B7" : "#FDA4AF" }}>{trend >= 0 ? "+" : ""}{trend} % vs période préc.</span>}</div>
-        <div className="relative mt-3 grid grid-cols-3 gap-2">
-          {[["Recettes", `${fmtK(cur.income)} F`, "#6EE7B7"], ["Dépenses", `${fmtK(cur.expensesTotal)} F`, "#FDA4AF"], ["Marge", `${marge} %`, "#67E8F9"]].map(([l, v, c]) => <span key={l} className="rounded-[13px] p-2" style={{ background: "rgba(255,255,255,0.08)" }}><span className="block text-[10px] font-bold" style={{ color: "#AEBBD2" }}>{l}</span><span className="block text-[14px] font-extrabold whitespace-nowrap" style={{ color: c }}>{v}</span></span>)}
-        </div>
+        <div className="relative"><MoneyRows rows={[["Recettes", fmt(cur.income), "#6EE7B7"], ["Dépenses", `${cur.expensesTotal > 0 ? "− " : ""}${fmt(cur.expensesTotal)}`, "#FDA4AF"], ["Marge", `${marge} %`, "#67E8F9"]]} /></div>
       </div>
       <div className="mt-3 rounded-[22px] p-3.5" style={cardStyle}>
         <div className="flex items-center gap-2.5"><span className="flex-1 text-[14.5px] font-extrabold">{mode === "custom" ? "Mois de la plage" : "Comparaison"}</span>
@@ -288,10 +297,11 @@ export function ProfitScreen({ ctx, onBack }) {
         <div className="mt-1 flex gap-2 text-[9.5px] font-bold" style={{ color: "#94A3B8" }}>{rows.map((x) => <span key={x.from} className="flex-1 text-center whitespace-nowrap overflow-hidden" style={{ color: x.from === sel.from ? H.goldDark : undefined }}>{x.short}</span>)}</div>
       </div>
       <div className="mt-3 rounded-[22px] px-3.5 py-1.5" style={cardStyle}>
-        <div className="grid gap-1 py-2 text-[10px] font-extrabold" style={{ gridTemplateColumns: "minmax(0,1fr) 70px 66px 78px", color: H.muted, borderBottom: `1px solid ${H.line2}` }}><span>PÉRIODE</span><span className="text-right">RECETTES</span><span className="text-right">DÉPENSES</span><span className="text-right">BÉNÉFICE</span></div>
+        <div className="grid gap-1 py-2 text-[10px] font-extrabold" style={{ gridTemplateColumns: "minmax(0,1fr) 74px 70px 78px", color: H.muted, borderBottom: `1px solid ${H.line2}` }}><span>PÉRIODE</span><span className="text-right">RECETTES</span><span className="text-right">DÉPENSES</span><span className="text-right">BÉNÉFICE</span></div>
+        <p className="text-[10px] font-bold text-right pt-1" style={{ color: H.muted }}>Montants en FCFA</p>
         {rows.slice().reverse().map((x) => (
-          <div key={x.from} className="grid gap-1 py-2.5 text-[12px] font-bold items-center" style={{ gridTemplateColumns: "minmax(0,1fr) 70px 66px 78px", borderBottom: `1px solid #F3F4F7`, background: x.from === sel.from ? "#F0FBFE" : "transparent" }}>
-            <span className="font-extrabold truncate first-letter:uppercase">{x.label}</span><span className="text-right" style={{ color: H.green }}>{fmtK(x.f.income)}</span><span className="text-right" style={{ color: "#BE123C" }}>{fmtK(x.f.expensesTotal)}</span><span className="text-right font-extrabold" style={{ color: x.f.net < 0 ? "#BE123C" : H.ink }}>{fmtK(x.f.net)}</span>
+          <div key={x.from} className="grid gap-1 py-2.5 text-[11.5px] font-bold items-center" style={{ gridTemplateColumns: "minmax(0,1fr) 74px 70px 78px", borderBottom: `1px solid #F3F4F7`, background: x.from === sel.from ? "#F0FBFE" : "transparent" }}>
+            <span className="font-extrabold min-w-0 first-letter:uppercase">{x.label}</span><span className="text-right whitespace-nowrap" style={{ color: H.green }}>{num(x.f.income)}</span><span className="text-right whitespace-nowrap" style={{ color: "#BE123C" }}>{num(x.f.expensesTotal)}</span><span className="text-right font-extrabold whitespace-nowrap" style={{ color: x.f.net < 0 ? "#BE123C" : H.ink }}>{num(x.f.net)}</span>
           </div>
         ))}
       </div>
