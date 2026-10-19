@@ -1,5 +1,5 @@
 # GestiOne — serveur de synchronisation (Cloudflare Workers)
-name = "gestione-store"
+name = "gestione"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
 
