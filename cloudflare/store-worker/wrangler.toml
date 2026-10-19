@@ -1,0 +1,20 @@
+# GestiOne — serveur de synchronisation (Cloudflare Workers)
+name = "gestione-store"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+SUPABASE_URL = "https://wcpbrejdznoiodspcedn.supabase.co"
+# Le secret se définit à part (jamais dans ce fichier) :
+#   npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
+[[durable_objects.bindings]]
+name = "SHOP_HUB"
+class_name = "ShopHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ShopHub"]
+
+[observability]
+enabled = true
