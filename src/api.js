@@ -8,6 +8,7 @@
 
 import bcrypt from "bcryptjs";
 import { WORKER_URL } from "./serverConfig.js";
+import { APP_VERSION } from "./appVersion.js";
 
 const API_BASE = "https://wcpbrejdznoiodspcedn.supabase.co/functions/v1";
 
@@ -32,6 +33,9 @@ const REQUEST_TIMEOUT_MS = 20000;
 let workerDownUntil = 0;
 export function workerUrl() { return WORKER_URL; }
 async function callFunction(name, body, timeoutMs = REQUEST_TIMEOUT_MS) {
+  // La version de l'application accompagne chaque synchronisation : le serveur
+  // sait ainsi quels téléphones doivent être mis à jour.
+  if (name === "store") body = { ...body, app_v: APP_VERSION };
   if (name === "store" && WORKER_URL && Date.now() > workerDownUntil) {
     try {
       return await callUrl(`${WORKER_URL}/store`, name, body, timeoutMs);
@@ -222,7 +226,25 @@ function shopAuthFields(shopId) {
 export function liveCredentials(shopId) {
   const id = resolveShop(shopId);
   if (!id || !getShopLinks()[id]) return null;
-  return shopAuthFields(id);
+  return { ...shopAuthFields(id), app_v: APP_VERSION };
+}
+
+// Version minimale / dernière version publiées (serveur Cloudflare).
+// Renvoie null si l'information n'est pas disponible (hors ligne…).
+export async function fetchVersionInfo() {
+  if (!WORKER_URL) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${WORKER_URL}/version`, { signal: controller.signal });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d && typeof d === "object" ? d : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Crée une boutique côté serveur (device + shop_id uniquement — le contenu

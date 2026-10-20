@@ -13,6 +13,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
 import * as api from "./api.js";
 import { startLive } from "./live.js";
+import { UpdateGate } from "./UpdateGate.jsx";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
 import { phoneNotify, preparePhoneNotifications } from "./phoneNotify.js";
 import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber, openWhatsAppChat, whatsappDisplay } from "./nativeExport.js";
@@ -22651,6 +22652,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AppInner />
+      <UpdateGate />
     </ErrorBoundary>
   );
 }

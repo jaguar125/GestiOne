@@ -1,3 +1,22 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Aucun texte coupé par « … » dans l'application : un texte trop long passe
+   à la ligne au lieu de déborder ou d'être tronqué. Tout reste visible. */
+.truncate {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+button, a, label, p, span, h1, h2, h3 { overflow-wrap: break-word; }
+
+/* Saisie : pas de contour supplémentaire autour du texte tapé, dans toutes
+   les entreprises (boutique, bar, cave, hôtel, cyber café). */
+input:focus, textarea:focus, select:focus,
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+input, textarea { -webkit-tap-highlight-color: transparent; }

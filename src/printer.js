@@ -100,6 +100,11 @@ async function sendToRawBt(bytes, fileName) {
   await Share.share({ title: fileName, url: uri });
 }
 
+// Envoi d'octets ESC/POS déjà construits (reçus du module Hôtel).
+export async function printRawEscPos(bytes, fileName = "recu.prn") {
+  await sendToRawBt(bytes, fileName);
+}
+
 // Les imprimantes tickets bon marché gèrent rarement l'UTF-8 correctement —
 // on retire les accents pour le texte imprimé afin d'éviter des caractères
 // illisibles, quel que soit le modèle. L'écran, lui, garde les accents.
@@ -197,37 +202,71 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
     line(`  ${i.qty} x ${fmt(i.product.price)}`);
   });
   line("--------------------------------");
+  if (receipt.remise > 0) {
+    line(twoCol("Sous-total", fmt(receipt.subtotal || receipt.total + receipt.remise)));
+    line(twoCol("Remise", "-" + fmt(receipt.remise)));
+  }
   push(ESC, 0x45, 0x01);
   line(twoCol(receipt.isProductAvoir ? "VALEUR EN AVOIR" : "TOTAL", fmt(receipt.total)));
   push(ESC, 0x45, 0x00);
-  if (!receipt.isProductAvoir) line(PAYMENT_LABEL(receipt.paymentMethod));
+  const creditRest = Math.max(0, (Number(receipt.total) || 0) - (Number(receipt.avoirPaid) || 0) - (Number(receipt.amountReceived) || 0));
+  if (receipt.avoirPaid > 0) {
+    line(twoCol("Paye avec avoir", "-" + fmt(receipt.avoirPaid)));
+    if (receipt.total - receipt.avoirPaid > 0) line(twoCol(receipt.paymentMethod === "credit" ? "Complement" : "Complement " + PAYMENT_LABEL(receipt.paymentMethod), fmt(receipt.total - receipt.avoirPaid)));
+    line(twoCol("Avoir restant", fmt(receipt.avoirLeft || 0)));
+  } else if (receipt.mobilePaid > 0 && receipt.paymentMethod === "especes") {
+    line("Paiement mixte");
+    line(twoCol("  " + (receipt.mobileOperator || "Mobile Money"), fmt(receipt.mobilePaid)));
+    line(twoCol("  Especes", fmt(receipt.total - receipt.mobilePaid)));
+  } else if (!receipt.isProductAvoir) line(PAYMENT_LABEL(receipt.paymentMethod) + (receipt.paymentMethod === "mobile" && receipt.mobileOperator ? " - " + receipt.mobileOperator : ""));
   if (receipt.amountReceived != null) {
     line(twoCol("Recu", fmt(receipt.amountReceived)));
-    if (receipt.paymentMethod === "credit" && receipt.total > receipt.amountReceived) {
+    if (receipt.paymentMethod === "credit" && creditRest > 0) {
       push(ESC, 0x45, 0x01);
-      line(twoCol("Reste a payer", fmt(receipt.total - receipt.amountReceived)));
+      line(twoCol("Reste a payer", fmt(creditRest)));
       push(ESC, 0x45, 0x00);
-    } else if (!receipt.avoirMonnaie) {
+    } else if (!receipt.avoirMonnaie || receipt.changeDue > 0) {
       line(twoCol("Rendu", fmt(receipt.changeDue)));
     }
   }
   // Blocs d'avis — mêmes conditions et mêmes montants que les encarts
   // affichés à l'écran (solde en crédit, avoir monnaie, avoir produit).
-  if (receipt.paymentMethod === "credit" && receipt.total > (receipt.amountReceived || 0)) {
+  if (receipt.paymentMethod === "credit" && creditRest > 0) {
     line("");
-    line(`Solde en credit : ${fmt(receipt.total - (receipt.amountReceived || 0))}`);
+    line(`Solde en credit : ${fmt(creditRest)}`);
     line(`Client : ${clientName || "Client"} - visible dans`);
     line("Credits clients jusqu'au reglement complet.");
   }
   if (receipt.avoirMonnaie) {
+    const st = receipt.avoirStatus;
     line("");
-    line(`Monnaie en avoir : ${fmt(receipt.avoirAmount)}`);
-    line(`Client : ${clientName || "Client"} - a recuperer lors`);
-    line("d'un prochain passage.");
+    if (st && st.done) {
+      line(`${st.verb === "rendu" ? "Monnaie rendue (avoir solde)" : "Avoir monnaie solde"} : ${fmt(st.amount)}`);
+      (st.reds || []).forEach((r) => line(`  ${r.kind === "achat" ? "Utilise en achat" : "Rendu"} le ${new Date(r.date).toLocaleDateString("fr-FR")} : ${fmt(r.amount)}`));
+    } else if (st && st.partial) {
+      line(`Monnaie en avoir : ${fmt(st.amount)}`);
+      line(`Deja rendu : ${fmt(st.returned)} - Reste : ${fmt(st.remaining)}`);
+      line(`Client : ${clientName || "Client"}`);
+    } else {
+      line(`Monnaie en avoir : ${fmt(receipt.avoirAmount)}`);
+      line(`Client : ${clientName || "Client"} - a recuperer lors`);
+      line("d'un prochain passage.");
+    }
   }
-  if (hasProductAvoir) {
+  if (receipt.reserve && receipt.reserve.pickups && receipt.reserve.pickups.length) {
     line("");
-    line(`Client : ${clientName || "Client"}`);
+    push(ESC, 0x45, 0x01);
+    line(receipt.reserve.done ? `${receipt.reserve.client} a retire son article` : `${receipt.reserve.client} a retire une partie`);
+    push(ESC, 0x45, 0x00);
+    receipt.reserve.pickups.forEach((h) => {
+      const d = new Date(h.date);
+      line(`  ${d.toLocaleDateString("fr-FR")} ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`);
+      (h.items || []).forEach((i) => line(`   ${i.qty} x ${i.name}`));
+    });
+  }
+  if (hasProductAvoir && !(receipt.reserve && receipt.reserve.done)) {
+    line("");
+    line(receipt.productAvoirFor && receipt.productAvoirFor !== receipt.avoirClientName ? `Offert a : ${receipt.productAvoirFor}` : `Client : ${receipt.productAvoirFor || clientName || "Client"}`);
     line("Produits en avoir (a retirer ou consommer");
     line("sur place lors d'un prochain passage) :");
     receipt.items.forEach((i) => line(twoCol(`  ${i.qty} x ${i.product.name}`, fmt(i.qty * i.product.price))));
@@ -274,6 +313,15 @@ export function buildCreditReceiptEscPos(receipt, shop, fmt) {
   line(twoCol("Client", receipt.clientName || "Client"));
   line(twoCol("Vente initiale", new Date(receipt.date).toLocaleDateString("fr-FR")));
   line(twoCol("Encaisse par", receipt.paidBy || ""));
+  const pays = Array.isArray(receipt.payments) ? receipt.payments : [];
+  if (pays.length) {
+    line("--------------------------------");
+    line("Reglements :");
+    pays.forEach((p) => {
+      const how = p.method === "mobile" ? (p.operator || "Mobile Money") : "Especes";
+      line(twoCol(`${new Date(p.date).toLocaleDateString("fr-FR")} ${how}`, fmt(p.amount)));
+    });
+  }
   line("--------------------------------");
   push(ESC, 0x45, 0x01);
   line(twoCol("MONTANT ENCAISSE", fmt(receipt.total)));
@@ -407,4 +455,193 @@ export function buildCombinedAvoirReceiptEscPos(produit, monnaie, shop, fmt) {
 export async function printCombinedAvoirReceipt(produit, monnaie, shop, fmt) {
   const data = buildCombinedAvoirReceiptEscPos(produit, monnaie, shop, fmt);
   await sendToRawBt(data, `avoir-${produit.id.slice(0, 6)}.prn`);
+}
+
+// Point de caisse / clôture de caisse — fond de caisse, ventes en espèces,
+// crédits encaissés, dépenses, espèces attendues (et versement si la caisse
+// a été clôturée). Même contenu que CashReportModal à l'écran.
+export function buildCashReportEscPos(report, shop, fmt) {
+  const bytes = [];
+  const push = (...arr) => bytes.push(...arr);
+  const line = (text = "") => push(...encodeLine(text));
+  const dt = (d) => { const x = new Date(d); return `${x.toLocaleDateString("fr-FR")} ${x.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`; };
+  const closed = !!report.versement;
+
+  push(ESC, 0x40);
+  push(ESC, 0x61, 0x01);
+  push(ESC, 0x45, 0x01);
+  line(shopHeaderLine(shop));
+  line(closed ? "CLOTURE DE CAISSE" : "POINT DE CAISSE");
+  push(ESC, 0x45, 0x00);
+  line(closed ? "Caisse versee" : "Caisse ouverte - non versee");
+  line("");
+  push(ESC, 0x61, 0x00);
+  line(`Ouverte le ${dt(report.openedAt)}`);
+  if (report.openedBy) line(`par ${report.openedBy}`);
+  line(`${closed ? "Versee le" : "Arretee le"} ${dt(report.until)}`);
+  line("--------------------------------");
+  line(twoCol("Fond de caisse", fmt(report.fund)));
+  line(twoCol(`+ Ventes especes (${report.cashSalesCount})`, fmt(report.cashSales)));
+  if (report.creditsCollectedNew !== undefined) {
+    if (Number(report.creditsCollectedOld) > 0) line(twoCol(`+ Credits anciens (${report.creditsCountOld})`, fmt(report.creditsCollectedOld)));
+    line(twoCol(`+ Credits caisse (${report.creditsCountNew})`, fmt(report.creditsCollectedNew)));
+  } else line(twoCol(`+ Credits encaisses (${report.creditsCount})`, fmt(report.creditsCollected)));
+  line(twoCol(`- Depenses (${report.expensesCount})`, fmt(report.expensesTotal)));
+  if (Number(report.refundsCash) > 0) line(twoCol(`- Remboursements (${report.refundsCashCount || 0})`, fmt(report.refundsCash)));
+  line("--------------------------------");
+  push(ESC, 0x45, 0x01);
+  line(twoCol("ESPECES ATTENDUES", fmt(report.expected)));
+  push(ESC, 0x45, 0x00);
+  if (closed) {
+    line(twoCol("Montant verse", fmt(report.versement.amount)));
+    const gap = Number(report.versement.amount) - Number(report.expected);
+    line(twoCol("Ecart", `${gap > 0 ? "+" : ""}${fmt(gap)}`));
+    if (report.versement.by) line(`Verse par : ${report.versement.by}`);
+    if (report.versement.receivedBy) line(`Recu par : ${report.versement.receivedBy}`);
+    if (report.versement.note) line(`Note : ${report.versement.note}`);
+  }
+  line("--------------------------------");
+  line(twoCol(`Mobile Money (${report.mobileSalesCount})`, fmt(report.mobileSales)));
+  line("(hors caisse)");
+  if (report.creditsCollectedNew !== undefined) {
+    line(twoCol(`Credits en cours (${report.creditsOpenCount})`, fmt(report.creditsOpen)));
+    line(twoCol("Ventes totales hors MoMo", fmt(report.salesTotalExMobile)));
+    push(ESC, 0x45, 0x01);
+    line(twoCol("TOTAL GENERAL VENTES", fmt(report.grandTotal)));
+    push(ESC, 0x45, 0x00);
+  } else line(twoCol("Total encaisse", fmt(report.cashSales + report.creditsCollected + report.mobileSales)));
+  if (Array.isArray(report.byVendor) && report.byVendor.length) {
+    line("--------------------------------");
+    push(ESC, 0x45, 0x01);
+    line("PAR VENDEUR");
+    push(ESC, 0x45, 0x00);
+    report.byVendor.forEach((v) => {
+      line(`${v.name} (${v.tickets} ticket${v.tickets > 1 ? "s" : ""})`);
+      line(twoCol("  Especes", fmt(v.cash)));
+      if (v.credits) line(twoCol("  Credits encaisses", fmt(v.credits)));
+      if (v.refunds) line(twoCol("  Retours rembourses", `-${fmt(v.refunds)}`));
+      if (v.expenses) line(twoCol("  Depenses", `-${fmt(v.expenses)}`));
+      line(twoCol("  Mobile Money", fmt(v.mobile)));
+      push(ESC, 0x45, 0x01);
+      line(twoCol("  A remettre", fmt(v.expectedCash)));
+      push(ESC, 0x45, 0x00);
+    });
+  }
+  line("");
+  push(ESC, 0x61, 0x01);
+  line(`Imprime le ${dt(new Date())}`);
+  if (report.printedBy) line(`par ${report.printedBy}`);
+  line("");
+  line("Signature caissier     Signature gerant");
+  line("");
+  line("");
+  line("");
+  push(GS, 0x56, 0x42, 0x00);
+  return new Uint8Array(bytes);
+}
+
+export async function printCashReport(report, shop, fmt) {
+  const data = buildCashReportEscPos(report, shop, fmt);
+  await sendToRawBt(data, `caisse-${new Date(report.until).toISOString().slice(0, 10)}.prn`);
+}
+
+// Bon de retour : articles rendus par le client, motif, remise en stock et
+// remboursement (espèces, Mobile Money, avoir ou déduction du crédit).
+const REFUND_LABELS_PRINT = { especes: "Especes", mobile: "Mobile Money", avoir: "Avoir client", credit: "Deduit du credit" };
+export function buildReturnReceiptEscPos(ret, sale, shop, fmt) {
+  const bytes = [];
+  const push = (...arr) => bytes.push(...arr);
+  const line = (text = "") => push(...encodeLine(text));
+  const dt = (d) => new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  push(ESC, 0x40);
+  push(ESC, 0x61, 0x01);
+  push(ESC, 0x45, 0x01);
+  line(shopHeaderLine(shop));
+  line("BON DE RETOUR");
+  push(ESC, 0x45, 0x00);
+  line("");
+  push(ESC, 0x61, 0x00);
+  line(`Vente N ${receiptNumber(sale.id)} du ${new Date(sale.date).toLocaleDateString("fr-FR")}`);
+  line(`Retour le ${dt(ret.date)}`);
+  if (sale.clientName) line(twoCol("Client", sale.clientName));
+  if (ret.by) line(twoCol("Traite par", ret.by));
+  line("--------------------------------");
+  (ret.items || []).forEach((i) => {
+    line(`${i.qty} x ${i.name}`);
+    line(twoCol("", fmt(i.value)));
+  });
+  line("--------------------------------");
+  line(twoCol("Valeur retournee", fmt(ret.amount)));
+  if (Number(ret.creditReduced) > 0) line(twoCol("Deduit du credit", fmt(ret.creditReduced)));
+  push(ESC, 0x45, 0x01);
+  if (Number(ret.refund) > 0) line(twoCol("REMBOURSE", fmt(ret.refund)));
+  push(ESC, 0x45, 0x00);
+  if (Number(ret.refund) > 0) line(twoCol("Mode", REFUND_LABELS_PRINT[ret.refundMode] || ""));
+  line(`Motif : ${ret.reason || ""}`);
+  if (ret.note) line(`Note : ${ret.note}`);
+  line(ret.restocked ? "Articles remis en stock" : "Articles non remis en stock");
+  line("");
+  push(ESC, 0x61, 0x01);
+  line("Signature client");
+  line("");
+  line("");
+  line("");
+  push(GS, 0x56, 0x42, 0x00);
+  return new Uint8Array(bytes);
+}
+
+export async function printReturnReceipt(ret, sale, shop, fmt) {
+  const data = buildReturnReceiptEscPos(ret, sale, shop, fmt);
+  await sendToRawBt(data, `retour-${String(ret.id).slice(0, 6)}.prn`);
+}
+
+// Bon de commande fournisseur (ticket 58 mm) : en attente ou reçu.
+export function buildOrderEscPos(order, supplier, shop, fmt, vocab = {}) {
+  const bytes = [];
+  const push = (...arr) => bytes.push(...arr);
+  const line = (text = "") => push(...encodeLine(text));
+  const pack = vocab.pack || "casier", packs = vocab.packs || "casiers";
+  const items = (order.items || []).filter((i) => Number(i.crates) > 0);
+  const total = items.reduce((t, i) => t + (Number(i.crates) || 0) * (Number(i.cratePrice) || 0), 0);
+  const crates = items.reduce((t, i) => t + (Number(i.crates) || 0), 0);
+  push(ESC, 0x40);
+  push(ESC, 0x61, 0x01);
+  push(ESC, 0x45, 0x01);
+  line(shopHeaderLine(shop));
+  push(ESC, 0x45, 0x00);
+  if (shop.invoicePhone) line(`Tel. ${shop.invoicePhone}`);
+  line("");
+  push(ESC, 0x45, 0x01);
+  line(order.status === "received" ? "COMMANDE RECUE" : "BON DE COMMANDE");
+  push(ESC, 0x45, 0x00);
+  line(`N ${String(order.id || "").slice(0, 6).toUpperCase()}`);
+  push(ESC, 0x61, 0x00);
+  line(`Commandee le ${new Date(order.date).toLocaleDateString("fr-FR")}`);
+  if (order.receivedDate) line(`Recue le ${new Date(order.receivedDate).toLocaleDateString("fr-FR")}`);
+  line(twoCol("Fournisseur", supplier?.name || ""));
+  if (supplier?.phone) line(twoCol("Tel.", supplier.phone));
+  line("--------------------------------");
+  items.forEach((i) => {
+    line(i.productName);
+    line(twoCol(`  ${i.crates} ${i.crates > 1 ? packs : pack} de ${i.crateSize} x ${fmt(i.cratePrice)}`, fmt(i.crates * i.cratePrice)));
+  });
+  line("--------------------------------");
+  line(twoCol(`Nombre de ${packs}`, String(crates)));
+  push(ESC, 0x45, 0x01);
+  line(twoCol(order.status === "received" ? "TOTAL PAYE" : "TOTAL A PAYER", fmt(total)));
+  push(ESC, 0x45, 0x00);
+  line("");
+  push(ESC, 0x61, 0x01);
+  line("Signature / cachet");
+  line("");
+  line("");
+  line("");
+  push(GS, 0x56, 0x42, 0x00);
+  return new Uint8Array(bytes);
+}
+
+export async function printOrder(order, supplier, shop, fmt, vocab) {
+  const data = buildOrderEscPos(order, supplier, shop, fmt, vocab);
+  await sendToRawBt(data, `commande-${String(order.id || "").slice(0, 6)}.prn`);
 }
