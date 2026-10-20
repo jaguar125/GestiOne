@@ -76,8 +76,8 @@ function json(body, status = 200) {
 /* ---------- Accès à la base Supabase (API REST, sans bibliothèque) ---------- */
 
 function makeDb(env) {
-  const base = String(env.SUPABASE_URL || "").replace(/\/+$/, "") + "/rest/v1";
-  const key = String(env.SUPABASE_SERVICE_ROLE_KEY || "");
+  const base = String(env.SUPABASE_URL || "").trim().replace(/\/+$/, "") + "/rest/v1";
+  const key = String(env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
   const headers = { apikey: key, "Content-Type": "application/json" };
   // Les anciennes clés service_role sont des JWT ; les nouvelles « sb_secret_… » non.
   if (key.split(".").length === 3) headers.Authorization = `Bearer ${key}`;
@@ -158,12 +158,15 @@ async function sha256(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-async function verifyDevice(db, deviceId, deviceSecret, shopId) {
+async function verifyDevice(db, deviceId, deviceSecret, shopId, appV) {
   if (!deviceId || !deviceSecret) return { error: "Appareil non reconnu", status: 401 };
-  const ck = await sha256(`${deviceId}|${shopId || ""}|${deviceSecret}`);
+  const app = appV == null ? "" : String(appV).slice(0, 20);
+  const ck = await sha256(`${deviceId}|${shopId || ""}|${deviceSecret}|${app}`);
   const hit = authCache.get(ck);
   if (hit && hit.exp > Date.now()) return hit.auth;
-  const { data, error } = await db.rpc("verify_device_secret", { p_device: deviceId, p_secret: deviceSecret, p_shop: shopId || null });
+  // v2 enregistre aussi la version de l'application du téléphone.
+  let { data, error } = await db.rpc("verify_device_secret_v2", { p_device: deviceId, p_secret: deviceSecret, p_shop: shopId || null, p_app: app || null });
+  if (error && error.status === 404) ({ data, error } = await db.rpc("verify_device_secret", { p_device: deviceId, p_secret: deviceSecret, p_shop: shopId || null }));
   if (error) return { error: "Erreur serveur", status: 500 };
   const row = Array.isArray(data) ? data[0] : data;
   if (!row || row.status === "unknown") return { error: "Appareil non reconnu", status: 401 };
@@ -274,7 +277,7 @@ async function handleStore(req, env, ctx) {
   const { device_id, device_secret, shop_id, action, key, value: rawValue, backup_id, deleted_ids } = body;
 
   if (action && BACKUP_ACTIONS.has(action)) {
-    const auth = await verifyDevice(db, device_id, device_secret, shop_id);
+    const auth = await verifyDevice(db, device_id, device_secret, shop_id, body.app_v);
     if (auth.error) return json({ error: auth.error }, auth.status);
     const shopId = auth.shopId;
     if (action === "backup_now") {
@@ -293,7 +296,7 @@ async function handleStore(req, env, ctx) {
   }
 
   if (action === "alu_photo_put" || action === "alu_photo_get" || action === "alu_photo_del") {
-    const auth = await verifyDevice(db, device_id, device_secret, shop_id);
+    const auth = await verifyDevice(db, device_id, device_secret, shop_id, body.app_v);
     if (auth.error) return json({ error: auth.error }, auth.status);
     const shopId = auth.shopId;
     if (action === "alu_photo_get") {
@@ -317,7 +320,7 @@ async function handleStore(req, env, ctx) {
   }
 
   if (action === "get_many") {
-    const auth = await verifyDevice(db, device_id, device_secret, shop_id);
+    const auth = await verifyDevice(db, device_id, device_secret, shop_id, body.app_v);
     if (auth.error) return json({ error: auth.error }, auth.status);
     const shopId = auth.shopId;
     const keys = Array.isArray(body.keys) ? [...new Set(body.keys.filter((k) => typeof k === "string" && ALLOWED_KEYS.has(k)))].slice(0, 120) : [];
@@ -373,7 +376,7 @@ async function handleStore(req, env, ctx) {
   if (!key || !ALLOWED_KEYS.has(key)) return json({ error: "Clé invalide" }, 400);
   if (action !== "get" && action !== "set") return json({ error: "Action invalide" }, 400);
 
-  const auth = await verifyDevice(db, device_id, device_secret, shop_id);
+  const auth = await verifyDevice(db, device_id, device_secret, shop_id, body.app_v);
   if (auth.error) return json({ error: auth.error }, auth.status);
   const shopId = auth.shopId;
   const done = (payload) => { notifyShop(env, ctx, shopId, [key], device_id); return json(payload); };
@@ -500,7 +503,7 @@ export class ShopHub {
     if (!m || m.type !== "auth") return;
     const a = ws.deserializeAttachment() || {};
     const db = makeDb(this.env);
-    const auth = await verifyDevice(db, m.device_id, m.device_secret, a.shop);
+    const auth = await verifyDevice(db, m.device_id, m.device_secret, a.shop, m.app_v);
     if (auth.error || String(auth.shopId) !== String(a.shop)) {
       try { ws.send(JSON.stringify({ type: "denied" })); ws.close(4001, "denied"); } catch { /* déjà fermée */ }
       return;
@@ -530,11 +533,22 @@ export class ShopHub {
 
 /* ---------- Point d'entrée ---------- */
 
+let versionCache = null;
+
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
     if (url.pathname === "/health") return json({ ok: true, service: "gestione-store", live: !!env.SHOP_HUB });
+    if (url.pathname === "/version") {
+      try {
+        if (!versionCache || versionCache.exp < Date.now()) {
+          const { data } = await makeDb(env).from("app_config").select("value").eq("key", "version").one();
+          versionCache = { value: (data && data.value) || {}, exp: Date.now() + 120_000 };
+        }
+        return new Response(JSON.stringify(versionCache.value), { headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=120", ...CORS_HEADERS } });
+      } catch { return json({}); }
+    }
     if (url.pathname === "/live") {
       const shop = url.searchParams.get("shop") || "";
       if (!/^[0-9a-f-]{36}$/i.test(shop)) return new Response("Entreprise invalide", { status: 400 });

@@ -25,11 +25,11 @@ npx wrangler deploy
 1. `npx wrangler login` ouvre le navigateur. Connectez-vous à Cloudflare et cliquez sur « Allow ».
 2. `npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY` demande la clé : collez la clé service_role, puis appuyez sur Entrée.
 3. `npx wrangler deploy` affiche à la fin l'adresse du serveur, par exemple :
-   `https://gestione-store.VOTRE-COMPTE.workers.dev`
+   `https://gestione.VOTRE-COMPTE.workers.dev`
 
 ## Vérifier
 
-Ouvrez `https://gestione-store.VOTRE-COMPTE.workers.dev/health` dans le navigateur. La page doit afficher :
+Ouvrez `https://gestione.VOTRE-COMPTE.workers.dev/health` dans le navigateur. La page doit afficher :
 
 ```json
 {"ok":true,"service":"gestione-store","live":true}
@@ -40,7 +40,7 @@ Ouvrez `https://gestione-store.VOTRE-COMPTE.workers.dev/health` dans le navigate
 Choisissez **une** des deux façons :
 
 - dans `src/serverConfig.js`, mettez l'adresse entre les guillemets :
-  `const WORKER_URL_HERE = "https://gestione-store.VOTRE-COMPTE.workers.dev";`
+  `const WORKER_URL_HERE = "https://gestione.VOTRE-COMPTE.workers.dev";`
 - ou dans Vercel → Settings → Environment Variables, ajoutez
   `VITE_GESTIONE_WORKER_URL` = l'adresse.
 
@@ -48,7 +48,7 @@ Ensuite, reconstruisez et redéployez l'application (web et APK), puis mettez à
 
 ## Suivre la consommation
 
-Allez dans Cloudflare → Workers & Pages → gestione-store → Metrics, ou lancez `npx wrangler tail` pour voir les appels en temps réel.
+Allez dans Cloudflare → Workers & Pages → gestione → Metrics, ou lancez `npx wrangler tail` pour voir les appels en temps réel.
 
 - **Offre gratuite :** 100 000 appels par jour. Chaque appel est limité à 10 ms de calcul ; une très grosse entreprise peut dépasser cette limite, et l'appel repasse alors automatiquement par Supabase.
 - **Offre Workers Paid (5 $ par mois) :** 10 millions d'appels par mois, puis 0,30 $ par million, et pas de limite gênante de calcul. C'est l'offre à prendre dès que l'application est en production avec plusieurs entreprises.
