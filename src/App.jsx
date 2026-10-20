@@ -17685,7 +17685,11 @@ function AccountingSection({ shop, sales, expenses, avoirs, movements, products,
   const PeriodList = () => {
     const list = sessions.filter(inRange);
     const valid = list.filter((s) => s.compta);
-    const sumRes = valid.reduce((t, s) => t + (Number(s.compta.result) || 0), 0);
+    // Résultat du bilan, recalculé à partir des ventes, dépenses et retours
+    // de la période (et non le chiffre figé au moment de la validation).
+    const bilanOf = (s) => { try { return accountingOf(s, closingOf(s), { sales, expenses, avoirs, movements, products, versements: ownCashEntries(versements, shopId) }).result; } catch { return Number(s.compta?.result) || 0; } };
+    const resById = new Map(list.map((s) => [s.id, bilanOf(s)]));
+    const sumRes = valid.reduce((t, s) => t + (resById.get(s.id) ?? (Number(s.compta.result) || 0)), 0);
     return (
       <section className="rounded-[20px] p-3.5 mb-3.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
         <p className="font-display font-bold text-[16px] mb-0.5">Périodes de caisse</p>
@@ -17711,7 +17715,7 @@ function AccountingSection({ shop, sales, expenses, avoirs, movements, products,
                 </span>
                 <span className="shrink-0 flex flex-col items-end gap-1">
                   <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: st[1], color: st[2] }}>{st[0]}</span>
-                  {v && <span className="text-[13px] font-bold whitespace-nowrap" style={{ color: v.result >= 0 ? "#1E7A46" : "#B3261E" }}>{F(v.result)}</span>}
+                  {(() => { const r = resById.get(s.id); return r == null ? null : <span className="text-[13px] font-bold whitespace-nowrap" style={{ color: r >= 0 ? "#1E7A46" : "#B3261E" }}>{F(r)}</span>; })()}
                 </span>
               </button>
             );
