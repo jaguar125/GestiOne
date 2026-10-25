@@ -27,12 +27,13 @@ import CyberApp from "./cyber/CyberApp.jsx";
 import BarApp from "./bar/BarApp.jsx";
 import { BAR_KEYS } from "./bar/barEngine.js";
 import AluApp from "./alu/AluApp.jsx";
+import { DeliveryTruck } from "./DeliveryTruck.jsx";
 import { ALU_KEYS } from "./alu/aluEngine.js";
 // Clés synchronisées des modules à part entière (une liste par type d'entreprise).
 const MOD_KEYS = { bar: BAR_KEYS, alu: ALU_KEYS };
 const ALL_MOD_KEYS = [...BAR_KEYS, ...ALU_KEYS];
 import { flushPhotos as flushHotelPhotos } from "./hotel/hotelPhotos.js";
-import { isPrinterFeatureAvailable, printRawEscPos, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder } from "./printer.js";
+import { isPrinterFeatureAvailable, printRawEscPos, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder, printHeldReceipt } from "./printer.js";
 
 const GESTIONE_ICON_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJpY29uVGl0bGUiPgogIDx0aXRsZSBpZD0iaWNvblRpdGxlIj5HZXN0aU9uZSDigJQgaWPDtG5lIGRlIGwnYXBwbGljYXRpb248L3RpdGxlPgogIDxkZWZzPgogICAgPCEtLSA9PT09PT09PT09PT09PT09PSBEw4lHUkFEw4lTIChtb2RpZmlhYmxlKSA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdHcmFkIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDYzQjczIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTUlIiBzdG9wLWNvbG9yPSIjMDYxQjQ1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2MUI0NSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxyYWRpYWxHcmFkaWVudCBpZD0iZ2xvd0dyYWQiIGN4PSIxNSUiIGN5PSIxMCUiIHI9Ijc1JSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDBEOUE1IiBzdG9wLW9wYWNpdHk9IjAuNTUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0NSUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMC4xMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYXduaW5nT3JhbmdlIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjhBMDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjRkY2QjAwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJhd25pbmdXaGl0ZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZGRkZGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0U4RUNGNSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZmFjYWRlR3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZEMjFGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZG93R3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDBCOEQ5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2M0I3MyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ2VhckdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJhckdyYWQiIHgxPSIwIiB5MT0iMSIgeDI9IjAiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRkQyMUYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im9uZUdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJzb2Z0U2hhZG93IiB4PSItNDAlIiB5PSItNDAlIiB3aWR0aD0iMTgwJSIgaGVpZ2h0PSIxODAlIj4KICAgICAgPGZlRHJvcFNoYWRvdyBkeD0iMCIgZHk9IjEwIiBzdGREZXZpYXRpb249IjE0IiBmbG9vZC1jb2xvcj0iIzA2MUI0NSIgZmxvb2Qtb3BhY2l0eT0iMC40NSIvPgogICAgPC9maWx0ZXI+CiAgICA8ZmlsdGVyIGlkPSJzbWFsbFNoYWRvdyIgeD0iLTYwJSIgeT0iLTYwJSIgd2lkdGg9IjIyMCUiIGhlaWdodD0iMjIwJSI+CiAgICAgIDxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSI0IiBzdGREZXZpYXRpb249IjYiIGZsb29kLWNvbG9yPSIjMDYxQjQ1IiBmbG9vZC1vcGFjaXR5PSIwLjM1Ii8+CiAgICA8L2ZpbHRlcj4KCiAgICA8Y2xpcFBhdGggaWQ9Imljb25DbGlwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiByeD0iMjI0Ii8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPGcgY2xpcC1wYXRoPSJ1cmwoI2ljb25DbGlwKSI+CiAgICA8IS0tID09PT09PT09PT09PT09PT09IGcjYmFja2dyb3VuZCA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxnIGlkPSJiYWNrZ3JvdW5kIj4KICAgICAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNiZ0dyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9InVybCgjZ2xvd0dyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik0gLTYwLDUxMiBBIDU2MCw1NjAgMCAwIDAgNjAsOTYwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMEQ5QTUiIHN0cm9rZS1vcGFjaXR5PSIwLjM1IiBzdHJva2Utd2lkdGg9IjM0Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNjIgMTQ4KSBzY2FsZSgxKSI+CiAgICAgIAogIDxnIGlkPSJicmFuZE1hcmsiPgogICAgPCEtLSA9PT09PSBnI3N0b3JlIDogYm91dGlxdWUgKGF1dmVudCwgZmHDp2FkZSwgdml0cmluZSwgcG9ydGUpID09PT09IC0tPgogICAgPGcgaWQ9InN0b3JlIiBmaWx0ZXI9InVybCgjc29mdFNoYWRvdykiPgogICAgICA8IS0tIGJhbmRlYXUgaGF1dCBkZSBsJ2F1dmVudCAtLT4KICAgICAgPHJlY3QgeD0iODAiIHk9Ijg2IiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjQ0IiByeD0iMTYiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICA8IS0tIGxhbWJyZXF1aW4gcmF5w6kgKHJheXVyZXMgb3JhbmdlIC8gYmxhbmMsIGJhcyBhcnJvbmRpIGZhw6dvbiBzdG9yZSBiYW5uZSkgLS0+CiAgICAgIDxnIGlkPSJhd25pbmctc3RyaXBlcyI+CiAgICAgICAgPHBhdGggZD0iTTgwLDEzMCBoNjggdjc4IHEwLDI2IC0zNCwyNiBxLTM0LDAgLTM0LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgICA8cGF0aCBkPSJNMTQ4LDEzMCBoNjggdjg4IHEwLDI0IC0zNCwyNCBxLTM0LDAgLTM0LC0yNCBaIiBmaWxsPSJ1cmwoI2F3bmluZ1doaXRlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yMTYsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yODQsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nV2hpdGUpIi8+CiAgICAgICAgPHBhdGggZD0iTTM1MiwxMzAgaDY4IHY4OCBxMCwyNCAtMzQsMjQgcS0zNCwwIC0zNCwtMjQgWiIgZmlsbD0idXJsKCNhd25pbmdPcmFuZ2UpIi8+CiAgICAgICAgPHBhdGggZD0iTTQyMCwxMzAgaDY4IHY3OCBxMCwyNiAtMzQsMjYgcS0zNCwwIC0zNCwtMjYgWiIgZmlsbD0idXJsKCNhd25pbmdXaGl0ZSkiLz4KICAgICAgICA8cGF0aCBkPSJNNDg4LDEzMCBoNzIgdjcwIHEwLDI2IC0zNiwyNiBxLTM2LDAgLTM2LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgPC9nPgogICAgICA8IS0tIGZhw6dhZGUgLS0+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJ1cmwoI2ZhY2FkZUdyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMwNjFCNDUiIHN0cm9rZS1vcGFjaXR5PSIwLjE1IiBzdHJva2Utd2lkdGg9IjQiLz4KICAgICAgPCEtLSB2aXRyaW5lIGJsZXVlIGF2ZWMgcGFuaWVyIC0tPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0idXJsKCN3aW5kb3dHcmFkKSIvPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utb3BhY2l0eT0iMC4zNSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICAgIDxnIGlkPSJiYXNrZXQiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIj4KICAgICAgICA8cGF0aCBkPSJNMjIzLDM1MiBxMzAsLTQ2IDYwLDAiIC8+CiAgICAgICAgPHBhdGggZD0iTTIwMywzNTIgaDE2MCBsLTE2LDc4IHEtMywxNCAtMTgsMTQgaC05MiBxLTE1LDAgLTE4LC0xNCBaIiBmaWxsPSIjRkZGRkZGIiBzdHJva2U9Im5vbmUiLz4KICAgICAgICA8cGF0aCBkPSJNMjI4LDM2NiB2NTYgTTI1MywzNjYgdjYyIE0yNzgsMzY2IHY1NiIgc3Ryb2tlPSIjMDBCOEQ5IiBzdHJva2Utd2lkdGg9IjgiLz4KICAgICAgPC9nPgogICAgICA8IS0tIHBvcnRlIC0tPgogICAgICA8cmVjdCB4PSIzOTIiIHk9IjMyMiIgd2lkdGg9IjExMiIgaGVpZ2h0PSIxODgiIHJ4PSIxMCIgZmlsbD0iIzA2MUI0NSIvPgogICAgICA8Y2lyY2xlIGN4PSI0NzIiIGN5PSI0MTYiIHI9IjciIGZpbGw9IiNGRkQyMUYiLz4KICAgIDwvZz4KCiAgICA8IS0tID09PT09IGcjZ3Jvd3RoIDogZ3JhcGhpcXVlIGVuIGJhcnJlcyArIGZsw6hjaGUgYXNjZW5kYW50ZSA9PT09PSAtLT4KICAgIDxnIGlkPSJncm93dGgiPgogICAgICA8cmVjdCB4PSI1NDAiIHk9IjM2OCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjkyIiByeD0iNiIgZmlsbD0idXJsKCNiYXJHcmFkKSIvPgogICAgICA8cmVjdCB4PSI1ODQiIHk9IjMzMCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjEzMCIgcng9IjYiIGZpbGw9InVybCgjYmFyR3JhZCkiLz4KICAgICAgPHJlY3QgeD0iNjI4IiB5PSIyODYiIHdpZHRoPSIzNCIgaGVpZ2h0PSIxNzQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2JhckdyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik01NTYsMjcyIEw2NTAsMTc4IE02NTAsMTc4IGgtNDYgTTY1MCwxNzggdjQ2IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkQyMUYiIHN0cm9rZS13aWR0aD0iMTYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogICAgPC9nPgoKICAgIDwhLS0gPT09PT0gZyNtYW5hZ2VtZW50IDogZW5ncmVuYWdlIChnZXN0aW9uKSA9PT09PSAtLT4KICAgIDxnIGlkPSJtYW5hZ2VtZW50IiBmaWx0ZXI9InVybCgjc21hbGxTaGFkb3cpIj4KICAgICAgPGcgZmlsbD0idXJsKCNnZWFyR3JhZCkiPgogICAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoMC4wKSIvPgogICAgICA8cmVjdCB4PSItMTUuMCIgeT0iLTEwOC4wIiB3aWR0aD0iMzAuMCIgaGVpZ2h0PSIzNC4wIiByeD0iNiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTYwIDQ4MCkgcm90YXRlKDM2LjApIi8+CiAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoNzIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxMDguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxNDQuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxODAuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyMTYuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyNTIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyODguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgzMjQuMCkiLz4KICAgICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9Ijg4IiAvPgogICAgICA8L2c+CiAgICAgIDxjaXJjbGUgY3g9IjU2MCIgY3k9IjQ4MCIgcj0iODgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLW9wYWNpdHk9IjAuMzUiIHN0cm9rZS13aWR0aD0iNCIvPgogICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9IjM0IiBmaWxsPSIjMDYxQjQ1Ii8+CiAgICA8L2c+CiAgPC9nPgoKICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=";
 
@@ -2719,6 +2720,149 @@ function reserveStatusOf(sale, avoirs) {
   const taken = linked.reduce((t, a) => t + avoirProductProgress(a).takenQty, 0);
   return { client, pickups, remaining, taken, done: remaining <= 0 && taken > 0, remainingItems: linked.flatMap((a) => avoirRemainingItems(a)) };
 }
+// Ticket « Paiement en attente » d'une vente mise en attente : liste des
+// articles déjà servis, montant restant à payer. Ce n'est PAS un reçu de
+// paiement (rien n'est encaissé, le stock ne bouge pas) — c'est écrit en
+// clair sur le ticket, à l'écran comme sur le papier.
+function heldReceiptLines(held, products) {
+  return (held?.lines || []).map((l) => {
+    const p = (products || []).find((x) => x.id === l.id);
+    const qty = Number(l.qty) || 0;
+    const unit = Number(p?.price ?? l.price) || 0;
+    const total = p ? computeItemTotal(p, qty) : qty * unit;
+    return { key: l.id, name: p?.name || l.name || "Article", qty, unit, total };
+  }).filter((l) => l.qty > 0);
+}
+function HeldReceiptModal({ held, products, shop, printedBy, onClose, pushToast }) {
+  const fmt = useFmt();
+  const [printing, setPrinting] = useState(false);
+  const lines = heldReceiptLines(held, products);
+  const total = lines.length ? lines.reduce((t, l) => t + l.total, 0) : Number(held.total) || 0;
+  const count = lines.reduce((t, l) => t + l.qty, 0);
+  const ref = `ATT-${receiptNumber(held.id)}`;
+  const dt = (iso) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const contact = String(shop?.invoicePhone || shop?.phone || "").trim();
+  const O = { dark: "#8A4B05", mid: "#C0610F", soft: "#FFF6E5", line: "#F2C77C" };
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const text = () => [
+    `⏸️ PAIEMENT EN ATTENTE — ${shop.name}`,
+    contact ? `Tél. ${contact}` : null,
+    `Réf. ${ref}`,
+    `Vente : ${held.label}${held.clientName ? ` · ${held.clientName}` : ""}`,
+    `Ouverte le ${dt(held.date)}${held.author ? ` par ${held.author}` : ""}`,
+    "",
+    ...lines.map((l) => `${l.qty} × ${l.name} — ${fmt(l.total)}`),
+    "",
+    `Reste à payer : ${fmt(total)}`,
+    "",
+    "Ticket provisoire : ce document n'est pas un reçu de paiement.",
+  ].filter((x) => x !== null).join("\n");
+
+  const share = async () => {
+    try { await shareText(`Paiement en attente — ${shop.name}`, text()); } catch (e) { pushToast?.(e.message || "Partage impossible", "error"); }
+  };
+  const print = async () => {
+    if (!isPrinterFeatureAvailable()) { await share(); return; }
+    setPrinting(true);
+    try {
+      await printHeldReceipt(held, lines, total, shop, fmt, printedBy);
+      pushToast?.("Ticket « paiement en attente » envoyé à l'imprimante", "ok");
+    } catch (e) {
+      pushToast?.(e.message || "Impossible d'imprimer — vérifiez que RawBT est installé et configuré.", "error");
+    } finally { setPrinting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center no-print" role="dialog" aria-modal="true" aria-label="Ticket paiement en attente">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] gb-slide-up flex flex-col" style={{ background: "var(--paper)", maxHeight: "92vh", paddingTop: 10 }}>
+        <div className="w-11 h-[5px] rounded-full self-center mb-2" style={{ background: "var(--line)" }} />
+        <div className="px-4 pb-2 flex items-center gap-3">
+          <span className="w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "#FFF1E0", color: O.dark }}><Printer size={19} /></span>
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-bold text-[17px] leading-tight">Ticket de la vente</p>
+            <p className="text-[12px] opacity-60">Aperçu avant impression</p>
+          </div>
+          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-4 pb-3">
+          <div className="relative rounded-[18px] bg-white px-4 pt-4 pb-5" style={{ color: "#16202A", boxShadow: "0 10px 26px -14px rgba(0,0,0,0.35)", border: "1px solid #ECE7DC" }}>
+            <div className="text-center">
+              <p className="font-display font-bold text-[17px] leading-tight break-words">{shop.name}</p>
+              {contact && <p className="text-[11.5px] mt-0.5" style={{ color: "#66707A" }}>Tél. {contact}</p>}
+            </div>
+
+            <div className="mt-3 rounded-[14px] px-3 py-2.5 flex items-center gap-2.5" style={{ background: O.soft, border: `1.5px dashed ${O.line}` }}>
+              <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0 text-white" style={{ background: "#E8771E" }}><PauseCircle size={19} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13.5px] font-extrabold tracking-[0.06em] uppercase" style={{ color: O.dark }}>Paiement en attente</span>
+                <span className="block text-[11.5px]" style={{ color: "#6B4A1E" }}>Ticket provisoire · non encaissé</span>
+              </span>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-1 text-[12px]">
+              {[
+                ["Réf.", ref, true],
+                ["Vente", held.label],
+                held.clientName ? ["Client", held.clientName] : null,
+                ["Ouverte le", dt(held.date)],
+                held.author ? ["Servi par", held.author] : null,
+                ["Imprimé le", dt(new Date().toISOString())],
+              ].filter(Boolean).map(([k, v, mono]) => (
+                <div key={k} className="flex justify-between gap-3">
+                  <span style={{ color: "#66707A" }}>{k}</span>
+                  <span className={`font-semibold text-right break-words min-w-0 ${mono ? "font-mono" : ""}`}>{v}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="my-3" style={{ borderTop: "1.5px dashed #DCD6CA" }} />
+
+            <div className="flex flex-col">
+              {lines.map((l, k) => (
+                <div key={l.key + k} className="flex items-start gap-2.5 py-1.5" style={{ borderTop: k ? "1px dashed #ECE7DC" : "none" }}>
+                  <span className="min-w-[30px] h-6 px-1.5 rounded-[7px] flex items-center justify-center text-[11.5px] font-bold shrink-0" style={{ background: "#F5F4F0" }}>{l.qty}×</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-semibold break-words leading-tight">{l.name}</span>
+                    <span className="block text-[11px]" style={{ color: "#66707A" }}>{fmt(l.unit)} l'unité</span>
+                  </span>
+                  <span className="text-[13px] font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(l.total)}</span>
+                </div>
+              ))}
+              {lines.length === 0 && <p className="text-[12.5px] text-center py-2" style={{ color: "#66707A" }}>Aucun article dans cette vente.</p>}
+            </div>
+
+            <div className="my-3" style={{ borderTop: "1.5px dashed #DCD6CA" }} />
+            <div className="flex justify-between text-[12px]" style={{ color: "#66707A" }}><span>Articles</span><span className="font-semibold" style={{ color: "#16202A" }}>{count}</span></div>
+            <div className="flex justify-between items-baseline mt-1.5">
+              <span className="text-[11.5px] font-bold uppercase tracking-wide" style={{ color: O.dark }}>Reste à payer</span>
+              <span className="font-display font-bold text-[24px]" style={{ color: O.dark, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</span>
+            </div>
+
+            <div className="mt-3.5 rounded-[12px] px-3 py-2.5 text-center text-[11.5px] leading-snug" style={{ background: "#FAF8F3", color: "#5A4A3E", border: "1px solid #ECE7DC" }}>
+              <b style={{ color: O.dark }}>Ce ticket n'est pas un reçu de paiement.</b><br />Montant à régler à la caisse. Merci pour votre confiance.
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 pt-3 flex gap-2" style={{ borderTop: "1px solid var(--line)", paddingBottom: "max(20px, calc(env(safe-area-inset-bottom) + 14px))" }}>
+          <button onClick={onClose} className="gb-focus min-h-[52px] px-4 rounded-[16px] text-[14.5px] font-bold shrink-0" style={{ background: "var(--card)", border: "1.5px solid var(--line)" }}>Fermer</button>
+          <button onClick={share} className="gb-focus w-[52px] min-h-[52px] rounded-[16px] flex items-center justify-center shrink-0" style={{ background: "var(--card)", border: "1.5px solid var(--line)" }} aria-label="Partager le ticket"><Share2 size={18} /></button>
+          <button onClick={print} disabled={printing} className="gb-focus flex-1 min-w-0 min-h-[52px] rounded-[16px] px-3 text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-60 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg, #F08A2C, #D2650F)", boxShadow: "0 8px 18px -8px rgba(210,101,15,0.65), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
+            <Printer size={18} /> {printing ? "Impression…" : "Imprimer le ticket"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToast, avoirs }) {
   const reserve = reserveStatusOf(receiptIn, avoirs);
   const avoirStatus = receiptIn?.avoirMonnaie ? changeAvoirStatusOf(receiptIn, avoirs, receiptIn.avoirAmount) : null;
@@ -2772,7 +2916,7 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
               <span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--cap)" }}><ShoppingCart size={20} color="#fff" /></span>
               <span className="text-left">
                 <span className="block font-display font-bold text-[18px] leading-none" style={{ color: "var(--glass)" }}>{shop.name}</span>
-                <span className="block text-[10.5px] mt-1" style={{ color: "#6B7686" }}>{[shop.address, shop.phone].filter(Boolean).join(" · ") || "Merci de votre visite"}</span>
+                <span className="block text-[10.5px] mt-1" style={{ color: "#6B7686" }}>{[shop.invoiceAddress || shop.address, (shop.invoicePhone || shop.phone) ? `Tél. ${shop.invoicePhone || shop.phone}` : ""].filter(Boolean).join(" · ") || "Merci de votre visite"}</span>
               </span>
             </div>
             <p className="text-[11px] font-bold mt-2">Votre satisfaction, notre priorité !</p>
@@ -4449,7 +4593,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       </>)}
 
       {!showCart && !isBoutique && (
-        <div className="fixed left-3 right-3 z-30 gb-slide-up no-print mx-auto max-w-[600px]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
+        <div data-delivery-lane className="fixed left-3 right-3 z-30 gb-slide-up no-print mx-auto max-w-[600px]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
           {count > 0 ? (
             nuit ? (
             <button onClick={() => setShowCart(true)} className="gb-focus w-full min-h-[64px] rounded-[20px] pl-4 pr-2 py-2 flex items-center gap-3 text-white" style={{ background: "var(--glass)", boxShadow: "0 12px 26px rgba(14,34,64,0.4)" }}>
@@ -7112,8 +7256,30 @@ function creditAgeMeta(days) {
   return { label: `${days} j`, full: `Depuis ${days} jours`, color: CR.mut, bg: CR.soft };
 }
 
+// Nombre qui « monte » jusqu'à sa valeur (animation des totaux).
+function useCountUp(value, ms = 650) {
+  const [v, setV] = useState(value);
+  const from = useRef(value);
+  useEffect(() => {
+    const start = from.current; const end = Number(value) || 0;
+    if (start === end) return undefined;
+    let raf; const t0 = performance.now();
+    const step = (t) => { const k = Math.min(1, (t - t0) / ms); const e = 1 - Math.pow(1 - k, 3); setV(Math.round(start + (end - start) * e)); if (k < 1) raf = requestAnimationFrame(step); else from.current = end; };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value, ms]);
+  return v;
+}
+function creditLineTotal(i) {
+  try { return computeItemTotal(i.product, i.qty); } catch { return (Number(i.qty) || 0) * (Number(i.product?.price) || 0); }
+}
+
 function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, onDeleteSale }) {
   const fmt = useFmt();
+  const [openItems, setOpenItems] = useState({});
+  const [saleReceipt, setSaleReceipt] = useState(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setMounted(true), 60); return () => clearTimeout(t); }, []);
   const [deleting, setDeleting] = useState(null);
   const [settling, setSettling] = useState(null);
   const [confirmReceipt, setConfirmReceipt] = useState(null);
@@ -7160,6 +7326,8 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, 
     window.open(`https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`, "_blank");
   };
   const paidPct = totalGranted > 0 ? Math.round((alreadyPaid / totalGranted) * 100) : 0;
+  const animOutstanding = useCountUp(totalOutstanding);
+  const animCollected = useCountUp(totalCollected);
   const SORTS = [["recent", "Récents"], ["amount", "Montant"], ["oldest", "Anciens"]];
   const settledList = showAllSettled ? settled.slice(0, 40) : settled.slice(0, 5);
 
@@ -7178,14 +7346,14 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, 
       <div className="rounded-[22px] p-4 mb-3 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", boxShadow: "0 12px 28px -12px rgba(0,0,0,0.45)" }}>
         <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
         <p className="text-[12px] font-semibold uppercase tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.65)" }}>Reste à encaisser</p>
-        <p className="font-display font-bold text-[30px] leading-tight mt-1">{fmt(totalOutstanding)}</p>
+        <p className="font-display font-bold text-[30px] leading-tight mt-1" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(animOutstanding)}</p>
         <p className="text-[12.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>
           {periodOutstanding.length} crédit{periodOutstanding.length > 1 ? "s" : ""} ouvert{periodOutstanding.length > 1 ? "s" : ""} · {clientCount} client{clientCount > 1 ? "s" : ""}
         </p>
         {totalGranted > 0 && (
           <div className="mt-3">
             <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.14)" }}>
-              <div className="h-full rounded-full" style={{ width: `${paidPct}%`, background: "var(--cap)" }} />
+              <div className="h-full rounded-full" style={{ width: `${mounted ? paidPct : 0}%`, background: "var(--cap)", transition: "width .9s cubic-bezier(.2,.8,.2,1)" }} />
             </div>
             <div className="flex justify-between text-[11.5px] mt-1.5" style={{ color: "rgba(255,255,255,0.7)" }}>
               <span>Déjà réglé {fmt(alreadyPaid)}</span>
@@ -7198,7 +7366,7 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, 
       <div className="grid grid-cols-2 gap-2.5 mb-4">
         <div className="rounded-[18px] p-3.5" style={{ background: CR.card, border: `1px solid ${CR.line}` }}>
           <div className="flex items-center gap-1.5 mb-1.5"><span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: CR.greenBg }}><CheckSquare size={13} color={CR.green} /></span><span className="text-[11.5px] font-semibold" style={{ color: CR.mut }}>Encaissé</span></div>
-          <p className="font-display font-bold text-[17px]" style={{ color: CR.green }}>{fmt(totalCollected)}</p>
+          <p className="font-display font-bold text-[17px]" style={{ color: CR.green }}>{fmt(animCollected)}</p>
           <p className="text-[11px]" style={{ color: CR.mut }}>{collectedPaymentsInPeriod.length} règlement{collectedPaymentsInPeriod.length > 1 ? "s" : ""}</p>
         </div>
         <div className="rounded-[18px] p-3.5" style={{ background: CR.card, border: `1px solid ${overdue.length ? "#F2C9C5" : CR.line}` }}>
@@ -7238,34 +7406,80 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, 
       )}
 
       <div className="flex flex-col gap-2.5 mb-6">
-        {outstanding.map((s) => {
+        {outstanding.map((s, idx) => {
           const paidSoFar = creditPaidSoFar(s);
           const remaining = Math.max(0, s.total - paidSoFar);
           const hasPartial = paidSoFar > 0;
           const pct = s.total > 0 ? Math.min(100, (paidSoFar / s.total) * 100) : 0;
           const age = creditAgeMeta(creditAge(s.date));
           return (
-            <div key={s.id} className="rounded-[20px] p-3.5" style={{ background: CR.card, border: `1px solid ${CR.line}`, boxShadow: "0 4px 14px rgba(22,32,42,0.05)" }}>
+            <div key={s.id} className="rounded-[20px] p-3.5 relative overflow-hidden" style={{ background: CR.card, border: `1px solid ${CR.line}`, boxShadow: "0 6px 18px -8px rgba(22,32,42,0.18)", animation: `gbcUp .45s cubic-bezier(.2,.8,.2,1) ${Math.min(idx, 8) * 70}ms both` }}>
+              <span className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: age.color }} />
               <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0 font-bold text-[13px]" style={{ background: CR.redBg, color: CR.red }}>{initials(s.clientName)}</div>
+                <div className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 font-bold text-[14px] relative" style={{ background: CR.redBg, color: CR.red, boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${age.bg}` }}>{initials(s.clientName)}</div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-bold truncate">{s.clientName || "Client"}</p>
-                  <p className="text-[11.5px] truncate" style={{ color: CR.mut }}>N° {receiptNumber(s.id)} · {new Date(s.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} · {s.vendor}</p>
+                  <p className="text-[15.5px] font-bold leading-tight break-words">{s.clientName || "Client"}</p>
+                  <p className="text-[11.5px] mt-0.5 flex flex-wrap items-center gap-x-1.5" style={{ color: CR.mut }}>
+                    <span className="font-mono font-semibold" style={{ color: CR.ink }}>N° {receiptNumber(s.id)}</span>
+                    <span>· {new Date(s.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} à {new Date(s.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                  </p>
+                  <p className="text-[11.5px] break-words" style={{ color: CR.mut }}>Vendu par <b style={{ color: CR.ink }}>{s.vendor || "—"}</b>{phoneOf(s) ? <> · <Phone size={10} className="inline -mt-0.5" /> {phoneOf(s)}</> : null}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="font-display font-bold text-[17px] leading-tight" style={{ color: CR.red }}>{fmt(remaining)}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: CR.mut }}>Reste dû</p>
+                  <p className="font-display font-bold text-[18px] leading-tight" style={{ color: CR.red, fontVariantNumeric: "tabular-nums" }}>{fmt(remaining)}</p>
                   <span className="inline-block mt-1 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: age.bg, color: age.color }}>{age.full}</span>
                 </div>
               </div>
               <div className="mt-3">
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: CR.soft }}>
-                  <div className="h-full rounded-full" style={{ width: `${pct}%`, background: CR.blue }} />
+                <div className="h-2 rounded-full overflow-hidden" style={{ background: CR.soft }}>
+                  <div className="h-full rounded-full" style={{ width: `${mounted ? pct : 0}%`, background: "linear-gradient(90deg, #3B82F6, #1D5FA8)", transition: "width .9s cubic-bezier(.2,.8,.2,1)" }} />
                 </div>
                 <div className="flex justify-between text-[11.5px] mt-1.5" style={{ color: CR.mut }}>
-                  <span>{hasPartial ? `${fmt(paidSoFar)} réglés` : "Aucun règlement"}</span>
+                  <span>{hasPartial ? <><b style={{ color: CR.blue }}>{fmt(paidSoFar)}</b> réglés · {Math.round(pct)} %</> : "Aucun règlement"}</span>
                   <span>Total {fmt(s.total)}</span>
                 </div>
               </div>
+              {/* Articles de l'achat à crédit */}
+              {(() => {
+                const items = Array.isArray(s.items) ? s.items : [];
+                const n = items.reduce((t, i) => t + (Number(i.qty) || 0), 0);
+                const open = !!openItems[s.id];
+                return (
+                  <div className="mt-3 rounded-[15px] overflow-hidden" style={{ background: "#F8F7F3", border: `1px solid ${CR.line}` }}>
+                    <button onClick={() => setOpenItems((o) => ({ ...o, [s.id]: !o[s.id] }))} className="gb-focus w-full flex items-center gap-2.5 px-3 py-2.5 text-left" aria-expanded={open}>
+                      <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#EDE9FE", color: "#5B3FBF" }}><ShoppingBag size={15} /></span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[13px] font-bold">Produits achetés · {n} article{n > 1 ? "s" : ""}</span>
+                        {!open && <span className="block text-[11.5px] break-words" style={{ color: CR.mut }}>{items.slice(0, 3).map((i) => `${i.qty}× ${i.product?.name || "Produit"}`).join(" · ")}{items.length > 3 ? ` · +${items.length - 3}` : ""}</span>}
+                      </span>
+                      <ChevronDown size={17} color={CR.mut} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .25s" }} />
+                    </button>
+                    <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows .3s ease" }}>
+                      <div style={{ overflow: "hidden" }}>
+                        <div className="px-3 pb-3">
+                          {items.map((i, k) => (
+                            <div key={k} className="flex items-center gap-2.5 py-2" style={{ borderTop: `1px dashed ${CR.line}`, animation: open ? `gbcUp .3s ease ${k * 40}ms both` : "none" }}>
+                              <span className="min-w-[30px] h-7 px-1.5 rounded-[8px] flex items-center justify-center text-[12px] font-bold shrink-0" style={{ background: "#fff", border: `1px solid ${CR.line}` }}>{i.qty}×</span>
+                              <span className="flex-1 min-w-0">
+                                <span className="block text-[13px] font-semibold break-words">{i.product?.name || "Produit"}</span>
+                                <span className="block text-[11px]" style={{ color: CR.mut }}>{fmt(Number(i.product?.price) || 0)} l'unité</span>
+                              </span>
+                              <span className="text-[13px] font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(creditLineTotal(i))}</span>
+                            </div>
+                          ))}
+                          {s.remise > 0 && <div className="flex justify-between py-1.5 text-[12px]" style={{ borderTop: `1px dashed ${CR.line}`, color: CR.mut }}><span>Remise</span><span>−{fmt(s.remise)}</span></div>}
+                          <div className="flex justify-between items-center pt-2 mt-0.5" style={{ borderTop: `1.5px solid ${CR.line}` }}>
+                            <span className="text-[12.5px] font-bold">Total de l'achat</span>
+                            <span className="font-display font-bold text-[15px]">{fmt(s.total)}</span>
+                          </div>
+                          <button onClick={() => setSaleReceipt(s)} className="gb-focus w-full mt-2.5 min-h-[42px] rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "#fff", border: `1.5px solid ${CR.line}`, color: CR.ink }}><Receipt size={15} /> Voir le reçu de l'achat</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
               <button onClick={() => setSettling(s)} className="gb-focus w-full mt-3.5 min-h-[52px] rounded-[15px] px-4 text-white flex items-center justify-between gap-2 active:scale-[0.98] active:brightness-95 transition-transform" style={{ background: "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: "0 8px 18px -6px rgba(12,94,73,0.55), inset 0 1px 0 rgba(255,255,255,0.22)", border: "1px solid #0A5341" }}>
                 <span className="flex items-center gap-2.5 text-[15px] font-bold"><span className="w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: "rgba(255,255,255,0.16)" }}><Banknote size={17} /></span>{hasPartial ? "Encaisser le solde" : "Encaisser le crédit"}</span>
                 <span className="font-display font-bold text-[15px] px-2.5 py-1 rounded-[9px]" style={{ background: "rgba(255,255,255,0.16)" }}>{fmt(remaining)}</span>
@@ -7317,6 +7531,7 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, 
       {settling && <SettleCreditModal sale={settling} onConfirm={handleConfirmSettle} onClose={() => setSettling(null)} />}
       {deleting && <DeleteCreditSheet sale={deleting} onClose={() => setDeleting(null)} onWriteOff={(id) => { setDeleting(null); onWriteOff(id); }} onDeleteSale={(id) => { setDeleting(null); onDeleteSale(id); }} />}
       {confirmReceipt && <CreditReceiptModal sale={confirmReceipt} shop={shop} onClose={() => setConfirmReceipt(null)} pushToast={pushToast} />}
+      {saleReceipt && <SaleReceiptModal receipt={saleReceipt} shop={shop} clients={clients} onClose={() => setSaleReceipt(null)} pushToast={pushToast} />}
     </div>
   );
 }
@@ -7732,26 +7947,42 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
   );
 }
 
-function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast, onDeleteAvoirs }) {
+// Couleurs propres aux deux familles d'avoirs.
+const AV = { money: "#9A5B00", moneyBg: "#FFF1D6", moneyLine: "#F3D9A4", prod: "#5B3FBF", prodBg: "#EDE9FE", prodLine: "#D9D0FA" };
+// Valeur restant due d'un avoir (monnaie restante ou valeur des produits pas encore remis).
+function avoirRemainingValue(a) {
+  if (!a || a.settled) return 0;
+  return a.type === "produit" ? avoirRemainingItems(a).reduce((s, i) => s + i.qty * i.price, 0) : avoirMoneyProgress(a).remaining;
+}
+function avoirInitialValue(a) {
+  if (!a) return 0;
+  return a.type === "produit" ? (a.items || []).reduce((s, i) => s + (Number(i.qty) || 0) * (Number(i.price) || 0), 0) : Number(a.amount) || 0;
+}
+
+function AvoirsScreen({ shop, avoirs, sales, clients, onRedeemMoney, onRedeemProduct, pushToast, onDeleteAvoirs }) {
   const fmt = useFmt();
   const [deletingAvoirs, setDeletingAvoirs] = useState(null);
   const [periodFilter, setPeriodFilter] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [expanded, setExpanded] = useState(null);
+  const [openSale, setOpenSale] = useState({});
   const [redeemProduct, setRedeemProduct] = useState(null);
   const [redeemMoney, setRedeemMoney] = useState(null);
   const [viewingReceipt, setViewingReceipt] = useState(null);
   const [viewingCombinedReceipt, setViewingCombinedReceipt] = useState(null);
+  const [saleReceipt, setSaleReceipt] = useState(null);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all"); // all | monnaie | produit
+  const [showAllSettled, setShowAllSettled] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setMounted(true), 60); return () => clearTimeout(t); }, []);
 
   const periodAvoirs = avoirs.filter((a) => inPeriod(a.date, periodFilter, customFrom, customTo));
 
   // Regroupement : un avoir produit et un avoir monnaie créés ensemble
   // (moneyAvoir.saleId === productAvoir.id) restent affichés comme UNE
-  // seule carte tant que l'un des deux n'est pas soldé — même quand l'un
-  // des deux est déjà réglé, il reste visible (avec un badge "reçu") à côté
-  // de l'autre encore en cours. La paire ne bascule dans "Récemment soldés"
-  // que lorsque LES DEUX sont soldés.
+  // seule carte tant que l'un des deux n'est pas soldé. La paire ne bascule
+  // dans "Récemment soldés" que lorsque LES DEUX sont soldés.
   const items = [];
   const consumed = new Set();
   periodAvoirs.forEach((a) => {
@@ -7760,183 +7991,311 @@ function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast,
       const linkedMoney = periodAvoirs.find((m) => m.type === "monnaie" && m.saleId === a.id);
       if (linkedMoney) {
         consumed.add(a.id); consumed.add(linkedMoney.id);
-        items.push({ combined: true, id: a.id, produit: a, monnaie: linkedMoney, date: a.date, clientName: a.clientName, bothSettled: a.settled && linkedMoney.settled });
+        items.push({ combined: true, id: a.id, produit: a, monnaie: linkedMoney, parts: [a, linkedMoney], date: a.date, clientName: a.clientName, vendor: a.vendor, bothSettled: a.settled && linkedMoney.settled });
         return;
       }
     }
-    items.push({ combined: false, id: a.id, avoir: a, bothSettled: a.settled });
+    items.push({ combined: false, id: a.id, avoir: a, parts: [a], date: a.date, clientName: a.clientName, vendor: a.vendor, bothSettled: a.settled });
   });
 
-  const outstandingItems = items.filter((it) => !it.bothSettled).sort((x, y) => new Date(y.date) - new Date(x.date));
-  const settledLatestDate = (it) => it.combined
-    ? Math.max(new Date(it.produit.settledDate || it.produit.date).getTime(), new Date(it.monnaie.settledDate || it.monnaie.date).getTime())
-    : new Date(it.avoir.settledDate || it.avoir.date).getTime();
-  const settledItems = items.filter((it) => it.bothSettled).sort((x, y) => settledLatestDate(y) - settledLatestDate(x));
+  // Vente d'origine : l'avoir produit porte l'id de la vente ; l'avoir
+  // monnaie lié porte, lui, l'id de l'avoir produit.
+  const saleById = useMemo(() => new Map((sales || []).map((s) => [s.id, s])), [sales]);
+  const saleOf = (it) => {
+    for (const p of it.parts) { const s = p.saleId && saleById.get(p.saleId); if (s) return s; }
+    return null;
+  };
+  const phoneOf = (name, sale) => {
+    const cl = clients || [];
+    const byId = sale?.clientId && cl.find((c) => c.id === sale.clientId);
+    if (byId?.phone) return byId.phone;
+    const n = (name || "").toLowerCase();
+    return (n && cl.find((c) => (c.name || "").toLowerCase() === n)?.phone) || "";
+  };
 
-  // Valeur totale restante en avoir sur la période, tous types confondus
-  // (monnaie non rendue + valeur des produits pas encore remis) — un seul
-  // chiffre parlant pour le bloc "Total en avoir".
-  const totalValue = outstandingItems.reduce((s, it) => {
-    if (it.combined) {
-      const pVal = it.produit.settled ? 0 : avoirRemainingItems(it.produit).reduce((s2, i) => s2 + i.qty * i.price, 0);
-      const mVal = it.monnaie.settled ? 0 : avoirMoneyProgress(it.monnaie).remaining;
-      return s + pVal + mVal;
+  const q = query.trim().toLowerCase();
+  const allOutstanding = items.filter((it) => !it.bothSettled);
+  const outstandingItems = allOutstanding
+    .filter((it) => typeFilter === "all" || it.parts.some((p) => p.type === typeFilter && !p.settled))
+    .filter((it) => {
+      if (!q) return true;
+      const s = saleOf(it);
+      return (it.clientName || "").toLowerCase().includes(q) || (s && receiptNumber(s.id).toLowerCase().includes(q));
+    })
+    .sort((x, y) => new Date(y.date) - new Date(x.date));
+  const settledLatestDate = (it) => Math.max(...it.parts.map((p) => new Date(p.settledDate || p.date).getTime()));
+  const settledItems = items.filter((it) => it.bothSettled).sort((x, y) => settledLatestDate(y) - settledLatestDate(x));
+  const settledList = showAllSettled ? settledItems.slice(0, 40) : settledItems.slice(0, 5);
+
+  // Synthèse de la période
+  const openParts = allOutstanding.flatMap((it) => it.parts.filter((p) => !p.settled));
+  const totalValue = openParts.reduce((s, p) => s + avoirRemainingValue(p), 0);
+  const totalInitial = openParts.reduce((s, p) => s + avoirInitialValue(p), 0);
+  const alreadyGiven = Math.max(0, totalInitial - totalValue);
+  const givenPct = totalInitial > 0 ? Math.round((alreadyGiven / totalInitial) * 100) : 0;
+  const moneyParts = openParts.filter((p) => p.type === "monnaie");
+  const prodParts = openParts.filter((p) => p.type === "produit");
+  const moneyDue = moneyParts.reduce((s, p) => s + avoirMoneyProgress(p).remaining, 0);
+  const prodQty = prodParts.reduce((s, p) => s + avoirProductProgress(p).remainingQty, 0);
+  const prodValue = prodParts.reduce((s, p) => s + avoirRemainingValue(p), 0);
+  const clientCount = new Set(allOutstanding.map((it) => (it.clientName || "").toLowerCase())).size;
+  const animTotal = useCountUp(totalValue);
+  const animMoney = useCountUp(moneyDue);
+  const animProd = useCountUp(prodValue);
+
+  const notify = (it) => {
+    const s = saleOf(it);
+    const phone = phoneOf(it.clientName, s) || window.prompt("Numéro WhatsApp du client (avec indicatif pays) :");
+    if (!phone) return;
+    const lines = [];
+    it.parts.filter((p) => !p.settled).forEach((p) => {
+      if (p.type === "monnaie") lines.push(`- Monnaie à vous rendre : ${fmt(avoirMoneyProgress(p).remaining)}`);
+      else lines.push(`- Produits gardés pour vous : ${avoirRemainingItems(p).map((i) => `${i.qty}× ${i.name}`).join(", ")}`);
+    });
+    const text = `Bonjour ${it.clientName || ""},\n${shop?.name || "Votre boutique"} vous rappelle que vous avez un avoir disponible${s ? ` (achat N° ${receiptNumber(s.id)} du ${new Date(s.date).toLocaleDateString("fr-FR")})` : ""} :\n${lines.join("\n")}\nPassez quand vous voulez pour le récupérer. Merci pour votre confiance !`;
+    window.open(`https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`, "_blank");
+  };
+  const openAvoirReceipt = (it) => (it.combined ? setViewingCombinedReceipt({ produit: it.produit, monnaie: it.monnaie }) : setViewingReceipt(it.avoir));
+
+  const TYPES = [["all", "Tous"], ["monnaie", "Monnaie"], ["produit", "Produits"]];
+
+  // Bloc d'une partie de l'avoir (monnaie OU produits).
+  const renderPart = (a) => {
+    const isProduit = a.type === "produit";
+    const color = isProduit ? AV.prod : AV.money;
+    const bg = isProduit ? AV.prodBg : AV.moneyBg;
+    const line = isProduit ? AV.prodLine : AV.moneyLine;
+    if (a.settled) {
+      return (
+        <div key={a.id} className="mt-2.5 rounded-[15px] px-3 py-2.5 flex items-center gap-2.5" style={{ background: CR.greenBg, border: "1px solid #CBE7D6" }}>
+          <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#fff" }}><Check size={16} color={CR.green} strokeWidth={2.6} /></span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[13px] font-bold" style={{ color: CR.green }}>{isProduit ? "Produits remis au client" : "Monnaie rendue au client"}</span>
+            <span className="block text-[11.5px]" style={{ color: CR.mut }}>{a.settledDate ? `Le ${new Date(a.settledDate).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} à ${new Date(a.settledDate).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "Soldé"}</span>
+          </span>
+          <span className="text-[13px] font-bold shrink-0" style={{ color: CR.green }}>{isProduit ? `${avoirProductProgress(a).totalQty} art.` : fmt(a.amount)}</span>
+        </div>
+      );
     }
-    const a = it.avoir;
-    return s + (a.type === "produit" ? avoirRemainingItems(a).reduce((s2, i) => s2 + i.qty * i.price, 0) : avoirMoneyProgress(a).remaining);
-  }, 0);
+    const prog = isProduit ? avoirProductProgress(a) : avoirMoneyProgress(a);
+    const taken = isProduit ? avoirTakenByProduct(a) : null;
+    return (
+      <div key={a.id} className="mt-2.5 rounded-[15px] overflow-hidden" style={{ background: "#fff", border: `1px solid ${line}` }}>
+        <div className="px-3 py-2.5 flex items-center gap-2.5" style={{ background: bg }}>
+          <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#fff", color }}>{isProduit ? <PackageX size={16} /> : <Coins size={16} />}</span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[13px] font-bold" style={{ color }}>{isProduit ? "Produits en réserve" : "Monnaie non rendue"}</span>
+            <span className="block text-[11.5px]" style={{ color: CR.mut }}>{isProduit ? `${prog.remainingQty} sur ${prog.totalQty} article${prog.totalQty > 1 ? "s" : ""} à remettre` : prog.already > 0 ? `${fmt(prog.already)} déjà rendus sur ${fmt(a.amount)}` : "Rien n'a encore été rendu"}</span>
+          </span>
+          <span className="font-display font-bold text-[16px] shrink-0" style={{ color, fontVariantNumeric: "tabular-nums" }}>{fmt(avoirRemainingValue(a))}</span>
+        </div>
+        {(isProduit ? prog.takenQty > 0 : prog.already > 0) && <div className="px-3 pt-2.5">
+          <div className="h-2 rounded-full overflow-hidden" style={{ background: CR.soft }}>
+            <div className="h-full rounded-full" style={{ width: `${mounted ? prog.pct : 0}%`, background: isProduit ? "linear-gradient(90deg, #8B7CF0, #5B3FBF)" : "linear-gradient(90deg, #E8A93A, #9A5B00)", transition: "width .9s cubic-bezier(.2,.8,.2,1)" }} />
+          </div>
+          <div className="flex justify-between text-[11px] mt-1" style={{ color: CR.mut }}>
+            <span>{isProduit ? `${prog.takenQty} remis` : `${fmt(prog.already)} rendus`}</span>
+            <span>{prog.pct} %</span>
+          </div>
+        </div>}
+        {isProduit && (
+          <div className="px-3 pt-1">
+            {(a.items || []).map((i, k) => {
+              const got = Math.min(i.qty, taken[i.productId] || 0);
+              const left = i.qty - got;
+              return (
+                <div key={k} className="flex items-center gap-2.5 py-2" style={{ borderTop: k ? `1px dashed ${CR.line}` : "none", opacity: left > 0 ? 1 : 0.55 }}>
+                  <span className="min-w-[30px] h-7 px-1.5 rounded-[8px] flex items-center justify-center text-[12px] font-bold shrink-0" style={{ background: left > 0 ? AV.prodBg : CR.greenBg, color: left > 0 ? AV.prod : CR.green }}>{left > 0 ? `${left}×` : <Check size={13} strokeWidth={2.8} />}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-semibold break-words">{i.name}</span>
+                    <span className="block text-[11px]" style={{ color: CR.mut }}>{got > 0 ? `${got} déjà remis sur ${i.qty}` : `${i.qty} gardé${i.qty > 1 ? "s" : ""} en réserve`} · {fmt(i.price)} l'unité</span>
+                  </span>
+                  <span className="text-[13px] font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(left * i.price)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="p-2.5 pt-2">
+          <button onClick={() => (isProduit ? setRedeemProduct(a) : setRedeemMoney(a))} className="gb-focus w-full min-h-[48px] rounded-[13px] px-3.5 text-white flex items-center justify-between gap-2 active:scale-[0.98] transition-transform" style={{ background: isProduit ? "linear-gradient(180deg, #6D52D6, #4B32A8)" : "linear-gradient(180deg, #16876A, #0C5E49)", boxShadow: isProduit ? "0 8px 18px -8px rgba(75,50,168,0.6), inset 0 1px 0 rgba(255,255,255,0.2)" : "0 8px 18px -8px rgba(12,94,73,0.6), inset 0 1px 0 rgba(255,255,255,0.22)" }}>
+            <span className="flex items-center gap-2 text-[14px] font-bold">{isProduit ? <PackageCheck size={17} /> : <Banknote size={17} />}{isProduit ? (prog.takenQty > 0 ? "Remettre la suite" : "Remettre les produits") : (prog.already > 0 ? "Rendre le reste" : "Rendre la monnaie")}</span>
+            <span className="font-display font-bold text-[13.5px] px-2 py-0.5 rounded-[8px]" style={{ background: "rgba(255,255,255,0.16)" }}>{isProduit ? `${prog.remainingQty} art.` : fmt(prog.remaining)}</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="px-4 pt-4" style={{ paddingBottom: "calc(170px + env(safe-area-inset-bottom))" }}>
-      <h2 className="font-display font-bold text-lg mb-3">Avoirs</h2>
+    <div className="px-4 pt-4" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))", color: CR.ink }}>
+      <div className="mb-3">
+        <h2 className="font-display font-bold text-[22px] leading-tight">Avoirs clients</h2>
+        <p className="text-[12.5px] mt-0.5" style={{ color: CR.mut }}>Monnaie à rendre et produits gardés en réserve</p>
+      </div>
 
       <PeriodFilterBar value={periodFilter} onChange={setPeriodFilter} customFrom={customFrom} customTo={customTo} onCustomFrom={setCustomFrom} onCustomTo={setCustomTo} />
 
-      <div className="grid grid-cols-2 gap-2.5 mb-5">
-        <StatCard icon={PackageX} label="Avoirs en cours" value={outstandingItems.length} dark />
-        <StatCard icon={Coins} label="Total en avoir" value={fmt(totalValue)} tintBg="#FAEEDA" tintFg="#854F0B" />
+      {/* Synthèse */}
+      <div className="rounded-[22px] p-4 mb-3 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", boxShadow: "0 12px 28px -12px rgba(0,0,0,0.45)", animation: "gbcUp .45s cubic-bezier(.2,.8,.2,1) both" }}>
+        <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <div className="absolute right-4 top-4 w-10 h-10 rounded-[13px] flex items-center justify-center" style={{ background: "rgba(255,255,255,0.12)" }}><Gift size={20} /></div>
+        <p className="text-[12px] font-semibold uppercase tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.65)" }}>Total à remettre</p>
+        <p className="font-display font-bold text-[30px] leading-tight mt-1" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(animTotal)}</p>
+        <p className="text-[12.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>
+          {allOutstanding.length} avoir{allOutstanding.length > 1 ? "s" : ""} en cours · {clientCount} client{clientCount > 1 ? "s" : ""}
+        </p>
+        {totalInitial > 0 && (
+          <div className="mt-3">
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.14)" }}>
+              <div className="h-full rounded-full" style={{ width: `${mounted ? givenPct : 0}%`, background: "var(--cap)", transition: "width .9s cubic-bezier(.2,.8,.2,1)" }} />
+            </div>
+            <div className="flex justify-between text-[11.5px] mt-1.5" style={{ color: "rgba(255,255,255,0.7)" }}>
+              <span>Déjà remis {fmt(alreadyGiven)}</span>
+              <span>{givenPct} %</span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {outstandingItems.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucun avoir en cours sur cette période.</p>}
+      <div className="grid grid-cols-2 gap-2.5 mb-4">
+        <button onClick={() => setTypeFilter((t) => (t === "monnaie" ? "all" : "monnaie"))} className="gb-focus rounded-[18px] p-3.5 text-left" style={{ background: CR.card, border: `1.5px solid ${typeFilter === "monnaie" ? AV.money : CR.line}`, animation: "gbcUp .45s cubic-bezier(.2,.8,.2,1) 70ms both" }}>
+          <div className="flex items-center gap-1.5 mb-1.5"><span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: AV.moneyBg }}><Coins size={13} color={AV.money} /></span><span className="text-[11.5px] font-semibold" style={{ color: CR.mut }}>Monnaie à rendre</span></div>
+          <p className="font-display font-bold text-[17px]" style={{ color: AV.money, fontVariantNumeric: "tabular-nums" }}>{fmt(animMoney)}</p>
+          <p className="text-[11px]" style={{ color: CR.mut }}>{moneyParts.length ? `${moneyParts.length} client${moneyParts.length > 1 ? "s" : ""} à rembourser` : "Rien à rendre"}</p>
+        </button>
+        <button onClick={() => setTypeFilter((t) => (t === "produit" ? "all" : "produit"))} className="gb-focus rounded-[18px] p-3.5 text-left" style={{ background: CR.card, border: `1.5px solid ${typeFilter === "produit" ? AV.prod : CR.line}`, animation: "gbcUp .45s cubic-bezier(.2,.8,.2,1) 140ms both" }}>
+          <div className="flex items-center gap-1.5 mb-1.5"><span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: AV.prodBg }}><PackageX size={13} color={AV.prod} /></span><span className="text-[11.5px] font-semibold" style={{ color: CR.mut }}>Produits en réserve</span></div>
+          <p className="font-display font-bold text-[17px]" style={{ color: AV.prod, fontVariantNumeric: "tabular-nums" }}>{fmt(animProd)}</p>
+          <p className="text-[11px]" style={{ color: CR.mut }}>{prodQty ? `${prodQty} article${prodQty > 1 ? "s" : ""} à remettre` : "Aucun article gardé"}</p>
+        </button>
+      </div>
+
+      {/* Recherche + filtre */}
+      {allOutstanding.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px] mb-3" style={{ background: CR.card, border: `1px solid ${CR.line}` }}>
+            <Search size={16} color={CR.mut} />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Client ou N° de reçu" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
+            {query && <button onClick={() => setQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={14} color={CR.mut} /></button>}
+          </div>
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <p className="text-[13px] font-bold">Avoirs en cours <span style={{ color: CR.mut, fontWeight: 600 }}>· {outstandingItems.length}</span></p>
+            <div className="flex p-0.5 rounded-[11px] shrink-0" style={{ background: CR.soft, border: `1px solid ${CR.line}` }}>
+              {TYPES.map(([id, label]) => (
+                <button key={id} onClick={() => setTypeFilter(id)} className="gb-focus px-2.5 py-1 rounded-[9px] text-[11.5px] font-semibold" style={{ background: typeFilter === id ? CR.card : "transparent", color: typeFilter === id ? CR.ink : CR.mut, boxShadow: typeFilter === id ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>{label}</button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {outstandingItems.length === 0 && (
+        <div className="rounded-[20px] py-8 px-5 text-center mb-5" style={{ background: CR.card, border: `1px dashed ${CR.line}` }}>
+          <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: CR.greenBg }}><Check size={22} color={CR.green} /></div>
+          <p className="font-semibold text-[14px]">{q || typeFilter !== "all" ? "Aucun avoir ne correspond" : "Aucun avoir en cours"}</p>
+          <p className="text-[12px] mt-0.5" style={{ color: CR.mut }}>{q || typeFilter !== "all" ? "Modifiez la recherche ou le filtre." : "Tous les clients ont récupéré leur dû sur cette période."}</p>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2.5 mb-6">
-        {outstandingItems.map((it) => {
-          if (!it.combined) {
-            const a = it.avoir;
-            const isProduit = a.type === "produit";
-            const isOpen = expanded === a.id;
-            const prog = isProduit ? avoirProductProgress(a) : avoirMoneyProgress(a);
-            const hasPartial = isProduit ? prog.takenQty > 0 : prog.already > 0;
-            return (
-              <div key={a.id} className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", boxShadow: "0 2px 10px rgba(15,27,22,0.07)" }}>
-                <button onClick={() => setExpanded(isOpen ? null : a.id)} className="gb-focus w-full p-3.5 flex items-center gap-3 text-left">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px]" style={{ background: isProduit ? "#EEEDFE" : "#FAEEDA", color: isProduit ? "#534AB7" : "#854F0B" }}>{initials(a.clientName)}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">{a.clientName}</div>
-                    <div className="text-[11px] opacity-60">{isProduit ? `Avoir produit · ${prog.remainingQty}/${prog.totalQty} article${prog.totalQty > 1 ? "s" : ""} restants` : "Monnaie non rendue"} · {new Date(a.date).toLocaleDateString("fr-FR")}</div>
-                  </div>
-                  {!isProduit && <span className="font-mono font-bold text-sm shrink-0" style={{ color: "#854F0B" }}>{fmt(prog.remaining)}</span>}
-                  <ChevronDown size={14} className="shrink-0" style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
-                </button>
-
-                {hasPartial && (
-                  <div className="px-3.5 pt-2.5 pb-3.5">
-                    <div className="flex justify-between text-[11px] opacity-50 mb-1.5">
-                      <span>{isProduit ? `${prog.takenQty} déjà remis` : `${fmt(prog.already)} déjà rendus`}</span>
-                      <span>sur {isProduit ? prog.totalQty : fmt(a.amount)}</span>
-                    </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}>
-                      <div className="h-full rounded-full" style={{ width: `${prog.pct}%`, background: isProduit ? "#7F77DD" : "#185FA5" }} />
-                    </div>
-                  </div>
-                )}
-
-                {isOpen && (
-                  <div className="px-3.5 py-2.5" style={{ background: "var(--paper-dim)" }}>
-                    {isProduit ? (
-                      avoirRemainingItems(a).map((i2, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs py-1">
-                          <span>{i2.qty} x {i2.name}</span>
-                          <span className="opacity-50 font-mono">{fmt(i2.qty * i2.price)}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="flex items-center justify-between text-xs py-1">
-                        <span>Monnaie encore due</span>
-                        <span className="opacity-50 font-mono">{fmt(prog.remaining)}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="p-2.5 pt-0 flex gap-2">
-                  <button onClick={() => (isProduit ? setRedeemProduct(a) : setRedeemMoney(a))} className="gb-focus flex-1 rounded-xl py-2.5 text-xs font-semibold text-white" style={{ background: "#0F6E56" }}>
-                    Marquer comme reçu
-                  </button>
-                  {onDeleteAvoirs && <button onClick={() => setDeletingAvoirs([a])} className="gb-focus w-11 shrink-0 rounded-xl flex items-center justify-center" style={{ background: "#FCEBEB", border: "1px solid #F0C4BF" }} aria-label={`Supprimer l'avoir de ${a.clientName}`}><Trash2 size={16} color="#B3261E" /></button>}
-                </div>
-              </div>
-            );
-          }
-
-          // Carte combinée : avoir produit + avoir monnaie issus de la même
-          // vente — un seul client, deux sections indépendantes. Une section
-          // déjà réglée affiche un badge "reçu" à la place du bouton, sans
-          // faire quitter la carte des avoirs en cours tant que l'autre
-          // section n'est pas, elle aussi, réglée.
-          const { produit, monnaie } = it;
-          const pProg = avoirProductProgress(produit);
-          const mProg = avoirMoneyProgress(monnaie);
-          const isOpen = expanded === it.id;
+        {outstandingItems.map((it, idx) => {
+          const sale = saleOf(it);
+          const remaining = it.parts.reduce((s, p) => s + avoirRemainingValue(p), 0);
+          const age = creditAgeMeta(creditAge(it.date));
+          const phone = phoneOf(it.clientName, sale);
+          const hasMoney = it.parts.some((p) => p.type === "monnaie");
+          const hasProd = it.parts.some((p) => p.type === "produit");
+          const avatar = hasProd && !hasMoney ? { bg: AV.prodBg, fg: AV.prod } : { bg: AV.moneyBg, fg: AV.money };
+          const saleItems = Array.isArray(sale?.items) ? sale.items : [];
+          const nSale = saleItems.reduce((t, i) => t + (Number(i.qty) || 0), 0);
+          const open = !!openSale[it.id];
           return (
-            <div key={it.id} className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", boxShadow: "0 2px 10px rgba(15,27,22,0.07)" }}>
-              <button onClick={() => setExpanded(isOpen ? null : it.id)} className="gb-focus w-full p-3.5 flex items-center gap-3 text-left">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px]" style={{ background: "#FAEEDA", color: "#854F0B" }}>{initials(it.clientName)}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate">{it.clientName}</div>
-                  <div className="text-[11px] opacity-60">Avoir produit + monnaie · {new Date(it.date).toLocaleDateString("fr-FR")}</div>
+            <div key={it.id} className="rounded-[20px] p-3.5 relative overflow-hidden" style={{ background: CR.card, border: `1px solid ${CR.line}`, boxShadow: "0 6px 18px -8px rgba(22,32,42,0.18)", animation: `gbcUp .45s cubic-bezier(.2,.8,.2,1) ${Math.min(idx, 8) * 70}ms both` }}>
+              <span className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: age.color }} />
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 font-bold text-[14px]" style={{ background: avatar.bg, color: avatar.fg, boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${age.bg}` }}>{initials(it.clientName)}</div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15.5px] font-bold leading-tight break-words">{it.clientName || "Client"}</p>
+                  <p className="text-[11.5px] mt-0.5 flex flex-wrap items-center gap-x-1.5" style={{ color: CR.mut }}>
+                    {sale && <span className="font-mono font-semibold" style={{ color: CR.ink }}>N° {receiptNumber(sale.id)}</span>}
+                    <span>{sale ? "· " : ""}{new Date(it.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} à {new Date(it.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                  </p>
+                  <p className="text-[11.5px] break-words" style={{ color: CR.mut }}>Enregistré par <b style={{ color: CR.ink }}>{it.vendor || "—"}</b>{phone ? <> · <Phone size={10} className="inline -mt-0.5" /> {phone}</> : null}</p>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {it.parts.map((p) => (
+                      <span key={p.id} className="inline-flex items-center gap-1 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={p.settled ? { background: CR.greenBg, color: CR.green } : p.type === "produit" ? { background: AV.prodBg, color: AV.prod } : { background: AV.moneyBg, color: AV.money }}>
+                        {p.settled ? <Check size={10} strokeWidth={3} /> : p.type === "produit" ? <PackageX size={10} /> : <Coins size={10} />}
+                        {p.type === "produit" ? "Produits" : "Monnaie"}{p.settled ? (p.type === "produit" ? " remis" : " rendue") : ""}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                <ChevronDown size={14} className="shrink-0" style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
-              </button>
-
-              {isOpen && !produit.settled && (
-                <div className="px-3.5 py-2.5" style={{ background: "var(--paper-dim)" }}>
-                  {avoirRemainingItems(produit).map((i2, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs py-1">
-                      <span>{i2.qty} x {i2.name}</span>
-                      <span className="opacity-50 font-mono">{fmt(i2.qty * i2.price)}</span>
-                    </div>
-                  ))}
+                <div className="text-right shrink-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: CR.mut }}>À remettre</p>
+                  <p className="font-display font-bold text-[18px] leading-tight" style={{ color: hasMoney ? AV.money : AV.prod, fontVariantNumeric: "tabular-nums" }}>{fmt(remaining)}</p>
+                  <span className="inline-block mt-1 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: age.bg, color: age.color }}>{age.full}</span>
                 </div>
-              )}
-
-              <div className="mx-3.5 mb-3 rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)" }}>
-                <div className="px-3 py-2.5 flex items-center justify-between" style={{ background: "#EEEDFE" }}>
-                  <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#534AB7" }}><PackageX size={13} /> Produits{!produit.settled ? ` — ${pProg.remainingQty}/${pProg.totalQty} restants` : ""}</span>
-                </div>
-                {produit.settled ? (
-                  <div className="p-2.5 flex items-center gap-1.5 text-xs font-semibold" style={{ color: "#27500A" }}><Check size={14} /> Produits reçus</div>
-                ) : (
-                  <>
-                    {pProg.takenQty > 0 && (
-                      <div className="px-3 pt-2">
-                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}>
-                          <div className="h-full rounded-full" style={{ width: `${pProg.pct}%`, background: "#7F77DD" }} />
-                        </div>
-                      </div>
-                    )}
-                    <div className="p-2.5">
-                      <button onClick={() => setRedeemProduct(produit)} className="gb-focus w-full rounded-lg py-2 text-xs font-semibold text-white" style={{ background: "#534AB7" }}>Marquer les produits comme reçus</button>
-                    </div>
-                  </>
-                )}
               </div>
 
-              <div className="mx-3.5 mb-3.5 rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)" }}>
-                <div className="px-3 py-2.5 flex items-center justify-between" style={{ background: "#FAEEDA" }}>
-                  <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "#854F0B" }}><Coins size={13} /> Monnaie{!monnaie.settled ? ` — ${fmt(mProg.remaining)} due` : ""}</span>
-                </div>
-                {monnaie.settled ? (
-                  <div className="p-2.5 flex items-center gap-1.5 text-xs font-semibold" style={{ color: "#27500A" }}><Check size={14} /> Monnaie rendue</div>
-                ) : (
-                  <>
-                    {mProg.already > 0 && (
-                      <div className="px-3 pt-2">
-                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}>
-                          <div className="h-full rounded-full" style={{ width: `${mProg.pct}%`, background: "#185FA5" }} />
+              {[...it.parts].sort((x, y) => (x.type === "produit" ? 0 : 1) - (y.type === "produit" ? 0 : 1)).map((p) => renderPart(p))}
+
+              {/* Achat d'origine */}
+              {sale ? (
+                <div className="mt-2.5 rounded-[15px] overflow-hidden" style={{ background: "#F8F7F3", border: `1px solid ${CR.line}` }}>
+                  <button onClick={() => setOpenSale((o) => ({ ...o, [it.id]: !o[it.id] }))} className="gb-focus w-full flex items-center gap-2.5 px-3 py-2.5 text-left" aria-expanded={open}>
+                    <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#E8F0FB", color: CR.blue }}><ShoppingBag size={15} /></span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[13px] font-bold">Achat d'origine</span>
+                      <span className="block text-[11.5px] break-words" style={{ color: CR.mut }}>{nSale} article{nSale > 1 ? "s" : ""}{open ? " · touchez pour replier" : ""}</span>
+                      {!open && <span className="block text-[11.5px] break-words" style={{ color: CR.mut }}>{saleItems.slice(0, 3).map((i) => `${i.qty}× ${i.product?.name || "Produit"}`).join(" · ")}{saleItems.length > 3 ? ` · +${saleItems.length - 3}` : ""}</span>}
+                    </span>
+                    <span className="text-[13px] font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(sale.total)}</span>
+                    <ChevronDown size={17} color={CR.mut} className="shrink-0" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .25s" }} />
+                  </button>
+                  <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows .3s ease" }}>
+                    <div style={{ overflow: "hidden" }}>
+                      <div className="px-3 pb-3">
+                        {saleItems.map((i, k) => (
+                          <div key={k} className="flex items-center gap-2.5 py-2" style={{ borderTop: `1px dashed ${CR.line}`, animation: open ? `gbcUp .3s ease ${k * 40}ms both` : "none" }}>
+                            <span className="min-w-[30px] h-7 px-1.5 rounded-[8px] flex items-center justify-center text-[12px] font-bold shrink-0" style={{ background: "#fff", border: `1px solid ${CR.line}` }}>{i.qty}×</span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-[13px] font-semibold break-words">{i.product?.name || "Produit"}{i.variantName ? ` ${i.variantName}` : ""}</span>
+                              <span className="block text-[11px]" style={{ color: CR.mut }}>{fmt(Number(i.product?.price) || 0)} l'unité</span>
+                            </span>
+                            <span className="text-[13px] font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(creditLineTotal(i))}</span>
+                          </div>
+                        ))}
+                        {sale.remise > 0 && <div className="flex justify-between py-1.5 text-[12px]" style={{ borderTop: `1px dashed ${CR.line}`, color: CR.mut }}><span>Remise</span><span>−{fmt(sale.remise)}</span></div>}
+                        <div className="flex justify-between items-center pt-2 mt-0.5" style={{ borderTop: `1.5px solid ${CR.line}` }}>
+                          <span className="text-[12.5px] font-bold">Total de l'achat</span>
+                          <span className="font-display font-bold text-[15px]">{fmt(sale.total)}</span>
                         </div>
+                        <div className="flex justify-between text-[11.5px] mt-1" style={{ color: CR.mut }}>
+                          <span>Paiement</span>
+                          <span className="font-semibold" style={{ color: CR.ink }}>{PAYMENT_LABELS[sale.paymentMethod] || sale.paymentMethod || "—"}{sale.amountReceived > 0 ? ` · reçu ${fmt(sale.amountReceived)}` : ""}</span>
+                        </div>
+                        <button onClick={() => setSaleReceipt(sale)} className="gb-focus w-full mt-2.5 min-h-[42px] rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-2" style={{ background: "#fff", border: `1.5px solid ${CR.line}`, color: CR.ink }}><Receipt size={15} /> Voir le reçu de l'achat</button>
                       </div>
-                    )}
-                    <div className="p-2.5">
-                      <button onClick={() => setRedeemMoney(monnaie)} className="gb-focus w-full rounded-lg py-2 text-xs font-semibold text-white" style={{ background: "#0F6E56" }}>Rendre la monnaie</button>
                     </div>
-                  </>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2.5 text-[11.5px] px-1 flex items-center gap-1.5" style={{ color: CR.mut }}><Info size={12} className="shrink-0" /> Achat d'origine introuvable sur ce téléphone — le reçu de l'avoir reste disponible.</p>
+              )}
+
+              <div className="grid gap-2 mt-2.5" style={{ gridTemplateColumns: `1fr 1fr${onDeleteAvoirs ? " auto" : ""}` }}>
+                <button onClick={() => notify(it)} className="gb-focus min-h-[46px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform" style={{ background: "#fff", color: "#128C4A", border: "1.5px solid #25D366", boxShadow: "0 3px 8px -4px rgba(37,211,102,0.5)" }} aria-label={`Prévenir ${it.clientName || "le client"} sur WhatsApp`}>
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: "#25D366" }}><MessageCircle size={13} color="#fff" strokeWidth={2.6} /></span> Prévenir
+                </button>
+                <button onClick={() => openAvoirReceipt(it)} className="gb-focus min-h-[46px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform" style={{ background: "#fff", color: CR.ink, border: `1.5px solid ${CR.line}`, boxShadow: "0 3px 8px -5px rgba(0,0,0,0.25)" }}>
+                  <Printer size={15} /> Reçu d'avoir
+                </button>
+                {onDeleteAvoirs && (
+                  <button onClick={() => setDeletingAvoirs(it.parts.filter((x) => !x.settled))} className="gb-focus min-h-[46px] w-[46px] rounded-[14px] flex items-center justify-center active:scale-[0.98] transition-transform" style={{ background: "#FCEBEB", border: "1.5px solid #F0C4BF" }} aria-label={`Supprimer l'avoir de ${it.clientName || "ce client"}`}>
+                    <Trash2 size={17} color="#B3261E" />
+                  </button>
                 )}
               </div>
-              {onDeleteAvoirs && (
-                <div className="px-3.5 pb-3.5 -mt-1.5">
-                  <button onClick={() => setDeletingAvoirs([produit, monnaie].filter((x) => !x.settled))} className="gb-focus w-full min-h-[40px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5" style={{ background: "#FCEBEB", color: "#B3261E" }}><Trash2 size={14} /> Supprimer ces avoirs</button>
-                </div>
-              )}
             </div>
           );
         })}
@@ -7944,37 +8303,26 @@ function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast,
 
       {settledItems.length > 0 && (
         <>
-          <h3 className="font-display font-bold text-base mb-2">Récemment soldés</h3>
-          <div className="flex flex-col gap-2">
-            {settledItems.slice(0, 10).map((it) => {
-              if (!it.combined) {
-                const a = it.avoir;
-                return (
-                  <button key={a.id} onClick={() => setViewingReceipt(a)} className="gb-focus w-full rounded-xl p-3 flex items-center gap-3 text-left" style={{ background: "var(--card)", boxShadow: "0 2px 8px rgba(15,27,22,0.06)" }}>
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px]" style={{ background: "#EAF3DE", color: "#27500A" }}>{initials(a.clientName)}</div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium truncate">{a.clientName}</div>
-                      <div className="text-[11px] opacity-50">{a.type === "produit" ? "Avoir produit" : "Monnaie"} · {a.settledDate ? new Date(a.settledDate).toLocaleDateString("fr-FR") : ""}</div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                      <span className="font-mono text-sm font-semibold opacity-60">{a.type === "produit" ? `${a.items.length} art.` : fmt(a.amount)}</span>
-                      <ChevronDown size={13} className="opacity-40" style={{ transform: "rotate(-90deg)" }} />
-                    </div>
-                  </button>
-                );
-              }
-              const { produit, monnaie } = it;
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-[13px] font-bold">Récemment soldés</p>
+            {settledItems.length > 5 && (
+              <button onClick={() => setShowAllSettled((v) => !v)} className="gb-focus text-[12px] font-semibold" style={{ color: "#0F6E56" }}>{showAllSettled ? "Réduire" : `Tout voir (${settledItems.length})`}</button>
+            )}
+          </div>
+          <div className="rounded-[20px] overflow-hidden" style={{ background: CR.card, border: `1px solid ${CR.line}` }}>
+            {settledList.map((it, i) => {
+              const last = settledLatestDate(it);
+              const label = it.combined ? "Produits + monnaie" : it.avoir.type === "produit" ? "Produits remis" : "Monnaie rendue";
+              const value = it.parts.reduce((s, p) => s + avoirInitialValue(p), 0);
               return (
-                <button key={it.id} onClick={() => setViewingCombinedReceipt({ produit, monnaie })} className="gb-focus w-full rounded-xl p-3 flex items-center gap-3 text-left" style={{ background: "var(--card)", boxShadow: "0 2px 8px rgba(15,27,22,0.06)" }}>
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px]" style={{ background: "#EAF3DE", color: "#27500A" }}>{initials(it.clientName)}</div>
+                <button key={it.id} onClick={() => openAvoirReceipt(it)} className="gb-focus w-full px-3.5 py-3 flex items-center gap-3 text-left" style={{ borderTop: i ? `1px solid ${CR.line}` : "none" }}>
+                  <div className="w-9 h-9 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: CR.greenBg }}><Check size={16} color={CR.green} strokeWidth={2.6} /></div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">{it.clientName}</div>
-                    <div className="text-[11px] opacity-50">Avoir produit + monnaie soldé</div>
+                    <p className="text-[14px] font-semibold truncate">{it.clientName || "Client"}</p>
+                    <p className="text-[11.5px] truncate" style={{ color: CR.mut }}>{label} le {new Date(last).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</p>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    <span className="font-mono text-sm font-semibold opacity-60">{fmt(monnaie.amount)}</span>
-                    <ChevronDown size={13} className="opacity-40" style={{ transform: "rotate(-90deg)" }} />
-                  </div>
+                  <span className="font-display font-bold text-[14px] shrink-0" style={{ color: CR.green }}>{fmt(value)}</span>
+                  <Printer size={14} color={CR.mut} className="shrink-0" />
                 </button>
               );
             })}
@@ -8005,8 +8353,9 @@ function AvoirsScreen({ shop, avoirs, onRedeemMoney, onRedeemProduct, pushToast,
         />
       )}
       {viewingReceipt && <AvoirReceiptModal avoir={viewingReceipt} shop={shop} onClose={() => setViewingReceipt(null)} pushToast={pushToast} />}
-      {deletingAvoirs && <DeleteAvoirSheet list={deletingAvoirs} onClose={() => setDeletingAvoirs(null)} onConfirm={(ids, restock) => { setDeletingAvoirs(null); setExpanded(null); onDeleteAvoirs(ids, restock); }} />}
+      {deletingAvoirs && <DeleteAvoirSheet list={deletingAvoirs} onClose={() => setDeletingAvoirs(null)} onConfirm={(ids, restock) => { setDeletingAvoirs(null); onDeleteAvoirs(ids, restock); }} />}
       {viewingCombinedReceipt && <CombinedAvoirReceiptModal produit={viewingCombinedReceipt.produit} monnaie={viewingCombinedReceipt.monnaie} shop={shop} onClose={() => setViewingCombinedReceipt(null)} pushToast={pushToast} />}
+      {saleReceipt && <SaleReceiptModal receipt={saleReceipt} shop={shop} clients={clients} avoirs={avoirs} onClose={() => setSaleReceipt(null)} pushToast={pushToast} />}
     </div>
   );
 }
@@ -8438,7 +8787,7 @@ function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeem
       {sub === "credit" ? (
         <CreditsScreen shop={shop} sales={sales} clients={clients} onSettle={onSettleCredit} pushToast={pushToast} onWriteOff={onWriteOffCredit} onDeleteSale={onDeleteCreditSale} />
       ) : (
-        <AvoirsScreen shop={shop} avoirs={avoirs} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} pushToast={pushToast} onDeleteAvoirs={onDeleteAvoirs} />
+        <AvoirsScreen shop={shop} avoirs={avoirs} sales={sales} clients={clients} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} pushToast={pushToast} onDeleteAvoirs={onDeleteAvoirs} />
       )}
       {scanOpen && <ScanReceiptModal sales={sales} avoirs={avoirs} shop={shop} clients={clients} auditLog={auditLog || []} onClose={() => setScanOpen(false)} pushToast={pushToast} onReturnSale={onReturnSale} onSettleCredit={onSettleCredit} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} />}
     </div>
@@ -9204,7 +9553,7 @@ function InvoiceSettingsCard({ shop, saveShopMeta }) {
       {field("taxId", "N° contribuable", "Ex : M012345678901X")}
       {field("rccm", "RCCM", "Ex : RC/XXX/2024/B/1234")}
       {field("invoiceAddress", "Adresse", "Quartier, ville")}
-      {field("invoicePhone", "Téléphone", "Numéro affiché sur les factures", { inputMode: "tel" })}
+      <p className="text-[11.5px] opacity-60 mb-3 flex items-center gap-1.5"><Phone size={13} /> Téléphone : {shop.invoicePhone ? <b>{shop.invoicePhone}</b> : "non renseigné"} · se règle dans « Identité » ci-dessus.</p>
       {field("invoiceEmail", "E-mail (facultatif)", "contact@…", { inputMode: "email" })}
       <div className="mb-3">
         <label className="text-xs font-semibold opacity-60 block mb-1.5">TVA appliquée (%)</label>
@@ -9212,7 +9561,7 @@ function InvoiceSettingsCard({ shop, saveShopMeta }) {
         <p className="text-[11px] opacity-45 mt-1">Vos prix de vente sont considérés TTC : la facture en déduit le montant hors taxe et la TVA.</p>
       </div>
       {field("invoiceFooter", "Mention en bas de page", "Ex : Merci pour votre confiance.")}
-      <button onClick={() => saveShopMeta({ ...shop, ...f, vatRate: f.vatRate === "" ? 0 : Number(f.vatRate) || 0 })} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold text-white" style={{ background: "var(--glass)" }}>Enregistrer la facturation</button>
+      <button onClick={() => { const { invoicePhone: _ip, ...g } = f; saveShopMeta({ ...shop, ...g, vatRate: g.vatRate === "" ? 0 : Number(g.vatRate) || 0 }); }} className="gb-focus w-full rounded-xl py-2.5 text-sm font-semibold text-white" style={{ background: "var(--glass)" }}>Enregistrer la facturation</button>
     </div>
   );
 }
@@ -9268,14 +9617,14 @@ function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
   const [customType, setCustomType] = useState(() => (f.type && !ESTABLISHMENT_TYPES.some((t) => t.id === f.type)) ? f.type : "");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const finalType = (f.type === "autre" || customType) && customType.trim() ? customType.trim() : f.type;
-  const WATCH = ["name", "adminDisplayName", "currency", "theme", "darkMode", "soundsEnabled", "salesNotificationsEnabled", "loyaltyThreshold", "cashRegisterResetHour", "language"];
+  const WATCH = ["name", "adminDisplayName", "invoicePhone", "currency", "theme", "darkMode", "soundsEnabled", "salesNotificationsEnabled", "loyaltyThreshold", "cashRegisterResetHour", "language"];
   const dirty = WATCH.some((k) => (f[k] ?? "") !== (initial[k] ?? "")) || finalType !== (shop.type || "");
   const submit = () => {
     if (f.type === "autre" && !customType.trim()) { pushToast("Précisez le type de votre établissement", "error"); return; }
     // Les réglages gérés ailleurs (facturation, sécurité, objectifs) gardent
     // leur valeur actuelle : ce formulaire ne les réécrit pas.
     const { taxId, rccm, invoiceAddress, invoicePhone, invoiceEmail, vatRate, invoiceFooter, autoLockMinutes, protectSensitive, vendorGoals, ...rest } = f; // eslint-disable-line no-unused-vars
-    saveShopMeta({ ...shop, ...rest, type: finalType });
+    saveShopMeta({ ...shop, ...rest, invoicePhone: (invoicePhone || "").trim(), type: finalType });
   };
   const copyJoinCode = async () => {
     try { await navigator.clipboard.writeText(shop.joinCode); pushToast?.("Code copié !", "ok"); } catch { /* presse-papier indisponible */ }
@@ -9331,6 +9680,15 @@ function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
         <input className="gb-focus w-full rounded-[12px] px-3 h-11 text-[14.5px] font-semibold border" style={{ borderColor: "var(--line)", background: "var(--paper)" }} placeholder="Administrateur" value={f.adminDisplayName || ""} onChange={(e) => set("adminDisplayName", e.target.value)} />
         <div className="mt-2 rounded-[12px] px-3 py-2 flex items-center gap-2 text-[11.5px]" style={{ background: "#EEF4FF", color: "#1D4E89" }}>
           <Receipt size={14} className="shrink-0" /><span>Sur les reçus, ventes et dépenses : « Servi par <b>{adminName}</b> ». Laissez vide pour garder « Administrateur ».</span>
+        </div>
+        <label className="text-[11.5px] font-bold opacity-60 block mb-1.5 mt-3">Contact de l'entreprise</label>
+        <div className="flex items-center gap-2 rounded-[12px] px-3 h-11 border" style={{ borderColor: (f.invoicePhone || "").trim() ? "#0F6E56" : "var(--line)", background: "var(--paper)" }}>
+          <Phone size={16} className="shrink-0" style={{ color: "#0F6E56" }} />
+          <input type="tel" inputMode="tel" className="gb-focus flex-1 min-w-0 bg-transparent outline-none text-[14.5px] font-semibold" placeholder="Ex : 07 07 00 00 00" value={f.invoicePhone || ""} onChange={(e) => set("invoicePhone", e.target.value.replace(/[^\d+ ().-]/g, "").slice(0, 30))} />
+          {(f.invoicePhone || "").trim() && <button onClick={() => set("invoicePhone", "")} className="gb-focus w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Effacer le contact"><X size={12} /></button>}
+        </div>
+        <div className="mt-2 rounded-[12px] px-3 py-2 flex items-start gap-2 text-[11.5px]" style={{ background: "#E8F5EE", color: "#0F5A44" }}>
+          <FileText size={14} className="shrink-0 mt-0.5" /><span>{(f.invoicePhone || "").trim() ? <>Affiché sous le nom <b>{f.name || "de l'entreprise"}</b> sur les factures, bons de commande et reçus : « Tél. {f.invoicePhone.trim()} ».</> : "Facultatif. Sans contact, rien n'est affiché sur les factures et les reçus."}</span>
         </div>
       </SettingsCard>
 
@@ -10394,14 +10752,26 @@ function MovementsLedger({ movements, categories, products = [] }) {
   );
 }
 
-function StockCountSection({ products, saveProducts, movements, saveMovements, categories, author, pushToast, pushNotification, avoirs = [] }) {
+function StockCountSection({ shopId, products, saveProducts, movements, saveMovements, categories, author, pushToast, pushNotification, avoirs = [] }) {
   const fmt = useFmt();
   const V = useVocab();
-  const [counts, setCounts] = useState({});
+  // Le comptage en cours est gardé sur le téléphone (brouillon) : il survit à
+  // la synchronisation, au changement de page et à la fermeture de l'appli.
+  const draftKey = `stockCountDraft:${shopId || "local"}`;
+  const lastKey = `stockCountLast:${shopId || "local"}`;
+  const readJSON = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v ?? d; } catch { return d; } };
+  const [counts, setCounts] = useState(() => readJSON(draftKey, {}).counts || {});
+  const [lastCount, setLastCount] = useState(() => readJSON(lastKey, null));
+  useEffect(() => {
+    try {
+      if (Object.keys(counts).length) localStorage.setItem(draftKey, JSON.stringify({ counts, at: new Date().toISOString(), by: author || "" }));
+      else localStorage.removeItem(draftKey);
+    } catch { /* stockage plein : on continue sans brouillon */ }
+  }, [counts, draftKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [cat, setCat] = useState("all");
-  const [helpOpen, setHelpOpen] = useState(true);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const setCount = (id, v) => setCounts((c) => ({ ...c, [id]: v }));
   const clearCount = (id) => setCounts((c) => { const n = { ...c }; delete n[id]; return n; });
@@ -10437,12 +10807,24 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
   const catIds = [...new Set(countable.map((p) => p.category).filter(Boolean))];
   const q = query.trim().toLowerCase();
   const rows = allRows.filter((r) => (!q || r.p.name.toLowerCase().includes(q)) && (cat === "all" || r.p.category === cat)
-    && (filter === "all" || (filter === "todo" ? r.status === "todo" : filter === "done" ? r.status !== "todo" : r.status === "short" || r.status === "over")));
+    && (filter === "all" || (filter === "todo" ? r.status === "todo" : filter === "done" ? r.status !== "todo" : filter === "gap" ? r.status === "short" || r.status === "over" : r.status === filter)));
 
   const markAllOk = () => setCounts((c) => { const n = { ...c }; rows.forEach((r) => { if (!r.hasEntry) n[r.p.id] = String(r.expected); }); return n; });
 
+  const remember = () => {
+    const sum = { at: new Date().toISOString(), by: author || "", counted: done, total: countable.length, ok: okN, shortN: shortRows.length, shortUnits: Math.abs(shortUnits), shortValue: Math.abs(shortValue), overN: overRows.length, overUnits, overValue };
+    try { localStorage.setItem(lastKey, JSON.stringify(sum)); } catch { /* ignore */ }
+    setLastCount(sum);
+  };
+  const closeAllOk = () => {
+    if (!done) return;
+    remember();
+    pushToast(`Comptage terminé — ${okN} produit${okN > 1 ? "s" : ""} conforme${okN > 1 ? "s" : ""}, aucun écart`, "ok");
+    setCounts({});
+  };
   const validate = () => {
-    if (changed.length === 0) { pushToast("Aucun écart à valider", "error"); return; }
+    if (changed.length === 0) { closeAllOk(); return; }
+    remember();
     const nextProducts = products.map((p) => {
       const row = changed.find((r) => r.p.id === p.id);
       return row ? { ...p, stock: row.newStock } : p;
@@ -10465,30 +10847,48 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
   const signed = (n) => `${n > 0 ? "+" : ""}${n}`;
 
   return (
-    <div style={{ paddingBottom: changed.length ? 260 : 64 }}>
-      {/* En-tête : progression et bilan des écarts */}
+    <div style={{ paddingBottom: done ? 260 : 64 }}>
+      {/* En-tête : progression et bilan des écarts, mis à jour à chaque saisie */}
       <div className="rounded-[22px] p-4 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, #0F3D2E 0%, #155A43 55%, #1F7A5A 100%)", boxShadow: "0 14px 30px -16px rgba(15,61,46,0.7)" }}>
         <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.07)" }} />
         <div className="flex items-start justify-between gap-3 relative">
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-[0.12em] opacity-70">Comptage du stock</p>
-            <p className="font-display font-bold text-[26px] leading-tight mt-0.5">{done} <span className="text-[16px] opacity-70">/ {countable.length} produits</span></p>
-            <p className="text-[12px] opacity-75 mt-0.5 truncate first-letter:uppercase">{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {author || "—"}</p>
+            <p className="font-display font-bold text-[26px] leading-tight mt-0.5">{done} <span className="text-[15px] opacity-75">/ {countable.length} produits comptés</span></p>
+            <p className="text-[12px] opacity-75 mt-0.5 first-letter:uppercase">{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {author || "—"}</p>
+            {done > 0 && <p className="inline-flex items-center gap-1 mt-1.5 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(123,224,176,0.18)", color: "#BFF2D8" }}><Check size={11} strokeWidth={3} /> Brouillon enregistré sur ce téléphone</p>}
           </div>
-          <div className="relative w-[62px] h-[62px] shrink-0">
-            <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90"><circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="3.5" /><circle cx="18" cy="18" r="15.5" fill="none" stroke="#7BE0B0" strokeWidth="3.5" strokeLinecap="round" strokeDasharray={`${(pct / 100) * 97.4} 97.4`} /></svg>
-            <span className="absolute inset-0 flex items-center justify-center text-[13px] font-bold">{pct}%</span>
+          <div className="relative w-[66px] h-[66px] shrink-0">
+            <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+              <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="3.5" />
+              {countable.length > 0 && <circle cx="18" cy="18" r="15.5" fill="none" stroke="#7BE0B0" strokeWidth="3.5" strokeLinecap="round" strokeDasharray={`${(okN / countable.length) * 97.4} 97.4`} style={{ transition: "stroke-dasharray .4s ease" }} />}
+              {countable.length > 0 && <circle cx="18" cy="18" r="15.5" fill="none" stroke="#FF9A8F" strokeWidth="3.5" strokeDasharray={`${(shortRows.length / countable.length) * 97.4} 97.4`} strokeDashoffset={`${-(okN / countable.length) * 97.4}`} style={{ transition: "all .4s ease" }} />}
+              {countable.length > 0 && <circle cx="18" cy="18" r="15.5" fill="none" stroke="#A9C8FF" strokeWidth="3.5" strokeDasharray={`${(overRows.length / countable.length) * 97.4} 97.4`} strokeDashoffset={`${-((okN + shortRows.length) / countable.length) * 97.4}`} style={{ transition: "all .4s ease" }} />}
+            </svg>
+            <span className="absolute inset-0 flex flex-col items-center justify-center leading-none"><span className="text-[14px] font-bold">{pct}%</span><span className="text-[8.5px] opacity-70 mt-0.5">fait</span></span>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 mt-3.5 relative">
-          {[["Conformes", okN, "", "#7BE0B0"], ["Manquants", shortUnits ? signed(shortUnits) : 0, shortValue ? fmt(shortValue) : "", "#FFB4AB"], ["Surplus", overUnits ? signed(overUnits) : 0, overValue ? `+${fmt(overValue)}` : "", "#A9C8FF"]].map(([l, v, sub, c]) => (
-            <div key={l} className="rounded-[14px] px-2.5 py-2" style={{ background: "rgba(255,255,255,0.09)" }}>
-              <p className="text-[10.5px] font-semibold opacity-75">{l}</p>
-              <p className="font-display font-bold text-[18px] leading-tight" style={{ color: c }}>{v}</p>
-              <p className="text-[10px] opacity-70 truncate min-h-[14px]">{sub}</p>
-            </div>
+        <div className="h-1.5 rounded-full mt-3 overflow-hidden flex relative" style={{ background: "rgba(255,255,255,0.14)" }}>
+          {[[okN, "#7BE0B0"], [shortRows.length, "#FF9A8F"], [overRows.length, "#A9C8FF"]].map(([n, c], i) => <span key={i} style={{ width: `${countable.length ? (n / countable.length) * 100 : 0}%`, background: c, transition: "width .4s ease" }} />)}
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-3 relative">
+          {[
+            ["ok", "Conformes", okN, `produit${okN > 1 ? "s" : ""} juste${okN > 1 ? "s" : ""}`, "#7BE0B0"],
+            ["short", "Manquants", Math.abs(shortUnits), shortRows.length ? `${shortRows.length} produit${shortRows.length > 1 ? "s" : ""} · −${fmt(Math.abs(shortValue))}` : "aucun", "#FFB4AB"],
+            ["over", "Surplus", overUnits, overRows.length ? `${overRows.length} produit${overRows.length > 1 ? "s" : ""} · +${fmt(overValue)}` : "aucun", "#A9C8FF"],
+          ].map(([id, l, v, sub, c]) => (
+            <button key={id} onClick={() => setFilter((f) => (f === id ? "all" : id))} className="gb-focus rounded-[14px] px-2.5 py-2 text-left" style={{ background: filter === id ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.09)", outline: filter === id ? `2px solid ${c}` : "none" }}>
+              <p className="text-[10.5px] font-semibold opacity-80">{l}</p>
+              <p className="font-display font-bold text-[20px] leading-tight" style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{v}{id !== "ok" && v ? <span className="text-[10.5px] font-semibold opacity-80"> u.</span> : null}</p>
+              <p className="text-[9.5px] opacity-75 leading-snug break-words">{sub}</p>
+            </button>
           ))}
         </div>
+        {done === 0 && lastCount && (
+          <p className="relative mt-3 text-[11px] leading-snug rounded-[12px] px-2.5 py-2" style={{ background: "rgba(0,0,0,0.18)" }}>
+            Dernier comptage : {new Date(lastCount.at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} à {new Date(lastCount.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{lastCount.by ? ` par ${lastCount.by}` : ""} · {lastCount.counted} comptés · <span style={{ color: "#7BE0B0" }}>{lastCount.ok} conformes</span>{lastCount.shortUnits ? <> · <span style={{ color: "#FFB4AB" }}>−{lastCount.shortUnits} manquants</span></> : null}{lastCount.overUnits ? <> · <span style={{ color: "#A9C8FF" }}>+{lastCount.overUnits} surplus</span></> : null}
+          </p>
+        )}
       </div>
 
       {/* Mode d'emploi */}
@@ -10527,7 +10927,7 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
         {query && <button onClick={() => setQuery("")} className="gb-focus w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Effacer"><X size={12} /></button>}
       </div>
       <div className="flex gap-1.5 overflow-x-auto gb-scroll pb-1 mb-1.5" style={{ scrollbarWidth: "none" }}>
-        {[["all", "Tous", allRows.length], ["todo", "À compter", allRows.length - done], ["done", "Comptés", done], ["gap", "Écarts", changed.length]].map(([id, l, n]) => (
+        {[["all", "Tous", allRows.length], ["todo", "À compter", allRows.length - done], ["done", "Comptés", done], ["gap", "Écarts", changed.length], ...(filter === "ok" || filter === "short" || filter === "over" ? [[filter, ST[filter].label + "s", filter === "ok" ? okN : filter === "short" ? shortRows.length : overRows.length]] : [])].map(([id, l, n]) => (
           <button key={id} onClick={() => setFilter(id)} className="gb-focus shrink-0 h-9 px-3 rounded-full text-[12.5px] font-bold flex items-center gap-1.5" style={filter === id ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)" }}>
             {l}<span className="min-w-[20px] h-5 px-1.5 rounded-full text-[10.5px] flex items-center justify-center" style={{ background: filter === id ? "rgba(255,255,255,0.22)" : "var(--paper-dim)" }}>{n}</span>
           </button>
@@ -10595,11 +10995,19 @@ function StockCountSection({ products, saveProducts, movements, saveMovements, c
       </div>
 
       {/* Barre de validation */}
+      {changed.length === 0 && done > 0 && (
+        <div className="fixed left-1/2 -translate-x-1/2 z-[31] w-[calc(100%-2rem)] max-w-[420px] no-print gb-slide-up" style={{ bottom: "calc(10.2rem + env(safe-area-inset-bottom))" }}>
+          <div className="rounded-[20px] p-2.5 shadow-2xl" style={{ background: "#16202A", color: "#fff" }}>
+            <p className="text-[13px] font-bold px-1.5 pb-2">{done} produit{done > 1 ? "s" : ""} compté{done > 1 ? "s" : ""} · aucun écart</p>
+            <button onClick={closeAllOk} className="gb-focus w-full h-11 rounded-[14px] text-[14px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#2FBF7F", color: "#06301F" }}><Check size={16} strokeWidth={3} /> Terminer le comptage</button>
+          </div>
+        </div>
+      )}
       {changed.length > 0 && (
         <div className="fixed left-1/2 -translate-x-1/2 z-[31] w-[calc(100%-2rem)] max-w-[420px] no-print gb-slide-up" style={{ bottom: "calc(10.2rem + env(safe-area-inset-bottom))" }}>
           <div className="rounded-[20px] p-2.5 shadow-2xl" style={{ background: "#16202A", color: "#fff" }}>
             <div className="flex items-center justify-between gap-2 px-1.5 pb-2">
-              <p className="text-[13px] font-bold">{changed.length} écart{changed.length > 1 ? "s" : ""} à appliquer</p>
+              <p className="text-[13px] font-bold">{changed.length} écart{changed.length > 1 ? "s" : ""} à appliquer <span className="font-semibold" style={{ color: "#7BE0B0" }}>· {okN} conforme{okN > 1 ? "s" : ""}</span></p>
               <p className="text-[11.5px] font-semibold truncate"><span style={{ color: "#FFB4AB" }}>{shortUnits ? `${shortUnits}` : ""}</span>{shortUnits && overUnits ? <span className="opacity-50"> · </span> : ""}<span style={{ color: "#A9C8FF" }}>{overUnits ? `+${overUnits}` : ""}</span><span className="opacity-75">{shortValue + overValue ? ` · ${fmt(shortValue + overValue)}` : ""}</span></p>
             </div>
             <button onClick={() => setConfirmOpen(true)} className="gb-focus w-full h-11 rounded-[14px] text-[14px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#2FBF7F", color: "#06301F" }}><ClipboardCheck size={16} /> Vérifier et valider le comptage</button>
@@ -12116,7 +12524,7 @@ function InventorySection({ shop, avoirs = [], expenses, vendors, cashRegisterEn
       </div>
       {tab === "apercu" && <InventoryOverview products={products} categories={categories} movements={movements} />}
       {tab === "mouvements" && <MovementsLedger movements={movements} categories={categories} products={products} />}
-      {tab === "comptage" && <StockCountSection products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} categories={categories} author={author} pushToast={pushToast} pushNotification={pushNotification} avoirs={avoirs} />}
+      {tab === "comptage" && <StockCountSection shopId={shop?.id} products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} categories={categories} author={author} pushToast={pushToast} pushNotification={pushNotification} avoirs={avoirs} />}
       {tab === "rentabilite" && <ProfitabilitySection products={products} sales={sales} saveSales={saveSales} movements={movements} saveProducts={saveProducts} inventories={inventories} saveInventories={saveInventories} categories={categories} author={author} pushToast={pushToast} />}
       {tab === "versements" && <VersementsSection shop={shop} sales={sales || []} expenses={expenses || []} vendors={vendors || []} cashRegisterEntries={cashRegisterEntries || []} versements={versements || []} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} onUpdateVersement={onUpdateVersement} onDeleteVersement={onDeleteVersement} author={author} pushToast={pushToast} />}
       {tab === "historique" && <InventoryHistorySection inventories={inventories} onNewCount={() => setTab("comptage")} pushToast={pushToast} />}
@@ -12656,7 +13064,7 @@ function renderOrderInvoice({ shop, supplier, order, items, fmt, V }) {
   rr(bx, y, boxW, boxH, 18, "#F5F4F0");
   txt("À LIVRER À", bx + 28, y + 46, font(800, 21), MUTED);
   txt(shop?.name || "", bx + 28, y + 92, font(800, 32), INK, "left", boxW - 56);
-  [shop?.invoicePhone ? `Tél. ${shop.invoicePhone}` : "", shop?.invoiceAddress].filter(Boolean).forEach((l, i) => txt(l, bx + 28, y + 132 + i * 34, font(500, 24), MUTED, "left", boxW - 56));
+  [shop?.invoicePhone ? `Tél. ${shop.invoicePhone}` : "", shop?.invoiceAddress].filter(Boolean).forEach((l, i) => txt(l, bx + 28, y + 132 + i * 34, font(i === 0 && shop?.invoicePhone ? 700 : 500, 24), i === 0 && shop?.invoicePhone ? INK : MUTED, "left", boxW - 56));
   y += boxH + 48;
   // Tableau
   const X = { n: PAD + 24, name: PAD + 80, pack: PAD + 470, qty: PAD + 720, pu: PAD + 900, tot: W - PAD - 24 };
@@ -18468,10 +18876,21 @@ function SupportChatWidget({ shop, inline, onAgent, unread = 0, onSeen, variant,
                 </div>
                 {agentOnline === false && <div className="flex gap-2.5 p-3 rounded-xl" style={{ background: "#FFF6E5", border: "1px solid #F3D9A4" }}><Clock size={17} color="#9A5B00" className="shrink-0 mt-0.5" /><span className="text-[12.5px] leading-relaxed" style={{ color: "#6B4A00" }}><b>Équipe hors ligne.</b> Laissez votre message, nous vous recontacterons très bientôt.</span></div>}
                 <p className="text-[13px] font-bold">Vos coordonnées</p>
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Votre nom" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Numéro de téléphone" inputMode="tel" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
-                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail (facultatif)" inputMode="email" className={inputCls} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
-                <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Décrivez votre question ou votre problème…" rows={3} className="gb-focus w-full rounded-xl px-3 py-2.5 text-[14.5px] border resize-none" style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Votre nom" className={`${inputCls} shrink-0`} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Numéro de téléphone" inputMode="tel" className={`${inputCls} shrink-0`} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail (facultatif)" inputMode="email" className={`${inputCls} shrink-0`} style={{ borderColor: "#DAD8D0", background: "#fff" }} />
+                <div className="shrink-0 flex flex-col gap-1.5 rounded-2xl p-2.5" style={{ background: "#fff", border: `1.5px solid ${message.trim() ? "#2F6F5E" : "#DAD8D0"}`, boxShadow: message.trim() ? "0 6px 16px -12px rgba(47,111,94,.8)" : "none" }}>
+                  <span className="flex items-center justify-between gap-2 px-0.5">
+                    <span className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "#1F2A33" }}><MessageCircle size={15} color="#2F6F5E" /> Votre message</span>
+                    <span className="text-[11px] font-semibold" style={{ color: message.length > 900 ? "#B3261E" : "#8A8F98" }}>{message.length}/1000</span>
+                  </span>
+                  <textarea value={message} onChange={(e) => { setMessage(e.target.value.slice(0, 1000)); const t = e.target; t.style.height = "auto"; t.style.height = `${Math.min(260, Math.max(130, t.scrollHeight))}px`; }}
+                    onFocus={(e) => { const t = e.target; setTimeout(() => { try { t.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { /* ignore */ } }, 300); }}
+                    placeholder="Décrivez votre question ou votre problème…&#10;Ex : je n'arrive pas à valider ma caisse depuis ce matin."
+                    className="gb-focus w-full rounded-xl px-3 py-2.5 text-[15px] leading-relaxed resize-none outline-none"
+                    style={{ minHeight: 130, height: 130, background: "#F7F6F2", border: "1px solid #E3E1DA", color: "#1F2A33" }} />
+                  <span className="text-[11px] px-0.5" style={{ color: "#8A8F98" }}>Plus votre message est précis, plus la réponse sera rapide.</span>
+                </div>
               </div>
               <div className="shrink-0 px-3 py-2.5" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
                 {contactErr && <p className="text-[12.5px] font-semibold rounded-xl px-3 py-2" style={{ background: "#FDECEC", color: "#A32D2D" }}>{contactErr}</p>}
@@ -19727,6 +20146,10 @@ function AppInner() {
   const [suppliers, setSuppliers] = useState(null);
   const [expenses, setExpenses] = useState(null);
   const [orders, setOrders] = useState(null);
+  // Livraison fournisseur fraîchement réceptionnée → camion animé sur Vendre.
+  const [delivery, setDelivery] = useState(null);
+  // Vente en attente dont on affiche / imprime le ticket « paiement en attente ».
+  const [heldPrintId, setHeldPrintId] = useState(null);
   const [supplierProducts, setSupplierProducts] = useState(null);
   const [avoirs, setAvoirs] = useState([]);
   const [cashRegisterEntries, setCashRegisterEntries] = useState([]);
@@ -19995,6 +20418,29 @@ function AppInner() {
   }, [license?.expiresAt, license?.lifetime, role]);
   const shop = shops && activeShopId ? shops.find((s) => s.id === activeShopId) : null;
   shopTypeRef.current = shop?.type || null;
+  // Camion de livraison : dès qu'une commande fournisseur passe « reçue »
+  // (sur ce téléphone ou un autre, après synchronisation), le camion passe
+  // sur la barre du menu du bas, quelle que soit la page, une seule fois. Le repère « déjà vu » est propre à
+  // chaque téléphone ; au premier lancement il est posé sans animation pour
+  // ne pas rejouer les anciennes livraisons.
+  useEffect(() => {
+    if (!activeShopId || !Array.isArray(orders) || delivery) return;
+    const key = `deliverySeen:${activeShopId}`;
+    const received = orders.filter((o) => o && o.status === "received" && o.receivedDate);
+    const latest = received.reduce((m, o) => (o.receivedDate > m ? o.receivedDate : m), "");
+    let seen = null;
+    try { seen = localStorage.getItem(key); } catch { /* ignore */ }
+    if (!seen) { try { localStorage.setItem(key, latest || new Date().toISOString()); } catch { /* ignore */ } return; }
+    if (!role || locked || cashRegisterModalOpen || !latest || latest <= seen) return;
+    const fresh = received.filter((o) => o.receivedDate > seen && Date.now() - Date.parse(o.receivedDate) < 24 * 3600 * 1000);
+    try { localStorage.setItem(key, latest); } catch { /* ignore */ }
+    if (!fresh.length) return;
+    const voc = VOCAB[shopProfile(shop)] || VOCAB.boissons;
+    const names = [...new Set(fresh.map((o) => (suppliers || []).find((x) => x.id === o.supplierId)?.name).filter(Boolean))];
+    const crates = fresh.reduce((t, o) => t + (o.items || []).reduce((u, i) => u + (Number(i.crates) || 0), 0), 0);
+    const units = fresh.reduce((t, o) => t + (o.items || []).reduce((u, i) => u + (Number(i.crates) || 0) * (Number(i.crateSize) || 0), 0), 0);
+    setDelivery({ key: latest, supplierName: names.length > 1 ? `${names.length} fournisseurs` : names[0] || "Fournisseur", crates, units, unitWord: voc.packs });
+  }, [orders, role, activeShopId, delivery, locked, cashRegisterModalOpen]);
   // Présence pour la messagerie du propriétaire : un administrateur qui a
   // déjà écrit au support apparaît « En ligne » tant que l'application est
   // ouverte sur sa boutique (signal toutes les 45 s, uniquement au premier plan).
@@ -22556,7 +23002,7 @@ function AppInner() {
                       <>
                         {(heldSales.length > 0 || historyTab === "held") && <HistoryTabs tab={historyTab} setTab={setHistoryTab} heldCount={heldSales.length} />}
                         {historyTab === "held"
-                          ? <HeldSalesWithFmt heldSales={heldSales} products={products} resumedId={resumedHeldId} onResume={(id) => resumeHeldSale(id)} onPay={(id) => resumeHeldSale(id, { pay: true })} onDelete={deleteHeldSale} />
+                          ? <HeldSalesWithFmt heldSales={heldSales} products={products} resumedId={resumedHeldId} onResume={(id) => resumeHeldSale(id)} onPay={(id) => resumeHeldSale(id, { pay: true })} onDelete={deleteHeldSale} onPrint={(id) => setHeldPrintId(id)} />
                           : <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method, date) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method, date))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
                       </>
                     )}
@@ -22594,6 +23040,8 @@ function AppInner() {
                   />
                 )}
                 {adminGuard && <AdminCodeModal label={adminGuard.label} onSubmit={handleAdminGuard} onCancel={() => { setAdminGuard(null); pushToast("Action annulée", "error"); }} />}
+                {heldPrintId && (heldSales || []).some((h) => h.id === heldPrintId) && <HeldReceiptModal held={heldSales.find((h) => h.id === heldPrintId)} products={products} shop={shop} printedBy={actorName()} onClose={() => setHeldPrintId(null)} pushToast={pushToast} />}
+                {delivery && role && !locked && licenseStatus !== "expired" && <DeliveryTruck key={delivery.key} delivery={delivery} onDone={() => setDelivery(null)} />}
                 {licenseStatus !== "expired" && <ScrollTopBubble key={view} bottom={role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" ? 168 : view === "sell" ? 156 : 92} />}
                 {licenseStatus !== "expired" && (
                 <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 pt-2 z-30 no-print" style={{ background: "linear-gradient(to top, var(--paper) 60%, transparent)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
@@ -22601,7 +23049,7 @@ function AppInner() {
                     {nuit && TABS_NUIT.map((t) => {
                       const on = t.id === "more" ? NUIT_MORE_VIEWS.has(view) : view === t.id;
                       return (
-                        <button key={t.id} onClick={() => { setAdminMenuOpen(false); setView(t.id); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2" aria-current={on ? "page" : undefined}>
+                        <button key={t.id} data-nav={t.id} onClick={() => { setAdminMenuOpen(false); setView(t.id); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2" aria-current={on ? "page" : undefined}>
                           <span className="relative flex flex-col items-center gap-1 px-2.5 py-1 rounded-[12px]" style={{ background: on ? "var(--cap-soft)" : "transparent" }}>
                             <t.Icon size={19} color={on ? "var(--cap)" : "#9FB0C8"} />
                             {t.id === "history" && heldSales.length > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "#E8771E" }}>{heldSales.length}</span>}
@@ -22613,7 +23061,7 @@ function AppInner() {
                       );
                     })}
                     {!nuit && TABS[role].map((t0) => (shopProfile(shop) === "boutique" && t0.id === "sell" ? { ...t0, label: "Boutique", Icon: ShoppingBag } : t0)).map((t) => (
-                      <button key={t.id} onClick={() => { setView(t.id); if (t.id === "admin") setAdminMenuOpen(true); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2.5" style={{ background: view === t.id ? "var(--glass-light)" : "transparent" }}>
+                      <button key={t.id} data-nav={t.id} onClick={() => { setView(t.id); if (t.id === "admin") setAdminMenuOpen(true); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2.5" style={{ background: view === t.id ? "var(--glass-light)" : "transparent" }}>
                         <div className="relative">
                           <t.Icon size={17} color={view === t.id ? "var(--cap)" : "#ffffff90"} />
                           {t.id === "history" && heldSales.length > 0 && (

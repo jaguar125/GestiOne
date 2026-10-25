@@ -152,6 +152,10 @@ function establishmentLabel(type) {
   if (!type || type === "autre") return "";
   return ESTABLISHMENT_LABELS[type] || type;
 }
+// Contact de l'entreprise (Établissement › Identité). Vide : aucune ligne.
+function shopContact(shop) {
+  return String(shop?.invoicePhone || shop?.phone || "").trim();
+}
 function shopHeaderLine(shop) {
   const label = establishmentLabel(shop.type);
   return label ? `${label} ${shop.name}` : shop.name;
@@ -187,6 +191,7 @@ export function buildReceiptEscPos(receipt, shop, fmt) {
   push(ESC, 0x45, 0x01); // gras ON
   line(shopHeaderLine(shop));
   push(ESC, 0x45, 0x00); // gras OFF
+  if (shopContact(shop)) line(`Tel : ${shopContact(shop)}`);
   line(receipt.isProductAvoir ? (receipt.avoirMonnaie ? "AVOIR PRODUIT + MONNAIE" : "AVOIR PRODUIT") : "REÇU DE VENTE");
   line("");
   push(ESC, 0x61, 0x00); // aligné à gauche
@@ -305,6 +310,7 @@ export function buildCreditReceiptEscPos(receipt, shop, fmt) {
   push(ESC, 0x45, 0x01);
   line(shopHeaderLine(shop));
   push(ESC, 0x45, 0x00);
+  if (shopContact(shop)) line(`Tel : ${shopContact(shop)}`);
   line("CREDIT ENCAISSE");
   line("");
   push(ESC, 0x61, 0x00);
@@ -360,6 +366,7 @@ export function buildAvoirReceiptEscPos(avoir, shop, fmt) {
   push(ESC, 0x45, 0x01);
   line(shopHeaderLine(shop));
   push(ESC, 0x45, 0x00);
+  if (shopContact(shop)) line(`Tel : ${shopContact(shop)}`);
   line(avoir.settled ? (isProduit ? "AVOIR PRODUIT SOLDE" : "AVOIR MONNAIE SOLDE") : (isProduit ? "REMISE PARTIELLE - PRODUIT" : "REMISE PARTIELLE - MONNAIE"));
   line("");
   push(ESC, 0x61, 0x00);
@@ -421,6 +428,7 @@ export function buildCombinedAvoirReceiptEscPos(produit, monnaie, shop, fmt) {
   push(ESC, 0x45, 0x01);
   line(shopHeaderLine(shop));
   push(ESC, 0x45, 0x00);
+  if (shopContact(shop)) line(`Tel : ${shopContact(shop)}`);
   line("AVOIR SOLDE - PRODUIT + MONNAIE");
   line("");
   push(ESC, 0x61, 0x00);
@@ -610,6 +618,7 @@ export function buildOrderEscPos(order, supplier, shop, fmt, vocab = {}) {
   push(ESC, 0x45, 0x01);
   line(shopHeaderLine(shop));
   push(ESC, 0x45, 0x00);
+  if (shopContact(shop)) line(`Tel : ${shopContact(shop)}`);
   if (shop.invoicePhone) line(`Tel. ${shop.invoicePhone}`);
   line("");
   push(ESC, 0x45, 0x01);
@@ -644,4 +653,66 @@ export function buildOrderEscPos(order, supplier, shop, fmt, vocab = {}) {
 export async function printOrder(order, supplier, shop, fmt, vocab) {
   const data = buildOrderEscPos(order, supplier, shop, fmt, vocab);
   await sendToRawBt(data, `commande-${String(order.id || "").slice(0, 6)}.prn`);
+}
+
+// Ticket « PAIEMENT EN ATTENTE » : articles d'une vente mise en attente
+// (pas encore encaissée). Ce n'est pas une facture acquittée : la mention
+// est imprimée en gros en haut et rappelée en bas du ticket.
+// held = { id, label, clientName, date, author } ; lines = [{ name, qty, unit, total }]
+export function buildHeldReceiptEscPos(held, lines, total, shop, fmt, printedBy) {
+  const bytes = [];
+  const push = (...arr) => bytes.push(...arr);
+  const line = (text = "") => push(...encodeLine(text));
+  const dt = (iso) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  push(ESC, 0x40);
+  push(ESC, 0x61, 0x01);
+  push(ESC, 0x45, 0x01);
+  line(shopHeaderLine(shop));
+  push(ESC, 0x45, 0x00);
+  if (shopContact(shop)) line(`Tel : ${shopContact(shop)}`);
+  line("");
+  push(GS, 0x21, 0x01); // double hauteur
+  push(ESC, 0x45, 0x01);
+  line("PAIEMENT EN ATTENTE");
+  push(ESC, 0x45, 0x00);
+  push(GS, 0x21, 0x00);
+  line("Ticket provisoire - non encaisse");
+  line("");
+  push(ESC, 0x61, 0x00);
+  line(`Ref. ATT-${receiptNumber(held.id)}`);
+  line(twoCol("Vente", String(held.label || "En attente").slice(0, 22)));
+  if (held.clientName) line(twoCol("Client", String(held.clientName).slice(0, 22)));
+  line(twoCol("Ouverte le", dt(held.date)));
+  if (held.author) line(twoCol("Servi par", String(held.author).slice(0, 20)));
+  line(twoCol("Imprime le", dt(new Date().toISOString())));
+  if (printedBy) line(twoCol("Imprime par", String(printedBy).slice(0, 20)));
+  line("--------------------------------");
+  lines.forEach((l) => {
+    line(String(l.name).slice(0, 32));
+    line(twoCol(`  ${l.qty} x ${fmt(l.unit)}`, fmt(l.total)));
+  });
+  line("--------------------------------");
+  const n = lines.reduce((t, l) => t + (Number(l.qty) || 0), 0);
+  line(twoCol("Articles", String(n)));
+  push(ESC, 0x45, 0x01);
+  line(twoCol("RESTE A PAYER", fmt(total)));
+  push(ESC, 0x45, 0x00);
+  line("--------------------------------");
+  push(ESC, 0x61, 0x01);
+  line("*** PAIEMENT EN ATTENTE ***");
+  line("Ce ticket n'est pas un recu");
+  line("de paiement. Montant a regler");
+  line("a la caisse.");
+  line("");
+  line("Merci pour votre confiance.");
+  line("");
+  line("");
+  push(GS, 0x56, 0x42, 0x00);
+  return new Uint8Array(bytes);
+}
+
+export async function printHeldReceipt(held, lines, total, shop, fmt, printedBy) {
+  const data = buildHeldReceiptEscPos(held, lines, total, shop, fmt, printedBy);
+  await sendToRawBt(data, `attente-${String(held.id).slice(0, 6)}.prn`);
 }

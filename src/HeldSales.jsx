@@ -10,11 +10,11 @@
 //   HoldSaleSheet     fenêtre « Mettre en attente » (nom + client)
 //   HeldSalesBanner   bandeau « N ventes en attente » sur l'écran Vendre
 //   HistoryTabs       onglets « Ventes | En attente » de l'Historique
-//   HeldSalesList     liste des ventes en attente (Reprendre / Encaisser / Supprimer)
+//   HeldSalesList     liste des ventes en attente (Imprimer / Reprendre / Encaisser / Supprimer)
 //   heldAgo, heldSummary, heldStockProblems   petites aides
 
 import { useEffect, useState } from "react";
-import { PauseCircle, Clock, Trash2, ChevronRight, Info, Check, X } from "lucide-react";
+import { PauseCircle, Clock, Trash2, ChevronRight, Info, Check, X, Printer } from "lucide-react";
 
 const ORANGE = "#E8771E";
 const ORANGE_DARK = "#8A4B05";
@@ -161,7 +161,7 @@ export function HistoryTabs({ tab, setTab, heldCount }) {
 
 /* ---------- Liste des ventes en attente ---------- */
 
-export function HeldSalesList({ heldSales, products, fmt, resumedId, onResume, onPay, onDelete }) {
+export function HeldSalesList({ heldSales, products, fmt, resumedId, onResume, onPay, onDelete, onPrint }) {
   const [confirmId, setConfirmId] = useState(null);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
@@ -206,6 +206,7 @@ export function HeldSalesList({ heldSales, products, fmt, resumedId, onResume, o
               ) : (
                 <div className="mt-3 flex gap-2">
                   <button onClick={() => setConfirmId(h.id)} className="gb-focus w-[46px] min-h-[46px] rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "#FDE7E7", color: "#A3201E" }} aria-label={`Supprimer la vente en attente ${h.label}`}><Trash2 size={18} /></button>
+                  {onPrint && <button onClick={() => onPrint(h.id)} className="gb-focus w-[46px] min-h-[46px] rounded-[14px] flex items-center justify-center shrink-0 active:scale-[0.96] transition-transform" style={{ background: "#FFF1E0", color: "#8A4B05", border: `1.5px solid ${ORANGE_LINE}` }} aria-label={`Imprimer le ticket de la vente en attente ${h.label}`} title="Imprimer le ticket (paiement en attente)"><Printer size={18} /></button>}
                   <button onClick={() => onResume(h.id)} className="gb-focus flex-1 min-h-[46px] rounded-[14px] text-[14px] font-bold" style={{ border: "1.5px solid var(--line)", background: "var(--card)", color: "var(--ink)" }}>Reprendre</button>
                   <button onClick={() => onPay(h.id)} className="gb-focus flex-[1.3] min-h-[46px] rounded-[14px] text-[14px] font-bold text-white" style={{ background: GREEN }}>Encaisser</button>
                 </div>
