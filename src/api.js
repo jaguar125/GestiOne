@@ -298,6 +298,15 @@ export async function vendorAccess(action, payload = {}, shopId) {
   return callFunction("vendor-access", { ...shopAuthFields(shopId), action, ...payload });
 }
 
+// Suppression définitive d'une entreprise (serveur) : le code administrateur
+// est vérifié par le serveur à chaque appel.
+export async function checkShopDeletePin(shopId, pin) {
+  return callFunction("vendor-access", { ...shopAuthFields(shopId), action: "check_admin_pin", admin_pin: pin });
+}
+export async function deleteShopEverywhere(shopId, pin) {
+  return callFunction("vendor-access", { ...shopAuthFields(shopId), action: "delete_shop", admin_pin: pin, confirm: "SUPPRIMER" });
+}
+
 export async function getShopInfo(shopId) {
   return callFunction("get-shop-info", { ...shopAuthFields(shopId) });
 }

@@ -3,4 +3,4 @@
 // publiée (web et APK). Le serveur connaît la version de chaque téléphone et
 // peut demander une mise à jour (voir UpdateGate dans App.jsx et la table
 // app_config côté Supabase : { min, latest, message, apk_url }).
-export const APP_VERSION = 28;
+export const APP_VERSION = 29;

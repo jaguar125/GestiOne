@@ -422,6 +422,23 @@ function pickShopMeta(shop) {
   SHOP_META_SYNC_FIELDS.forEach((k) => { if (shop && shop[k] !== undefined) out[k] = shop[k]; });
   return out;
 }
+// Dernière version de shopMeta lue sur le serveur, gardée par entreprise.
+// Le serveur REMPLACE shopMeta en entier à chaque envoi : un téléphone
+// réinstallé à qui il manque un champ (actionnaires, charges fixes,
+// clôtures mensuelles…) l'effaçait pour tout le monde. Avant chaque envoi,
+// les champs absents sur ce téléphone sont complétés avec cette copie.
+function rememberServerMeta(shopId, meta) {
+  if (!shopId || !meta || typeof meta !== "object") return;
+  try { localStorage.setItem(`serverMeta:${shopId}`, JSON.stringify(pickShopMeta(meta))); } catch { /* ignore */ }
+}
+function completeShopMeta(shopId, payload) {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(`serverMeta:${shopId}`) || "null"); } catch { saved = null; }
+  if (!saved || typeof saved !== "object") return payload;
+  const out = { ...payload };
+  SHOP_META_SYNC_FIELDS.forEach((k) => { if (out[k] === undefined && saved[k] !== undefined) out[k] = saved[k]; });
+  return out;
+}
 
 const ESTABLISHMENT_TYPES = [
   { id: "maquis", label: "Maquis" },
@@ -2095,9 +2112,11 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
         adminDisplayName: meta.adminDisplayName,
         theme: meta.theme, darkMode: meta.darkMode, soundsEnabled: meta.soundsEnabled, voiceNotificationsEnabled: meta.voiceNotificationsEnabled,
         loyaltyThreshold: meta.loyaltyThreshold, language: meta.language, cashRegisterResetHour: meta.cashRegisterResetHour,
+        ...pickShopMeta(meta),
         joinCode: code,
         backendLinked: true,
       };
+      rememberServerMeta(backend.shop_id, meta);
       onJoinShop(shopObj, pulled, undefined, undefined, backend.shop_license);
     } catch (e) {
       pushToast(api.networkErrorText(e, "rejoindre une entreprise") || e.message || "Code introuvable", "error");
@@ -2138,9 +2157,11 @@ function OnboardingScreen({ shops, onComplete, onJoinShop, pushToast, initialMod
         adminDisplayName: meta.adminDisplayName,
         theme: meta.theme, darkMode: meta.darkMode, soundsEnabled: meta.soundsEnabled, voiceNotificationsEnabled: meta.voiceNotificationsEnabled,
         loyaltyThreshold: meta.loyaltyThreshold, language: meta.language, cashRegisterResetHour: meta.cashRegisterResetHour,
+        ...pickShopMeta(meta),
         joinCode: backend.join_code,
         backendLinked: true,
       };
+      rememberServerMeta(backend.shop_id, meta);
       onJoinShop(shopObj, pulled, backend.role, backend.vendorName || "Administrateur", backend.shop_license);
     } catch (e) {
       const msg = api.networkErrorText(e, "vous reconnecter") || e.message || "Reconnexion impossible";
@@ -9815,44 +9836,294 @@ function EstablishmentSection({ shop, saveShopMeta, pushToast }) {
   );
 }
 
+// ---------- Suppression définitive d'une entreprise ----------
+// 1) code administrateur (vérifié par le serveur) → 2) résumé de ce qui sera
+// effacé + confirmation → 3) suppression animée étape par étape → 4) terminé.
+const DEL_LABELS = [
+  ["sales", "Ventes", Receipt], ["products", "Produits", Boxes], ["clients", "Clients", Users], ["expenses", "Dépenses", Wallet],
+  ["avoirs", "Avoirs", PackageX], ["orders", "Commandes", ClipboardList], ["suppliers", "Fournisseurs", Truck], ["vendors", "Vendeurs", UserCheck],
+  ["devices", "Téléphones liés", Smartphone], ["backups", "Sauvegardes", Cloud],
+];
+const DEL_CSS = `
+@keyframes delShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-9px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(4px)}}
+@keyframes delPop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
+@keyframes delDraw{to{stroke-dashoffset:0}}
+@keyframes delSpin{to{transform:rotate(360deg)}}
+@keyframes delRing{0%{transform:scale(.8);opacity:.6}100%{transform:scale(1.7);opacity:0}}
+`;
+function DeleteShopSheet({ shop, isLast, onClose, onDeleted }) {
+  const linked = !!shop.backendLinked && api.isShopLinked(shop.id);
+  const [step, setStep] = useState("pin"); // pin | confirm | progress | done
+  const [pin, setPin] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState("");
+  const [shake, setShake] = useState(0);
+  const [summary, setSummary] = useState(null);
+  const [agree, setAgree] = useState(false);
+  const [prog, setProg] = useState(0); // nombre d'étapes terminées
+  const [failed, setFailed] = useState("");
+  const pinRef = useRef("");
+  const busy = step === "progress";
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape" && !busy && step !== "done") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onClose, step]);
+
+  const fail = (msg) => { setErr(msg); setShake((n) => n + 1); setPin(""); };
+  const verify = async (code) => {
+    setChecking(true); setErr("");
+    try {
+      if (linked) {
+        const r = await api.checkShopDeletePin(shop.id, code);
+        setSummary(r.summary || null);
+      } else {
+        const ok = (shop.adminPinHash && api.verifyPin(code, shop.adminPinHash)) || (shop.adminPin && String(shop.adminPin) === code);
+        if (!ok) { fail("Code administrateur incorrect"); return; }
+        setSummary(null);
+      }
+      pinRef.current = code;
+      setStep("confirm");
+    } catch (e) {
+      const d = e?.data || {};
+      if (d.locked || e?.status === 429) fail(d.error || "Trop d'essais. Réessayez plus tard.");
+      else if (e?.status === 403) fail(`Code administrateur incorrect${Number.isFinite(d.attempts_left) ? ` · ${d.attempts_left} essai${d.attempts_left > 1 ? "s" : ""} restant${d.attempts_left > 1 ? "s" : ""}` : ""}`);
+      else fail(/OFFLINE/.test(String(e?.message)) ? "Pas de connexion internet. Elle est nécessaire pour supprimer une entreprise synchronisée." : "Vérification impossible pour le moment. Réessayez.");
+    } finally { setChecking(false); }
+  };
+  const press = (d) => {
+    if (checking) return;
+    setErr("");
+    if (d === "back") { setPin((p) => p.slice(0, -1)); return; }
+    setPin((p) => {
+      if (p.length >= 4) return p;
+      const n = p + d;
+      if (n.length === 4) setTimeout(() => verify(n), 120);
+      return n;
+    });
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const run = async () => {
+    setStep("progress"); setProg(1); setFailed("");
+    try {
+      await wait(500);
+      if (linked) {
+        const r = await api.deleteShopEverywhere(shop.id, pinRef.current);
+        if (r?.deleted) setSummary(r.deleted);
+      } else await wait(400);
+      setProg(2); await wait(420);
+      setProg(3); await wait(420);
+      setProg(4); await wait(380);
+      setProg(5); await wait(450);
+      setStep("done");
+    } catch (e) {
+      setFailed(e?.data?.error || (/OFFLINE/.test(String(e?.message)) ? "Pas de connexion internet." : "La suppression n'a pas pu se terminer."));
+    }
+  };
+
+  // Le nettoyage de ce téléphone est fait en quittant l'écran « terminé »
+  // (si l'entreprise supprimée est celle en cours, l'application change
+  // d'entreprise et cette fenêtre disparaît).
+  const finished = useRef(false);
+  const finish = () => { if (finished.current) return; finished.current = true; onDeleted(shop.id); onClose(); };
+  useEffect(() => {
+    if (step !== "done") return undefined;
+    const t = setTimeout(finish, 6000);
+    return () => clearTimeout(t);
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  const total = summary ? DEL_LABELS.reduce((t, [k]) => t + (Number(summary[k]) || 0), 0) : 0;
+  const STEPS = [
+    "Code administrateur vérifié",
+    linked ? "Suppression des données sur le serveur" : "Entreprise non synchronisée : rien sur le serveur",
+    linked ? "Suppression des sauvegardes automatiques" : "Aucune sauvegarde en ligne",
+    linked ? "Déconnexion des téléphones et des vendeurs" : "Aucun téléphone lié",
+    "Nettoyage de ce téléphone",
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center no-print" role="dialog" aria-modal="true" aria-label={`Supprimer ${shop.name}`}>
+      <style>{DEL_CSS}</style>
+      <div className="absolute inset-0" style={{ background: "rgba(10,16,24,0.6)", backdropFilter: "blur(2px)" }} onClick={() => (step === "done" ? finish() : !busy && onClose())} />
+      <div className="relative w-full max-w-[460px] rounded-t-[28px] sm:rounded-[28px] gb-slide-up overflow-hidden flex flex-col" style={{ background: "var(--paper)", maxHeight: "94vh" }}>
+        <div className="h-1.5 shrink-0" style={{ background: step === "done" ? "linear-gradient(90deg,#1E9E6A,#7BE0B0)" : "linear-gradient(90deg,#B3261E,#E8603C,#F2A33A)" }} />
+        <div className="px-5 pt-3 flex flex-col overflow-y-auto gb-scroll" style={{ paddingBottom: "max(24px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+          <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+
+          {/* Fil d'étapes */}
+          {step !== "done" && (
+            <div className="flex items-center gap-1.5 mb-4" aria-hidden="true">
+              {["Code", "Confirmation", "Suppression"].map((l, i) => {
+                const cur = step === "pin" ? 0 : step === "confirm" ? 1 : 2;
+                return (
+                  <div key={l} className="flex-1">
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--paper-dim)" }}><div className="h-full rounded-full" style={{ width: i <= cur ? "100%" : "0%", background: "#B3261E", transition: "width .45s ease" }} /></div>
+                    <p className="text-[10.5px] font-bold mt-1" style={{ color: i <= cur ? "#B3261E" : "var(--ink)", opacity: i <= cur ? 1 : 0.4 }}>{i + 1}. {l}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {step === "pin" && (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA", color: "#B3261E" }}><LockKeyhole size={22} /></span>
+                <div className="min-w-0">
+                  <p className="font-display font-bold text-[18px] leading-tight">Code administrateur</p>
+                  <p className="text-[12.5px] opacity-65 break-words">Pour supprimer « {shop.name} »</p>
+                </div>
+                <button onClick={onClose} className="gb-focus ml-auto w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+              </div>
+              <div key={shake} className="flex justify-center gap-3.5 mt-6" style={{ animation: shake ? "delShake .45s ease" : "none" }}>
+                {[0, 1, 2, 3].map((i) => (
+                  <span key={i} className="w-[18px] h-[18px] rounded-full" style={{ background: i < pin.length ? (err ? "#B3261E" : "#16202A") : "transparent", border: `2px solid ${err ? "#B3261E" : i < pin.length ? "#16202A" : "#C9CED6"}`, transition: "all .15s", transform: i < pin.length ? "scale(1.08)" : "scale(1)" }} />
+                ))}
+              </div>
+              <p className="text-center text-[12.5px] mt-3 min-h-[36px] font-semibold px-2" style={{ color: err ? "#B3261E" : "var(--ink)", opacity: err ? 1 : 0.55 }} role="alert">
+                {checking ? "Vérification…" : err || (linked ? "Le code est vérifié par le serveur" : "Saisissez les 4 chiffres du code")}
+              </p>
+              <div className="grid grid-cols-3 gap-2.5 mt-1 max-w-[320px] w-full mx-auto">
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"].map((d, i) => d === "" ? <span key={i} /> : (
+                  <button key={i} onClick={() => press(d)} disabled={checking} className="gb-focus h-[58px] rounded-[18px] text-[22px] font-bold flex items-center justify-center active:scale-[0.94] transition-transform disabled:opacity-50" style={{ background: d === "back" ? "transparent" : "var(--card)", border: d === "back" ? "none" : "1px solid var(--line)", boxShadow: d === "back" ? "none" : "0 2px 6px -4px rgba(0,0,0,0.3)" }} aria-label={d === "back" ? "Effacer" : d}>
+                    {d === "back" ? <ArrowLeft size={22} /> : d}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {step === "confirm" && (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="relative w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "#B3261E", color: "#fff" }}>
+                  <span className="absolute inset-0 rounded-[15px]" style={{ background: "#B3261E", animation: "delRing 1.6s ease-out infinite" }} />
+                  <AlertTriangle size={22} className="relative" />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-display font-bold text-[18px] leading-tight break-words">Supprimer « {shop.name} » ?</p>
+                  <p className="text-[12.5px] font-semibold" style={{ color: "#B3261E" }}>Action définitive et irréversible</p>
+                </div>
+              </div>
+              <div className="mt-3.5 rounded-[16px] p-3" style={{ background: "#FFF4F2", border: "1px solid #F2C9C5" }}>
+                <p className="text-[12.5px] font-bold mb-2" style={{ color: "#8C1D18" }}>{linked ? "Sera effacé définitivement du serveur :" : "Sera effacé de ce téléphone :"}</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {DEL_LABELS.filter(([k]) => linked || !["devices", "backups"].includes(k)).map(([k, l, Ic], i) => (
+                    <div key={k} className="flex items-center gap-2 rounded-[11px] px-2.5 py-2 bg-white" style={{ animation: `gbcUp .35s ease ${i * 35}ms both` }}>
+                      <Ic size={14} color="#B3261E" className="shrink-0" />
+                      <span className="text-[12px] flex-1 min-w-0 truncate">{l}</span>
+                      {summary && <b className="text-[12.5px] shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>{Number(summary[k]) || 0}</b>}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11.5px] mt-2 leading-snug" style={{ color: "#7A3A34" }}>
+                  {linked ? <>Ainsi que la caisse, les inventaires, le journal d'activité, les invitations et l'historique de sécurité. Les vendeurs et les autres téléphones seront déconnectés de cette entreprise.</> : "Cette entreprise n'est pas synchronisée : ses données n'existent que sur ce téléphone."}
+                </p>
+              </div>
+              {isLast && (
+                <div className="mt-2.5 rounded-[14px] px-3 py-2.5 text-[12px] leading-snug flex gap-2" style={{ background: "#FFF6E5", color: "#7A4A00", border: "1px solid #F3D9A4" }}>
+                  <Info size={15} className="shrink-0 mt-0.5" /> C'est votre seule entreprise : l'application reviendra à l'écran d'accueil pour en créer ou en rejoindre une.
+                </div>
+              )}
+              <button onClick={() => setAgree((v) => !v)} className="gb-focus mt-3 w-full rounded-[14px] px-3 py-3 flex items-center gap-2.5 text-left" style={{ background: "var(--card)", border: `1.5px solid ${agree ? "#B3261E" : "var(--line)"}` }} aria-pressed={agree}>
+                <span className="w-6 h-6 rounded-[8px] flex items-center justify-center shrink-0" style={{ background: agree ? "#B3261E" : "transparent", border: `2px solid ${agree ? "#B3261E" : "#C9CED6"}`, transition: "all .15s" }}>{agree && <Check size={15} color="#fff" strokeWidth={3} />}</span>
+                <span className="text-[13px] font-semibold leading-snug">Je comprends que {linked && total > 0 ? `ces ${total} éléments` : "ces données"} seront supprimés pour toujours.</span>
+              </button>
+              <div className="grid grid-cols-[1fr_1.5fr] gap-2 mt-3">
+                <button onClick={onClose} className="gb-focus h-[52px] rounded-[16px] text-[14.5px] font-bold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+                <button onClick={run} disabled={!agree} className="gb-focus h-[52px] rounded-[16px] text-[14.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg,#D23A2E,#A11F17)", boxShadow: agree ? "0 10px 20px -10px rgba(179,38,30,0.8)" : "none" }}><Trash2 size={17} /> Supprimer définitivement</button>
+              </div>
+            </>
+          )}
+
+          {step === "progress" && (
+            <>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA" }}>
+                  {failed ? <AlertTriangle size={22} color="#B3261E" /> : <span className="w-6 h-6 rounded-full" style={{ border: "3px solid #F2C9C5", borderTopColor: "#B3261E", animation: "delSpin .8s linear infinite" }} />}
+                </span>
+                <div className="min-w-0">
+                  <p className="font-display font-bold text-[18px] leading-tight">{failed ? "Suppression interrompue" : "Suppression en cours…"}</p>
+                  <p className="text-[12.5px] opacity-65">{failed ? failed : "Ne fermez pas l'application"}</p>
+                </div>
+              </div>
+              <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                {STEPS.map((l, i) => {
+                  const done = prog > i; const active = prog === i && !failed; const ko = failed && prog === i;
+                  return (
+                    <div key={l} className="flex items-center gap-3 px-3.5 py-3" style={{ borderTop: i ? "1px solid var(--line)" : "none", opacity: done || active || ko ? 1 : 0.4, transition: "opacity .3s" }}>
+                      <span className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: done ? "#1E9E6A" : ko ? "#B3261E" : "var(--paper-dim)", transition: "background .3s" }}>
+                        {done ? <Check size={15} color="#fff" strokeWidth={3} style={{ animation: "delPop .35s ease both" }} /> : ko ? <X size={15} color="#fff" strokeWidth={3} /> : active ? <span className="w-3.5 h-3.5 rounded-full" style={{ border: "2px solid #C9CED6", borderTopColor: "#B3261E", animation: "delSpin .7s linear infinite" }} /> : <span className="text-[11px] font-bold opacity-60">{i + 1}</span>}
+                      </span>
+                      <span className="text-[13.5px] font-semibold flex-1 min-w-0">{l}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {failed && (
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  <button onClick={onClose} className="gb-focus h-12 rounded-[16px] text-[14px] font-bold" style={{ background: "var(--paper-dim)" }}>Fermer</button>
+                  <button onClick={run} className="gb-focus h-12 rounded-[16px] text-[14px] font-bold text-white" style={{ background: "#B3261E" }}>Réessayer</button>
+                </div>
+              )}
+            </>
+          )}
+
+          {step === "done" && (
+            <div className="flex flex-col items-center text-center pt-2">
+              <span className="relative rounded-full flex items-center justify-center shrink-0" style={{ width: 84, height: 84, background: "#1E9E6A", animation: "delPop .5s cubic-bezier(.2,.8,.2,1) both", boxShadow: "0 14px 30px -12px rgba(30,158,106,0.8)" }}>
+                <span className="absolute inset-0 rounded-full" style={{ background: "#1E9E6A", animation: "delRing 1.4s ease-out .3s 2" }} />
+                <svg width="42" height="42" viewBox="0 0 24 24" fill="none" className="relative"><path d="M5 12.5l4.2 4.2L19 7" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" style={{ strokeDasharray: 24, strokeDashoffset: 24, animation: "delDraw .45s ease .35s forwards" }} /></svg>
+              </span>
+              <p className="font-display font-bold text-[20px] mt-4 break-words">« {shop.name} » a été supprimée</p>
+              <p className="text-[13px] opacity-65 mt-1 leading-snug px-3">{linked ? `Toutes ses données ont été effacées du serveur${total > 0 ? ` (${total} éléments)` : ""} et de ce téléphone.` : "Ses données ont été effacées de ce téléphone."}</p>
+              <button onClick={finish} className="gb-focus mt-5 w-full h-[52px] rounded-[16px] text-[15px] font-bold text-white" style={{ background: "var(--glass)" }}>Terminer</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BoutiquesSection({ shops, activeShopId, onSwitchShop, onCreateShop, onDeleteShop, pushToast }) {
   const [adding, setAdding] = useState(false);
-  const [confirmId, setConfirmId] = useState(null);
+  const [deleting, setDeleting] = useState(null);
   const active = shops.find((x) => x.id === activeShopId);
   const synced = shops.filter((x) => x.backendLinked).length;
-
-  const askDelete = (id) => {
-    if (shops.length <= 1) { pushToast("Vous devez garder au moins une entreprise", "error"); return; }
-    setConfirmId(id);
-  };
+  const local = shops.length - synced;
   const copy = async (code) => { try { await navigator.clipboard.writeText(code); pushToast?.("Code copié !", "ok"); } catch { /* indisponible */ } };
-  const confirmShop = shops.find((x) => x.id === confirmId);
 
   return (
     <div>
       {/* Résumé */}
-      <div className="rounded-[24px] p-4 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, #0B3B5C 0%, #12557E 100%)", boxShadow: "0 16px 30px -18px #0B3B5C" }}>
-        <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.07)" }} />
+      <div className="rounded-[26px] p-4 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, #0B3B5C 0%, #12557E 60%, #1A6E9C 100%)", boxShadow: "0 18px 32px -18px #0B3B5C", animation: "gbcUp .45s cubic-bezier(.2,.8,.2,1) both" }}>
+        <div className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.07)" }} />
+        <div className="absolute -left-8 -bottom-16 w-36 h-36 rounded-full" style={{ background: "rgba(95,209,242,0.10)" }} />
         <div className="relative flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] opacity-70">Mes entreprises</p>
-            <p className="font-display font-bold text-[30px] leading-tight">{shops.length}</p>
-            <p className="text-[12px] opacity-80">{synced} synchronisée{synced > 1 ? "s" : ""} · une seule active à la fois</p>
+            <p className="font-display font-bold text-[34px] leading-none mt-1">{shops.length}</p>
+            <p className="text-[12px] opacity-80 mt-1">Une seule active à la fois</p>
           </div>
-          <button onClick={() => setAdding(true)} className="gb-focus h-11 px-4 rounded-[14px] text-[13.5px] font-bold flex items-center gap-1.5 shrink-0" style={{ background: "#5FD1F2", color: "#06263A" }}><Plus size={16} strokeWidth={3} /> Nouvelle</button>
+          <button onClick={() => setAdding(true)} className="gb-focus h-11 px-4 rounded-[14px] text-[13.5px] font-bold flex items-center gap-1.5 shrink-0 active:scale-[0.97] transition-transform" style={{ background: "#5FD1F2", color: "#06263A", boxShadow: "0 8px 18px -10px rgba(95,209,242,0.9)" }}><Plus size={16} strokeWidth={3} /> Nouvelle</button>
+        </div>
+        <div className="relative grid grid-cols-2 gap-2 mt-3">
+          <div className="rounded-[14px] px-3 py-2" style={{ background: "rgba(255,255,255,0.1)" }}><p className="text-[10.5px] opacity-70 flex items-center gap-1"><Cloud size={11} /> Synchronisées</p><p className="font-display font-bold text-[18px] leading-tight">{synced}</p></div>
+          <div className="rounded-[14px] px-3 py-2" style={{ background: "rgba(255,255,255,0.1)" }}><p className="text-[10.5px] opacity-70 flex items-center gap-1"><Smartphone size={11} /> Sur ce téléphone</p><p className="font-display font-bold text-[18px] leading-tight">{local}</p></div>
         </div>
         {active && (
-          <div className="relative mt-3 rounded-[14px] px-3 py-2.5 flex items-center gap-2.5" style={{ background: "rgba(255,255,255,0.1)" }}>
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "#7BE0B0", boxShadow: "0 0 0 4px rgba(123,224,176,0.25)" }} />
+          <div className="relative mt-2 rounded-[14px] px-3 py-2.5 flex items-center gap-2.5" style={{ background: "rgba(255,255,255,0.1)" }}>
+            <span className="relative w-2.5 h-2.5 shrink-0"><span className="absolute inset-0 rounded-full" style={{ background: "#7BE0B0", animation: "delRing 1.8s ease-out infinite" }} /><span className="absolute inset-0 rounded-full" style={{ background: "#7BE0B0" }} /></span>
             <p className="text-[12.5px] min-w-0 truncate">En cours d'utilisation : <b>{active.name}</b></p>
           </div>
         )}
+        <style>{DEL_CSS}</style>
       </div>
 
       {adding && <ShopForm shops={shops} onSave={async (shop, vendor) => { const ok = await onCreateShop(shop, vendor); if (ok) setAdding(false); }} onCancel={() => setAdding(false)} pushToast={pushToast} />}
 
       <div className="flex flex-col gap-3">
-        {shops.map((s) => {
+        {shops.map((s, idx) => {
           const isActive = s.id === activeShopId;
           const typeId = ESTABLISHMENT_TYPES.some((t) => t.id === s.type) ? s.type : "autre";
           const st = typeStyleOf(typeId);
@@ -9860,23 +10131,21 @@ function BoutiquesSection({ shops, activeShopId, onSwitchShop, onCreateShop, onD
           const cur = CURRENCIES.find((c) => c.code === s.currency) || CURRENCIES[0];
           const th = getTheme(themeOf(s));
           return (
-            <div key={s.id} className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: `1.5px solid ${isActive ? "#1E9E6A" : "var(--line)"}`, boxShadow: isActive ? "0 10px 24px -16px rgba(30,158,106,0.7)" : "0 4px 14px -12px rgba(22,32,42,0.3)" }}>
+            <div key={s.id} className="rounded-[22px] overflow-hidden" style={{ background: "var(--card)", border: `1.5px solid ${isActive ? "#1E9E6A" : "var(--line)"}`, boxShadow: isActive ? "0 12px 26px -16px rgba(30,158,106,0.75)" : "0 4px 14px -12px rgba(22,32,42,0.3)", animation: `gbcUp .45s cubic-bezier(.2,.8,.2,1) ${80 + Math.min(idx, 6) * 70}ms both` }}>
               <div className="h-1.5" style={{ background: `linear-gradient(90deg, ${th.glass}, ${th.glassLight}, ${th.cap})` }} />
               <div className="p-3.5">
                 <div className="flex items-center gap-3">
-                  <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 font-display font-bold text-[16px]" style={{ background: st.bg, color: st.color }}>{shopInitials(s.name)}</span>
+                  <span className="w-[52px] h-[52px] rounded-[16px] flex items-center justify-center shrink-0 font-display font-bold text-[17px]" style={{ background: st.bg, color: st.color }}>{shopInitials(s.name)}</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[16px] font-bold truncate">{s.name}</p>
-                    <p className="text-[11.5px] opacity-65 flex items-center gap-1 truncate"><st.Icon size={12} color={st.color} /> {typeLabel} · {cur.symbol}</p>
+                    <p className="text-[16.5px] font-bold leading-tight break-words">{s.name}</p>
+                    <p className="text-[11.5px] opacity-65 flex items-center gap-1 mt-0.5"><st.Icon size={12} color={st.color} /> {typeLabel} · {cur.symbol}</p>
                   </div>
-                  {isActive ? (
-                    <span className="text-[10.5px] font-bold px-2 py-1 rounded-full flex items-center gap-1 shrink-0" style={{ background: "#E3F4EC", color: "#0F6E56" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#1E9E6A" }} /> Active</span>
-                  ) : null}
+                  {isActive && <span className="text-[10.5px] font-bold px-2 py-1 rounded-full flex items-center gap-1 shrink-0" style={{ background: "#E3F4EC", color: "#0F6E56" }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#1E9E6A" }} /> Active</span>}
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2.5">
                   <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1" style={s.backendLinked ? { background: "#E8F0FB", color: "#1D5FA8" } : { background: "#F1F3F6", color: "#5B6573" }}>{s.backendLinked ? <><Cloud size={11} /> Synchronisée</> : <><Smartphone size={11} /> Sur cet appareil</>}</span>
                   <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: "#F1F3F6", color: "#5B6573" }}><span className="w-2.5 h-2.5 rounded-full" style={{ background: th.glass }} /> {th.label}</span>
-                  {s.adminDisplayName && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: "#F1F3F6", color: "#5B6573" }}><User size={11} /> {s.adminDisplayName}</span>}
+                  {s.adminDisplayName && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 max-w-full" style={{ background: "#F1F3F6", color: "#5B6573" }}><User size={11} className="shrink-0" /> <span className="truncate">{s.adminDisplayName}</span></span>}
                 </div>
                 {s.joinCode && (
                   <div className="flex items-center gap-2 rounded-[14px] pl-3 pr-1.5 py-1.5 mt-2.5" style={{ background: "#F4F7FB", border: "1px dashed #BFD0E6" }}>
@@ -9888,9 +10157,9 @@ function BoutiquesSection({ shops, activeShopId, onSwitchShop, onCreateShop, onD
                   </div>
                 )}
                 <div className="flex gap-2 mt-2.5">
-                  {!isActive && <button onClick={() => onSwitchShop(s.id)} className="gb-focus flex-1 h-11 rounded-[13px] text-[13px] font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "#12557E" }}><ArrowUpDown size={14} /> Passer à cette entreprise</button>}
+                  {!isActive && <button onClick={() => onSwitchShop(s.id)} className="gb-focus flex-1 h-11 rounded-[13px] text-[13px] font-bold text-white flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform" style={{ background: "#12557E" }}><ArrowUpDown size={14} /> Passer à cette entreprise</button>}
                   {isActive && <div className="flex-1 h-11 rounded-[13px] text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#E3F4EC", color: "#0F6E56" }}><Check size={15} strokeWidth={3} /> Vous travaillez ici</div>}
-                  <button onClick={() => askDelete(s.id)} className="gb-focus w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA", color: "#B3261E" }} aria-label={`Supprimer ${s.name}`}><Trash2 size={16} /></button>
+                  <button onClick={() => setDeleting(s)} className="gb-focus h-11 px-3 rounded-[13px] flex items-center justify-center gap-1.5 shrink-0 text-[12.5px] font-bold active:scale-[0.97] transition-transform" style={{ background: "#FCEBEA", color: "#B3261E", border: "1px solid #F2C9C5" }} aria-label={`Supprimer ${s.name}`}><Trash2 size={16} /> Supprimer</button>
                 </div>
               </div>
             </div>
@@ -9898,24 +10167,12 @@ function BoutiquesSection({ shops, activeShopId, onSwitchShop, onCreateShop, onD
         })}
       </div>
 
-      {confirmShop && (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setConfirmId(null)}>
-          <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 18px))" }} onClick={(e) => e.stopPropagation()}>
-            <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
-            <div className="flex items-center gap-3 mb-3">
-              <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA", color: "#B3261E" }}><Trash2 size={21} /></span>
-              <div className="min-w-0"><p className="font-display font-bold text-[18px] leading-tight">Supprimer « {confirmShop.name} » ?</p><p className="text-[12px] opacity-60">Action définitive</p></div>
-            </div>
-            <div className="rounded-[14px] p-3 mb-4 text-[12.5px] leading-relaxed" style={{ background: "#FFF6E5", color: "#7A4A00", border: "1px solid #F3D9A4" }}>
-              L'entreprise sera retirée de ce téléphone avec ses données locales : produits, ventes, clients, dépenses, commandes.{confirmShop.backendLinked ? " Les données déjà synchronisées restent sur le serveur et sur les téléphones des vendeurs." : " Elle n'est pas synchronisée : ces données seront perdues."}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setConfirmId(null)} className="gb-focus h-12 rounded-2xl text-[14px] font-bold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
-              <button onClick={() => { onDeleteShop(confirmShop.id); setConfirmId(null); }} className="gb-focus h-12 rounded-2xl text-[14px] font-bold text-white" style={{ background: "#B3261E" }}>Supprimer</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="mt-3 rounded-[16px] px-3.5 py-3 flex gap-2.5 items-start" style={{ background: "var(--card)", border: "1px solid var(--line)", animation: "gbcUp .45s ease .3s both" }}>
+        <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEA" }}><ShieldCheck size={16} color="#B3261E" /></span>
+        <p className="text-[12px] leading-snug opacity-75"><b>Suppression protégée.</b> Le code administrateur est exigé, puis une confirmation. L'entreprise et toutes ses données sont alors effacées du serveur, des sauvegardes et de ce téléphone.</p>
+      </div>
+
+      {deleting && <DeleteShopSheet shop={deleting} isLast={shops.length <= 1} onClose={() => setDeleting(null)} onDeleted={(id) => onDeleteShop(id, { silent: true })} />}
     </div>
   );
 }
@@ -14585,40 +14842,293 @@ function VendorExpensesScreen({ expenses, saveExpenses, suppliers, vendorName })
   );
 }
 
+// Plage de dates des dépenses : raccourcis + « Du … Au … » libre.
+const EXP_DAY = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
+const expDayOf = (e) => { const s = String(e?.date || ""); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : EXP_DAY(s); };
+const EXP_PRESETS = [
+  { id: "month", label: "Ce mois" },
+  { id: "today", label: "Aujourd'hui" },
+  { id: "7d", label: "7 jours" },
+  { id: "30d", label: "30 jours" },
+  { id: "lastMonth", label: "Mois dernier" },
+  { id: "year", label: "Cette année" },
+  { id: "all", label: "Tout" },
+];
+function expPresetRange(id, expenses) {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  if (id === "today") return [EXP_DAY(now), EXP_DAY(now)];
+  if (id === "7d") { const f = new Date(now); f.setDate(f.getDate() - 6); return [EXP_DAY(f), EXP_DAY(now)]; }
+  if (id === "30d") { const f = new Date(now); f.setDate(f.getDate() - 29); return [EXP_DAY(f), EXP_DAY(now)]; }
+  if (id === "lastMonth") return [EXP_DAY(new Date(y, m - 1, 1)), EXP_DAY(new Date(y, m, 0))];
+  if (id === "year") return [EXP_DAY(new Date(y, 0, 1)), EXP_DAY(now)];
+  if (id === "all") {
+    const days = (expenses || []).map(expDayOf).filter(Boolean).sort();
+    return [days[0] || EXP_DAY(now), EXP_DAY(now) > (days[days.length - 1] || "") ? EXP_DAY(now) : days[days.length - 1]];
+  }
+  return [EXP_DAY(new Date(y, m, 1)), EXP_DAY(now)];
+}
+const expDaysBetween = (a, b) => Math.max(1, Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / MS_DAY) + 1);
+const expFmtDay = (d, opts = { day: "numeric", month: "short" }) => new Date(d + "T00:00:00").toLocaleDateString("fr-FR", opts);
+const EXP = { ink: "#16202A", mut: "#66707A", line: "#E6E3DB", soft: "#F5F4F0", card: "#FFFFFF", sup: "#1D5FA8", supBg: "#E8F0FB", oth: "#9A5B00", othBg: "#FFF1D6", red: "#B3261E" };
+
 function ExpensesSection({ expenses, saveExpenses, suppliers, pushNotification, shop }) {
   const fmt = useFmt();
   const [adding, setAdding] = useState(false);
+  const [preset, setPreset] = useState("month");
+  const [[from, to], setRange] = useState(() => expPresetRange("month", expenses));
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState("all"); // all | sup | oth
+  const [sort, setSort] = useState("recent");
+  const [confirmId, setConfirmId] = useState(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setMounted(true), 60); return () => clearTimeout(t); }, []);
   const add = (e) => { saveExpenses([...expenses, e]); setAdding(false); pushNotification?.({ type: "expense", label: e.label, amount: e.amount, author: e.author }); speak(`Dépense enregistrée : ${e.label}, ${spokenAmount(fmt(e.amount))}.`, voiceOn(shop, "expense")); };
-  const del = (id, label) => { if (window.confirm(`Supprimer la dépense "${label}" ?`)) saveExpenses(expenses.filter((x) => x.id !== id)); };
-  const total = expenses.reduce((s, e) => s + Number(e.amount), 0);
-  const sorted = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const del = (id) => { setConfirmId(null); saveExpenses(expenses.filter((x) => x.id !== id)); };
+  const pick = (id) => { setPreset(id); setRange(expPresetRange(id, expenses)); };
+  const setFrom = (v) => { if (!v) return; setPreset("custom"); setRange(([, t]) => [v, v > t ? v : t]); };
+  const setTo = (v) => { if (!v) return; setPreset("custom"); setRange(([f]) => [v < f ? v : f, v]); };
+
+  const supName = (e) => (suppliers || []).find((s) => s.id === e.supplierId)?.name || "";
+  const isSup = (e) => !!e.supplierId;
+  const inRange = (expenses || []).filter((e) => { const d = expDayOf(e); return d >= from && d <= to; });
+  const total = inRange.reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const supTotal = inRange.filter(isSup).reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const othTotal = total - supTotal;
+  const nDays = expDaysBetween(from, to);
+  const perDay = Math.round(total / nDays);
+  const biggest = inRange.reduce((b, e) => (!b || Number(e.amount) > Number(b.amount) ? e : b), null);
+  // Période précédente de même longueur, pour la comparaison.
+  const prevTo = EXP_DAY(new Date(new Date(from + "T00:00:00").getTime() - MS_DAY));
+  const prevFrom = EXP_DAY(new Date(new Date(prevTo + "T00:00:00").getTime() - (nDays - 1) * MS_DAY));
+  const prevTotal = (expenses || []).filter((e) => { const d = expDayOf(e); return d >= prevFrom && d <= prevTo; }).reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const delta = prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
+
+  // Mini-graphique : par jour (≤ 31 jours) ou par mois.
+  const byMonth = nDays > 31;
+  const buckets = [];
+  if (byMonth) {
+    const s = new Date(from + "T00:00:00"); const e = new Date(to + "T00:00:00");
+    for (let d = new Date(s.getFullYear(), s.getMonth(), 1); d <= e; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      const k = EXP_DAY(d).slice(0, 7);
+      buckets.push({ k, label: d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", ""), v: inRange.filter((x) => expDayOf(x).slice(0, 7) === k).reduce((t, x) => t + (Number(x.amount) || 0), 0) });
+    }
+  } else {
+    for (let i = 0; i < nDays; i++) {
+      const k = EXP_DAY(new Date(new Date(from + "T00:00:00").getTime() + i * MS_DAY));
+      buckets.push({ k, label: String(Number(k.slice(8))), v: inRange.filter((x) => expDayOf(x) === k).reduce((t, x) => t + (Number(x.amount) || 0), 0) });
+    }
+  }
+  const maxB = Math.max(1, ...buckets.map((b) => b.v));
+
+  // Répartition par fournisseur / poste de dépense.
+  const groups = {};
+  inRange.forEach((e) => {
+    const key = isSup(e) ? `s:${e.supplierId}` : `l:${String(e.label || "Divers").trim().toLowerCase()}`;
+    if (!groups[key]) groups[key] = { name: isSup(e) ? supName(e) || "Fournisseur" : String(e.label || "Divers").trim(), sup: isSup(e), v: 0, n: 0 };
+    groups[key].v += Number(e.amount) || 0; groups[key].n += 1;
+  });
+  const topGroups = Object.values(groups).sort((a, b) => b.v - a.v).slice(0, 5);
+
+  const q = query.trim().toLowerCase();
+  const shown = inRange
+    .filter((e) => kind === "all" || (kind === "sup" ? isSup(e) : !isSup(e)))
+    .filter((e) => !q || `${e.label} ${supName(e)} ${e.author || ""}`.toLowerCase().includes(q))
+    .sort((a, b) => (sort === "amount" ? Number(b.amount) - Number(a.amount) : String(b.date).localeCompare(String(a.date))));
+  const dayGroups = [];
+  if (sort === "recent") {
+    shown.forEach((e) => { const d = expDayOf(e); const g = dayGroups[dayGroups.length - 1]; if (g && g.d === d) g.items.push(e); else dayGroups.push({ d, items: [e] }); });
+  } else dayGroups.push({ d: null, items: shown });
+  const todayK = EXP_DAY(new Date());
+  const yestK = EXP_DAY(new Date(Date.now() - MS_DAY));
+  const dayTitle = (d) => (d === todayK ? "Aujourd'hui" : d === yestK ? "Hier" : expFmtDay(d, { weekday: "long", day: "numeric", month: "long" }));
+
+  const animTotal = useCountUp(total);
+  const animSup = useCountUp(supTotal);
+  const animOth = useCountUp(othTotal);
+  const supPct = total > 0 ? Math.round((supTotal / total) * 100) : 0;
+  let idx = 0;
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-bold text-base">Dépenses ({expenses.length})</h3>
-        <button onClick={() => setAdding(true)} className="gb-focus flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white" style={{ background: "var(--glass)" }}><Plus size={14} /> Ajouter</button>
+    <div style={{ color: EXP.ink }}>
+      <style>{`@keyframes expBar{from{transform:scaleY(0)}to{transform:scaleY(1)}}`}</style>
+      <div className="flex items-end justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <h3 className="font-display font-bold text-[20px] leading-tight">Dépenses</h3>
+          <p className="text-[12px]" style={{ color: EXP.mut }}>Commandes fournisseurs et frais de la boutique</p>
+        </div>
+        <button onClick={() => setAdding(true)} className="gb-focus shrink-0 flex items-center gap-1.5 text-[13px] font-bold px-3.5 min-h-[42px] rounded-full text-white active:scale-[0.97] transition-transform" style={{ background: "var(--glass)", boxShadow: "0 8px 18px -10px rgba(0,0,0,0.5)" }}><Plus size={16} /> Ajouter</button>
       </div>
-      <div className="rounded-2xl p-3.5 mb-3" style={{ background: "var(--glass)" }}>
-        <div className="text-white/60 text-[11px]">Total dépenses enregistrées</div>
-        <div className="font-mono font-bold text-white text-lg mt-1">{fmt(total)}</div>
+
+      {/* Plage de dates */}
+      <div className="rounded-[20px] p-3 mb-3" style={{ background: EXP.card, border: `1px solid ${EXP.line}`, animation: "gbcUp .4s cubic-bezier(.2,.8,.2,1) both" }}>
+        <div className="flex gap-1.5 overflow-x-auto gb-scroll pb-1 -mx-0.5 px-0.5">
+          {EXP_PRESETS.map((p) => (
+            <button key={p.id} onClick={() => pick(p.id)} className="gb-focus shrink-0 px-3 min-h-[34px] rounded-full text-[12px] font-bold transition-colors" style={preset === p.id ? { background: "var(--glass)", color: "#fff" } : { background: EXP.soft, color: EXP.ink }}>{p.label}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          {[["Du", from, setFrom, null, to], ["Au", to, setTo, from, EXP_DAY(new Date(Date.now() + 365 * MS_DAY))]].map(([lab, val, set, min, max]) => (
+            <label key={lab} className="rounded-[14px] px-3 py-2 flex items-center gap-2 min-w-0" style={{ background: preset === "custom" ? "#FFF8EC" : EXP.soft, border: `1.5px solid ${preset === "custom" ? "#F2C77C" : "transparent"}` }}>
+              <Calendar size={16} className="shrink-0" style={{ color: EXP.mut }} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10.5px] font-bold uppercase tracking-wide" style={{ color: EXP.mut }}>{lab}</span>
+                <input type="date" lang="fr" value={val} min={min || undefined} max={max || undefined} onChange={(e) => set(e.target.value)} className="w-full bg-transparent outline-none text-[13.5px] font-bold" style={{ color: EXP.ink }} />
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="text-[11.5px] mt-2 px-0.5" style={{ color: EXP.mut }}>
+          {from === to ? expFmtDay(from, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : `${expFmtDay(from, { day: "numeric", month: "short", year: "numeric" })} → ${expFmtDay(to, { day: "numeric", month: "short", year: "numeric" })}`} · {nDays} jour{nDays > 1 ? "s" : ""}
+        </p>
       </div>
-      {adding && <ExpenseForm onSave={add} onCancel={() => setAdding(false)} suppliers={suppliers} author={shop?.adminDisplayName?.trim() || "Administrateur"} />}
-      <div className="flex flex-col gap-2.5">
-        {sorted.map((e) => {
-          const supplier = suppliers.find((s) => s.id === e.supplierId);
-          return (
-            <div key={e.id} className="rounded-2xl p-3 flex items-center gap-3 border" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Wallet size={15} /></div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold truncate">{e.label}</div>
-                <div className="text-xs opacity-50 font-mono">{new Date(e.date).toLocaleDateString("fr-FR")}{supplier ? ` · ${supplier.name}` : ""}{e.author ? ` · ${e.author}` : ""}</div>
-              </div>
-              <span className="font-mono text-sm font-semibold">{fmt(e.amount)}</span>
-              <button onClick={() => del(e.id, e.label)} className="gb-focus w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><Trash2 size={14} color="var(--danger)" /></button>
+
+      {/* Synthèse */}
+      <div className="rounded-[22px] p-4 mb-3 relative overflow-hidden text-white" style={{ background: "var(--glass)", boxShadow: "0 14px 30px -14px rgba(0,0,0,0.5)", animation: "gbcUp .45s cubic-bezier(.2,.8,.2,1) 60ms both" }}>
+        <div className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[11.5px] font-semibold uppercase tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.65)" }}>Total des dépenses</p>
+            <p className="font-display font-bold text-[30px] leading-tight mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(animTotal)}</p>
+            <p className="text-[12px] mt-0.5" style={{ color: "rgba(255,255,255,0.72)" }}>{inRange.length} dépense{inRange.length > 1 ? "s" : ""} · {fmt(perDay)} / jour en moyenne</p>
+          </div>
+          {delta !== null && (
+            <span className="shrink-0 inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-1 rounded-full" style={{ background: delta > 0 ? "rgba(255,120,100,0.22)" : "rgba(120,230,160,0.2)", color: delta > 0 ? "#FFC4BA" : "#B9F3CC" }}>
+              {delta > 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />} {delta > 0 ? "+" : ""}{delta} %
+            </span>
+          )}
+        </div>
+        {/* Mini-graphique */}
+        <div className="mt-3 flex items-end gap-[3px] h-[62px]">
+          {buckets.slice(-31).map((b, i) => (
+            <div key={b.k} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full" title={`${b.label} : ${fmt(b.v)}`}>
+              <div className="w-full rounded-t-[4px]" style={{ height: `${b.v > 0 ? Math.max(6, (b.v / maxB) * 100) : 3}%`, background: b.v > 0 ? (b.k === todayK || b.k === todayK.slice(0, 7) ? "var(--cap)" : "rgba(255,255,255,0.55)") : "rgba(255,255,255,0.14)", transformOrigin: "bottom", animation: `expBar .6s cubic-bezier(.2,.8,.2,1) ${120 + i * 18}ms both` }} />
             </div>
-          );
-        })}
-        {sorted.length === 0 && <p className="text-sm opacity-50 text-center py-6">Aucune dépense enregistrée.</p>}
+          ))}
+        </div>
+        <div className="flex justify-between text-[10.5px] mt-1" style={{ color: "rgba(255,255,255,0.55)" }}>
+          <span>{buckets[Math.max(0, buckets.length - 31)]?.label}{byMonth ? "" : ` ${expFmtDay(buckets[Math.max(0, buckets.length - 31)]?.k || from, { month: "short" })}`}</span>
+          <span>{prevTotal > 0 ? `Période précédente : ${fmt(prevTotal)}` : byMonth ? "Par mois" : "Par jour"}</span>
+          <span>{buckets[buckets.length - 1]?.label}{byMonth ? "" : ` ${expFmtDay(to, { month: "short" })}`}</span>
+        </div>
+      </div>
+
+      {/* Fournisseurs / autres */}
+      <div className="grid grid-cols-2 gap-2.5 mb-3">
+        {[["sup", "Fournisseurs", animSup, EXP.sup, EXP.supBg, Truck, inRange.filter(isSup).length, supPct], ["oth", "Frais divers", animOth, EXP.oth, EXP.othBg, Wallet, inRange.filter((e) => !isSup(e)).length, 100 - supPct]].map(([k, lab, v, fg, bg, Ic, n, pct], i) => (
+          <button key={k} onClick={() => setKind((c) => (c === k ? "all" : k))} className="gb-focus rounded-[18px] p-3 text-left" style={{ background: EXP.card, border: `1.5px solid ${kind === k ? fg : EXP.line}`, animation: `gbcUp .45s cubic-bezier(.2,.8,.2,1) ${120 + i * 60}ms both` }}>
+            <div className="flex items-center gap-1.5 mb-1"><span className="w-7 h-7 rounded-[9px] flex items-center justify-center" style={{ background: bg }}><Ic size={14} color={fg} /></span><span className="text-[11.5px] font-semibold" style={{ color: EXP.mut }}>{lab}</span></div>
+            <p className="font-display font-bold text-[16px] leading-tight" style={{ color: fg, fontVariantNumeric: "tabular-nums" }}>{fmt(v)}</p>
+            <p className="text-[11px]" style={{ color: EXP.mut }}>{n} dépense{n > 1 ? "s" : ""} · {total > 0 ? pct : 0} %</p>
+            <div className="h-1.5 rounded-full mt-1.5 overflow-hidden" style={{ background: EXP.soft }}><div className="h-full rounded-full" style={{ width: `${mounted && total > 0 ? pct : 0}%`, background: fg, transition: "width .9s cubic-bezier(.2,.8,.2,1)" }} /></div>
+          </button>
+        ))}
+      </div>
+
+      {biggest && (
+        <div className="rounded-[16px] px-3 py-2.5 mb-3 flex items-center gap-2.5" style={{ background: "#FCEBEA", border: "1px solid #F2C9C5", animation: "gbcUp .45s cubic-bezier(.2,.8,.2,1) 220ms both" }}>
+          <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "#fff" }}><ArrowUpCircle size={16} color={EXP.red} /></span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[11px] font-bold uppercase tracking-wide" style={{ color: EXP.red }}>Plus grosse dépense</span>
+            <span className="block text-[13px] font-semibold break-words leading-tight">{biggest.label} · {expFmtDay(expDayOf(biggest))}</span>
+          </span>
+          <span className="font-display font-bold text-[14px] shrink-0" style={{ color: EXP.red }}>{fmt(biggest.amount)}</span>
+        </div>
+      )}
+
+      {/* Répartition */}
+      {topGroups.length > 0 && (
+        <div className="rounded-[20px] p-3.5 mb-3" style={{ background: EXP.card, border: `1px solid ${EXP.line}`, animation: "gbcUp .45s cubic-bezier(.2,.8,.2,1) 260ms both" }}>
+          <p className="text-[13px] font-bold mb-2">Où part l'argent</p>
+          <div className="flex flex-col gap-2.5">
+            {topGroups.map((g, i) => {
+              const pct = total > 0 ? Math.round((g.v / total) * 100) : 0;
+              return (
+                <div key={g.name + i}>
+                  <div className="flex items-baseline justify-between gap-2 text-[12.5px]">
+                    <span className="min-w-0 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full shrink-0" style={{ background: g.sup ? EXP.sup : EXP.oth }} /><span className="font-semibold break-words">{g.name}</span><span className="shrink-0" style={{ color: EXP.mut }}>· {g.n}</span></span>
+                    <span className="shrink-0 font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(g.v)} <span style={{ color: EXP.mut, fontWeight: 600 }}>{pct} %</span></span>
+                  </div>
+                  <div className="h-2 rounded-full mt-1 overflow-hidden" style={{ background: EXP.soft }}>
+                    <div className="h-full rounded-full" style={{ width: `${mounted ? pct : 0}%`, background: g.sup ? "linear-gradient(90deg,#5B9BE6,#1D5FA8)" : "linear-gradient(90deg,#E8A93A,#9A5B00)", transition: `width .9s cubic-bezier(.2,.8,.2,1) ${i * 90}ms` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {adding && <ExpenseForm onSave={add} onCancel={() => setAdding(false)} suppliers={suppliers} author={shop?.adminDisplayName?.trim() || "Administrateur"} />}
+
+      {/* Recherche + tri */}
+      <div className="flex items-center gap-2 px-3 min-h-[44px] rounded-[14px] mb-2.5" style={{ background: EXP.card, border: `1px solid ${EXP.line}` }}>
+        <Search size={16} color={EXP.mut} />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Libellé, fournisseur ou auteur" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
+        {query && <button onClick={() => setQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={14} color={EXP.mut} /></button>}
+      </div>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-[13px] font-bold">{kind === "sup" ? "Fournisseurs" : kind === "oth" ? "Frais divers" : "Toutes les dépenses"} <span style={{ color: EXP.mut, fontWeight: 600 }}>· {shown.length}</span></p>
+        <div className="flex p-0.5 rounded-[11px] shrink-0" style={{ background: EXP.soft, border: `1px solid ${EXP.line}` }}>
+          {[["recent", "Récentes"], ["amount", "Montant"]].map(([id, l]) => (
+            <button key={id} onClick={() => setSort(id)} className="gb-focus px-2.5 py-1 rounded-[9px] text-[11.5px] font-semibold" style={{ background: sort === id ? EXP.card : "transparent", color: sort === id ? EXP.ink : EXP.mut, boxShadow: sort === id ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {shown.length === 0 && (
+        <div className="rounded-[20px] py-8 px-5 text-center" style={{ background: EXP.card, border: `1px dashed ${EXP.line}` }}>
+          <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: EXP.soft }}><Wallet size={22} color={EXP.mut} /></div>
+          <p className="font-semibold text-[14px]">{q || kind !== "all" ? "Aucune dépense ne correspond" : "Aucune dépense sur cette période"}</p>
+          <p className="text-[12px] mt-0.5" style={{ color: EXP.mut }}>{q || kind !== "all" ? "Modifiez la recherche ou le filtre." : "Changez la plage de dates ou ajoutez une dépense."}</p>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {dayGroups.map((g) => (
+          <div key={g.d || "all"}>
+            {g.d && (
+              <div className="flex items-baseline justify-between px-1 mb-1.5">
+                <span className="text-[12px] font-bold uppercase tracking-wide first-letter:uppercase" style={{ color: EXP.mut }}>{dayTitle(g.d)}</span>
+                <span className="text-[12px] font-bold" style={{ color: EXP.mut, fontVariantNumeric: "tabular-nums" }}>{fmt(g.items.reduce((t, e) => t + (Number(e.amount) || 0), 0))}</span>
+              </div>
+            )}
+            <div className="rounded-[20px] overflow-hidden" style={{ background: EXP.card, border: `1px solid ${EXP.line}` }}>
+              {g.items.map((e, k) => {
+                const sup = isSup(e);
+                const sname = supName(e);
+                const asking = confirmId === e.id;
+                const i = idx++;
+                return (
+                  <div key={e.id} className="px-3 py-3" style={{ borderTop: k ? `1px solid ${EXP.line}` : "none", animation: `gbcUp .4s cubic-bezier(.2,.8,.2,1) ${Math.min(i, 10) * 45}ms both` }}>
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: sup ? EXP.supBg : EXP.othBg }}>{sup ? <Truck size={17} color={EXP.sup} /> : <Wallet size={17} color={EXP.oth} />}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] font-bold leading-snug break-words">{sup && /^Commande\s+—\s+/.test(e.label || "") ? <>Commande <span style={{ color: EXP.sup }}>{String(e.label).replace(/^Commande\s+—\s+/, "")}</span></> : e.label}</p>
+                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                          <span className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: sup ? EXP.supBg : EXP.othBg, color: sup ? EXP.sup : EXP.oth }}>{sup ? "Fournisseur" : "Frais"}</span>
+                          {!g.d && <span className="text-[11px]" style={{ color: EXP.mut }}>{expFmtDay(expDayOf(e))}</span>}
+                          {sname && !(e.label || "").includes(sname) && <span className="text-[11px] break-words" style={{ color: EXP.mut }}>· {sname}</span>}
+                          {e.author && <span className="text-[11px] break-words" style={{ color: EXP.mut }}>· par {e.author}</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span className="font-display font-bold text-[15px] whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(e.amount)}</span>
+                        {!asking && <button onClick={() => setConfirmId(e.id)} className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: "#FCEBEB" }} aria-label={`Supprimer la dépense ${e.label}`}><Trash2 size={14} color={EXP.red} /></button>}
+                      </div>
+                    </div>
+                    {asking && (
+                      <div className="flex gap-2 mt-2.5 gb-slide-up">
+                        <button onClick={() => setConfirmId(null)} className="gb-focus flex-1 min-h-[40px] rounded-[12px] text-[13px] font-bold" style={{ border: `1.5px solid ${EXP.line}`, background: EXP.card }}>Garder</button>
+                        <button onClick={() => del(e.id)} className="gb-focus flex-[1.4] min-h-[40px] rounded-[12px] text-[13px] font-bold text-white" style={{ background: EXP.red }}>Supprimer la dépense</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -20651,6 +21161,7 @@ function AppInner() {
           });
         } catch { /* une annonce ratée ne doit jamais bloquer la synchronisation */ }
         if (freshMeta) {
+          rememberServerMeta(activeShopId, freshMeta);
           setShops((prevShops) => {
             const current = (prevShops || []).find((s) => s.id === activeShopId);
             if (!current) return prevShops;
@@ -20960,7 +21471,7 @@ function AppInner() {
 
   const getLocalValue = (key) => {
     switch (key) {
-      case "shopMeta": return shop ? pickShopMeta(shop) : {};
+      case "shopMeta": return shop ? completeShopMeta(shop.id, pickShopMeta(shop)) : {};
       case "auditLog": return auditRef.current || [];
       case "snackLots": return snackLots;
       case "heldSales": return heldSales;
@@ -21578,7 +22089,7 @@ function AppInner() {
       // remonte jamais vers le serveur, donc jamais vu par les vendeurs —
       // c'était le cas de adminDisplayName, voiceNotificationsEnabled et
       // cashRegisterResetHour, ajoutés pour corriger ce trou.
-      const metaPayload = { ...pickShopMeta(next), name: trimmedName };
+      const metaPayload = { ...completeShopMeta(activeShopId, pickShopMeta(next)), name: trimmedName };
       api.syncKeyNow("shopMeta", metaPayload).then(() => setPendingSync(api.getPendingCount()));
     }
     pushToast("Entreprise mise à jour", "ok");
@@ -21846,19 +22357,28 @@ function AppInner() {
     pushToast("Entreprise changée", "ok");
   };
 
-  const handleDeleteShop = async (shopId) => {
-    if (shops.length <= 1) { pushToast("Vous devez garder au moins une entreprise", "error"); return; }
+  // Nettoyage LOCAL d'une entreprise supprimée (la suppression serveur est
+  // faite avant, par DeleteShopSheet, après vérification du code admin).
+  const handleDeleteShop = async (shopId, { silent = false } = {}) => {
     const nextShops = shops.filter((s) => s.id !== shopId);
     setShops(nextShops);
     window.storage.set("shops", JSON.stringify(nextShops)).catch(() => {});
-    await Promise.all([
-      safeDelete(`products:${shopId}`), safeDelete(`sales:${shopId}`), safeDelete(`vendors:${shopId}`),
-      safeDelete(`suppliers:${shopId}`), safeDelete(`expenses:${shopId}`), safeDelete(`categories:${shopId}`), safeDelete(`movements:${shopId}`), safeDelete(`inventories:${shopId}`), safeDelete(`clients:${shopId}`), safeDelete(`orders:${shopId}`), safeDelete(`supplierProducts:${shopId}`),
-    ]);
-    // Retire aussi la liaison de l'appareil et la file d'attente de cette
-    // boutique, sinon des clés orphelines resteraient en attente indéfiniment.
+    const keys = ["products", "sales", "vendors", "suppliers", "expenses", "categories", "movements", "inventories", "clients", "orders", "supplierProducts", "avoirs", "heldSales", "cashRegisterEntries", "versements", "auditLog", "license", "snackLots", ...BAR_KEYS, ...ALU_KEYS];
+    await Promise.all(keys.map((k) => safeDelete(`${k}:${shopId}`)));
+    // Toute autre trace locale de cette entreprise (brouillons, repères…).
+    try {
+      Object.keys(localStorage).filter((k) => k.includes(shopId) && k !== "shops").forEach((k) => localStorage.removeItem(k));
+    } catch { /* ignore */ }
     api.unlinkShop(shopId);
-    pushToast("Entreprise supprimée", "ok");
+    if (!silent) pushToast("Entreprise supprimée", "ok");
+    if (nextShops.length === 0) {
+      setActiveShopId(null);
+      setRole(null); setCurrentVendorName(""); setCart([]); setView("sell");
+      window.storage.delete("activeShopId").catch(() => {});
+      window.storage.delete("sessionRole").catch(() => {});
+      window.storage.delete("sessionVendorName").catch(() => {});
+      return;
+    }
     if (shopId === activeShopId) await handleSwitchShop(nextShops[0].id);
   };
 
