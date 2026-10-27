@@ -139,6 +139,17 @@ export async function ownerResetAdminPin({ email, secret, shopId }) {
 export async function ownerResetVendorPin({ email, secret, shopId, vendorId }) {
   return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "reset-vendor-pin", shop_id: shopId, vendor_id: vendorId });
 }
+// Code PIN du propriétaire de l'application (validation des jours bonus).
+export async function ownerPinStatus({ email, secret }) {
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "pin-status" });
+}
+export async function ownerSetPin({ email, secret, pin, newPin }) {
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "set-pin", pin, new_pin: newPin });
+}
+// Jours bonus ajoutés au temps d'activation d'une entreprise (PIN exigé).
+export async function ownerAddBonusDays({ email, secret, shopId, days, reason, pin }) {
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "add-bonus-days", shop_id: shopId, days, reason, pin });
+}
 
 /* ---------- Liaison boutique <-> appareil (multi-boutique) ---------- */
 //
@@ -717,6 +728,15 @@ export async function ownerSupportMessages({ email, secret, deviceId }) {
 }
 export async function ownerSupportReply({ email, secret, deviceId, message }) {
   return callFunction("support-owner", { action: "reply", email, secret, password: ownerPassword, device_id: deviceId, message }, 30000);
+}
+// Message groupé : nombre de destinataires possibles, puis envoi à tous les
+// administrateurs (target "all"), aux connectés ("online") ou à une sélection
+// ("devices" + deviceIds). Chacun le reçoit dans sa propre conversation.
+export async function ownerBroadcastTargets({ email, secret }) {
+  return callRead("support-owner", { action: "broadcast-targets", email, secret, password: ownerPassword });
+}
+export async function ownerBroadcast({ email, secret, target = "all", deviceIds = [], message }) {
+  return callFunction("support-owner", { action: "broadcast", email, secret, password: ownerPassword, target, device_ids: deviceIds, message }, 45000);
 }
 export async function ownerSupportDelete({ email, secret, deviceId }) {
   return callFunction("support-owner", { action: "delete", email, secret, password: ownerPassword, device_id: deviceId });

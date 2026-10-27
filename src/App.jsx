@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useContext, createContext, Component, useMemo, Fragment } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowUp, ScanLine, ShoppingCart, Boxes, History, ShieldCheck, Plus, Minus,
   Trash2, X, Check, AlertTriangle, LogOut, Search, TrendingUp,
@@ -40,14 +41,33 @@ import { isPrinterFeatureAvailable, printRawEscPos, printReceipt, printCreditRec
 
 const GESTIONE_ICON_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJpY29uVGl0bGUiPgogIDx0aXRsZSBpZD0iaWNvblRpdGxlIj5HZXN0aU9uZSDigJQgaWPDtG5lIGRlIGwnYXBwbGljYXRpb248L3RpdGxlPgogIDxkZWZzPgogICAgPCEtLSA9PT09PT09PT09PT09PT09PSBEw4lHUkFEw4lTIChtb2RpZmlhYmxlKSA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdHcmFkIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDYzQjczIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTUlIiBzdG9wLWNvbG9yPSIjMDYxQjQ1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2MUI0NSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxyYWRpYWxHcmFkaWVudCBpZD0iZ2xvd0dyYWQiIGN4PSIxNSUiIGN5PSIxMCUiIHI9Ijc1JSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDBEOUE1IiBzdG9wLW9wYWNpdHk9IjAuNTUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0NSUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMC4xMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYXduaW5nT3JhbmdlIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjhBMDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjRkY2QjAwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJhd25pbmdXaGl0ZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZGRkZGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0U4RUNGNSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZmFjYWRlR3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZEMjFGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZG93R3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDBCOEQ5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2M0I3MyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ2VhckdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJhckdyYWQiIHgxPSIwIiB5MT0iMSIgeDI9IjAiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRkQyMUYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im9uZUdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJzb2Z0U2hhZG93IiB4PSItNDAlIiB5PSItNDAlIiB3aWR0aD0iMTgwJSIgaGVpZ2h0PSIxODAlIj4KICAgICAgPGZlRHJvcFNoYWRvdyBkeD0iMCIgZHk9IjEwIiBzdGREZXZpYXRpb249IjE0IiBmbG9vZC1jb2xvcj0iIzA2MUI0NSIgZmxvb2Qtb3BhY2l0eT0iMC40NSIvPgogICAgPC9maWx0ZXI+CiAgICA8ZmlsdGVyIGlkPSJzbWFsbFNoYWRvdyIgeD0iLTYwJSIgeT0iLTYwJSIgd2lkdGg9IjIyMCUiIGhlaWdodD0iMjIwJSI+CiAgICAgIDxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSI0IiBzdGREZXZpYXRpb249IjYiIGZsb29kLWNvbG9yPSIjMDYxQjQ1IiBmbG9vZC1vcGFjaXR5PSIwLjM1Ii8+CiAgICA8L2ZpbHRlcj4KCiAgICA8Y2xpcFBhdGggaWQ9Imljb25DbGlwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiByeD0iMjI0Ii8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPGcgY2xpcC1wYXRoPSJ1cmwoI2ljb25DbGlwKSI+CiAgICA8IS0tID09PT09PT09PT09PT09PT09IGcjYmFja2dyb3VuZCA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxnIGlkPSJiYWNrZ3JvdW5kIj4KICAgICAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNiZ0dyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9InVybCgjZ2xvd0dyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik0gLTYwLDUxMiBBIDU2MCw1NjAgMCAwIDAgNjAsOTYwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMEQ5QTUiIHN0cm9rZS1vcGFjaXR5PSIwLjM1IiBzdHJva2Utd2lkdGg9IjM0Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNjIgMTQ4KSBzY2FsZSgxKSI+CiAgICAgIAogIDxnIGlkPSJicmFuZE1hcmsiPgogICAgPCEtLSA9PT09PSBnI3N0b3JlIDogYm91dGlxdWUgKGF1dmVudCwgZmHDp2FkZSwgdml0cmluZSwgcG9ydGUpID09PT09IC0tPgogICAgPGcgaWQ9InN0b3JlIiBmaWx0ZXI9InVybCgjc29mdFNoYWRvdykiPgogICAgICA8IS0tIGJhbmRlYXUgaGF1dCBkZSBsJ2F1dmVudCAtLT4KICAgICAgPHJlY3QgeD0iODAiIHk9Ijg2IiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjQ0IiByeD0iMTYiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICA8IS0tIGxhbWJyZXF1aW4gcmF5w6kgKHJheXVyZXMgb3JhbmdlIC8gYmxhbmMsIGJhcyBhcnJvbmRpIGZhw6dvbiBzdG9yZSBiYW5uZSkgLS0+CiAgICAgIDxnIGlkPSJhd25pbmctc3RyaXBlcyI+CiAgICAgICAgPHBhdGggZD0iTTgwLDEzMCBoNjggdjc4IHEwLDI2IC0zNCwyNiBxLTM0LDAgLTM0LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgICA8cGF0aCBkPSJNMTQ4LDEzMCBoNjggdjg4IHEwLDI0IC0zNCwyNCBxLTM0LDAgLTM0LC0yNCBaIiBmaWxsPSJ1cmwoI2F3bmluZ1doaXRlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yMTYsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yODQsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nV2hpdGUpIi8+CiAgICAgICAgPHBhdGggZD0iTTM1MiwxMzAgaDY4IHY4OCBxMCwyNCAtMzQsMjQgcS0zNCwwIC0zNCwtMjQgWiIgZmlsbD0idXJsKCNhd25pbmdPcmFuZ2UpIi8+CiAgICAgICAgPHBhdGggZD0iTTQyMCwxMzAgaDY4IHY3OCBxMCwyNiAtMzQsMjYgcS0zNCwwIC0zNCwtMjYgWiIgZmlsbD0idXJsKCNhd25pbmdXaGl0ZSkiLz4KICAgICAgICA8cGF0aCBkPSJNNDg4LDEzMCBoNzIgdjcwIHEwLDI2IC0zNiwyNiBxLTM2LDAgLTM2LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgPC9nPgogICAgICA8IS0tIGZhw6dhZGUgLS0+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJ1cmwoI2ZhY2FkZUdyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMwNjFCNDUiIHN0cm9rZS1vcGFjaXR5PSIwLjE1IiBzdHJva2Utd2lkdGg9IjQiLz4KICAgICAgPCEtLSB2aXRyaW5lIGJsZXVlIGF2ZWMgcGFuaWVyIC0tPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0idXJsKCN3aW5kb3dHcmFkKSIvPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utb3BhY2l0eT0iMC4zNSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICAgIDxnIGlkPSJiYXNrZXQiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIj4KICAgICAgICA8cGF0aCBkPSJNMjIzLDM1MiBxMzAsLTQ2IDYwLDAiIC8+CiAgICAgICAgPHBhdGggZD0iTTIwMywzNTIgaDE2MCBsLTE2LDc4IHEtMywxNCAtMTgsMTQgaC05MiBxLTE1LDAgLTE4LC0xNCBaIiBmaWxsPSIjRkZGRkZGIiBzdHJva2U9Im5vbmUiLz4KICAgICAgICA8cGF0aCBkPSJNMjI4LDM2NiB2NTYgTTI1MywzNjYgdjYyIE0yNzgsMzY2IHY1NiIgc3Ryb2tlPSIjMDBCOEQ5IiBzdHJva2Utd2lkdGg9IjgiLz4KICAgICAgPC9nPgogICAgICA8IS0tIHBvcnRlIC0tPgogICAgICA8cmVjdCB4PSIzOTIiIHk9IjMyMiIgd2lkdGg9IjExMiIgaGVpZ2h0PSIxODgiIHJ4PSIxMCIgZmlsbD0iIzA2MUI0NSIvPgogICAgICA8Y2lyY2xlIGN4PSI0NzIiIGN5PSI0MTYiIHI9IjciIGZpbGw9IiNGRkQyMUYiLz4KICAgIDwvZz4KCiAgICA8IS0tID09PT09IGcjZ3Jvd3RoIDogZ3JhcGhpcXVlIGVuIGJhcnJlcyArIGZsw6hjaGUgYXNjZW5kYW50ZSA9PT09PSAtLT4KICAgIDxnIGlkPSJncm93dGgiPgogICAgICA8cmVjdCB4PSI1NDAiIHk9IjM2OCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjkyIiByeD0iNiIgZmlsbD0idXJsKCNiYXJHcmFkKSIvPgogICAgICA8cmVjdCB4PSI1ODQiIHk9IjMzMCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjEzMCIgcng9IjYiIGZpbGw9InVybCgjYmFyR3JhZCkiLz4KICAgICAgPHJlY3QgeD0iNjI4IiB5PSIyODYiIHdpZHRoPSIzNCIgaGVpZ2h0PSIxNzQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2JhckdyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik01NTYsMjcyIEw2NTAsMTc4IE02NTAsMTc4IGgtNDYgTTY1MCwxNzggdjQ2IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkQyMUYiIHN0cm9rZS13aWR0aD0iMTYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogICAgPC9nPgoKICAgIDwhLS0gPT09PT0gZyNtYW5hZ2VtZW50IDogZW5ncmVuYWdlIChnZXN0aW9uKSA9PT09PSAtLT4KICAgIDxnIGlkPSJtYW5hZ2VtZW50IiBmaWx0ZXI9InVybCgjc21hbGxTaGFkb3cpIj4KICAgICAgPGcgZmlsbD0idXJsKCNnZWFyR3JhZCkiPgogICAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoMC4wKSIvPgogICAgICA8cmVjdCB4PSItMTUuMCIgeT0iLTEwOC4wIiB3aWR0aD0iMzAuMCIgaGVpZ2h0PSIzNC4wIiByeD0iNiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTYwIDQ4MCkgcm90YXRlKDM2LjApIi8+CiAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoNzIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxMDguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxNDQuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxODAuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyMTYuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyNTIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyODguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgzMjQuMCkiLz4KICAgICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9Ijg4IiAvPgogICAgICA8L2c+CiAgICAgIDxjaXJjbGUgY3g9IjU2MCIgY3k9IjQ4MCIgcj0iODgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLW9wYWNpdHk9IjAuMzUiIHN0cm9rZS13aWR0aD0iNCIvPgogICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9IjM0IiBmaWxsPSIjMDYxQjQ1Ii8+CiAgICA8L2c+CiAgPC9nPgoKICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=";
 
+// Suit une requête média (largeur d'écran…) et se met à jour au redimensionnement.
+function useMediaQuery(query) {
+  const get = () => { try { return window.matchMedia(query).matches; } catch { return false; } };
+  const [m, setM] = useState(get);
+  useEffect(() => {
+    let mq; try { mq = window.matchMedia(query); } catch { return undefined; }
+    const f = () => setM(mq.matches);
+    f();
+    if (mq.addEventListener) mq.addEventListener("change", f); else mq.addListener(f);
+    return () => { if (mq.removeEventListener) mq.removeEventListener("change", f); else mq.removeListener(f); };
+  }, [query]);
+  return m;
+}
+
+// Le VRAI logo GestiOne (celui des pages d'accueil). L'ancienne icône
+// dessinée ne sert plus que de secours si l'image ne peut pas être chargée.
+const GESTIONE_LOGO_SRC = "/gestione-logo.webp";
 function GestiOneIcon({ size = 76 }) {
   return (
     <img
-      src={GESTIONE_ICON_DATA_URI}
+      src={GESTIONE_LOGO_SRC}
       alt="GestiOne"
       width={size}
       height={size}
-      style={{ width: size, height: size, minWidth: size, minHeight: size, display: "block", filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.25))" }}
+      draggable={false}
+      onError={(e) => { if (e.currentTarget.src !== GESTIONE_ICON_DATA_URI) e.currentTarget.src = GESTIONE_ICON_DATA_URI; }}
+      style={{ width: size, height: size, minWidth: size, minHeight: size, display: "block", objectFit: "cover", borderRadius: Math.round(size * 0.24) }}
     />
   );
 }
@@ -1457,7 +1477,7 @@ function ScrollTopBubble({ bottom = 92 }) {
     try { navigator.vibrate && navigator.vibrate(8); } catch { /* ignore */ }
   };
   return (
-    <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[29] pointer-events-none no-print" style={{ bottom: `calc(${bottom}px + env(safe-area-inset-bottom))` }}>
+    <div className="gb-fixed-col fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[29] pointer-events-none no-print" style={{ bottom: `calc(${bottom}px + env(safe-area-inset-bottom))` }}>
       <button
         type="button"
         onClick={goTop}
@@ -1658,7 +1678,7 @@ function PricingScreen({ registeredAdmin, onClose, pushToast, shopName, license,
       {back ? (
         <button onClick={back} className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: LIC.card, border: `1px solid ${LIC.line}` }} aria-label="Retour"><ChevronLeft size={19} color={LIC.ink} /></button>
       ) : (
-        <div className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #1E8E50, #0F6E56)" }}><GestiOneIcon size={22} /></div>
+        <div className="w-9 h-9 rounded-[11px] overflow-hidden shrink-0"><GestiOneIcon size={36} /></div>
       )}
       <div className="flex-1 min-w-0">
         <p className="text-[12px] truncate" style={{ color: LIC.mut }}>{shopName || "Entreprise"} · Administrateur</p>
@@ -3966,7 +3986,7 @@ function VariantStockView({ products }) {
   );
 }
 
-function SellScreen({ shop, categories, products: productsRaw, sales, clients, avoirs, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash, heldSales = [], resumedHeld = null, onHoldSale, onOpenHeld, openCartSignal = 0, onCartSignalDone }) {
+function SellScreen({ shop, categories, products: productsRaw, sales, clients, avoirs, onCreateClient, cart, setCart, onCheckout, onCreateMoneyAvoir, onCreateProductAvoir, onCreateProductAndMoneyAvoir, pushToast, hasCashToday, onRequireCash, heldSales = [], resumedHeld = null, onHoldSale, onOpenHeld, openCartSignal = 0, onCartSignalDone, wide = false }) {
   const fmt = useFmt();
   // Les produits « formule » (ex : Pain fourré) affichent le stock du produit
   // dont ils dépendent (Pain) — un seul stock partagé.
@@ -4160,6 +4180,28 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   const remiseVal = Math.min(subtotal, Math.max(0, Math.round(Number(remise) || 0)));
   const total = subtotal - remiseVal;
   const count = cartItems.reduce((s, i) => s + i.qty, 0);
+  // Tablette couchée / ordinateur : le panier reste ouvert à droite (mode
+  // caisse) dès qu'il contient un article.
+  const dockWide = useMediaQuery("(min-width: 1024px)");
+  const docked = wide && dockWide && !nuit && !isBoutique && count > 0;
+  useEffect(() => {
+    try { document.documentElement.style.setProperty("--dock-w", docked ? "380px" : "0px"); document.documentElement.classList.toggle("gb-docked", docked); } catch { /* ignore */ }
+    return () => { try { document.documentElement.style.setProperty("--dock-w", "0px"); document.documentElement.classList.remove("gb-docked"); } catch { /* ignore */ } };
+  }, [docked]);
+  // Clavier (ordinateur) et lecteur de code-barres USB / Bluetooth.
+  const scanRef = useRef(null);
+  scanRef.current = (code) => handleCameraDetect(code);
+  useEffect(() => {
+    const onKey = (e) => {
+      const k = e.detail;
+      if (k === "search") { inputRef.current?.focus(); inputRef.current?.select?.(); }
+      if (k === "hold" && count > 0 && onHoldSale) setHoldOpen(true);
+    };
+    const onScan = (e) => { if (e.detail) scanRef.current?.(String(e.detail)); };
+    window.addEventListener("gb-key", onKey);
+    window.addEventListener("gb-scan", onScan);
+    return () => { window.removeEventListener("gb-key", onKey); window.removeEventListener("gb-scan", onScan); };
+  }, [count, onHoldSale]);
   // Informations en plus sur la vente : opérateur Mobile Money, remise.
   const onCheckoutX = (...args) => {
     const a = [...args];
@@ -4428,7 +4470,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       {isBoutique ? (<>
         {/* Barre recherche + panier FIXE : reste visible pendant le défilement. */}
         <div className="h-[66px]" aria-hidden="true" />
-        <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[12] px-3 pt-2 pb-2.5 flex items-center gap-2 no-print" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 44px)", background: "var(--paper)", boxShadow: "0 8px 12px -12px rgba(0,0,0,0.35)" }}>
+        <div className="gb-fixed-col fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[12] px-3 pt-2 pb-2.5 flex items-center gap-2 no-print" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 44px)", background: "var(--paper)", boxShadow: "0 8px 12px -12px rgba(0,0,0,0.35)" }}>
           <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] pl-3.5 pr-1.5 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
             <Search size={17} className="shrink-0 opacity-60" />
             <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={searchKey} placeholder="Rechercher un article" aria-label="Rechercher un article" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" />
@@ -4485,7 +4527,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
             </div>
           );
         })()}
-        <div className="px-3 mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+        <div className="px-3 mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5">
           {[...shown].sort((x, y) => (y.stock > 0) - (x.stock > 0) || (promoActive(y) - promoActive(x)) || (isNewArticle(y) - isNewArticle(x))).map((p) => (
             <BoutiqueCard key={p.id} p={p} inCart={qtyInCart(p.id)} categories={categories} sold={soldById[p.id] || 0} onOpen={(x) => addToCart(x)} onView={(x) => setDetailFor(x)} />
           ))}
@@ -4513,7 +4555,6 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           const mobile = todaySales.reduce((t, x) => t + mobilePartOf(x), 0);
           const credit = todaySales.filter((x) => x.paymentMethod === "credit").reduce((t, x) => t + (Number(x.total) || 0), 0);
           const split = Math.max(1, cash + mobile + credit);
-          const avg = todaySales.length ? Math.round(todayTotal / todaySales.length) : 0;
           const last = todaySales.reduce((m, x) => (!m || x.date > m ? x.date : m), null);
           const big = fmt(todayTotal);
           const tile = (v) => (String(v).length > 11 ? "text-[12.5px]" : "text-[14.5px]");
@@ -4557,9 +4598,9 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
               </div>
 
               <div className="relative grid grid-cols-3 gap-2">
-                {[["Recette", fmt(todayRecette), "#FFD978", Banknote, "encaissée"], ["Crédit dû", fmt(todayCredit), "#FFB4A8", Clock, "à recevoir"], ["Moyenne", fmt(avg), "#BFF5D7", ShoppingBag, "par ticket"]].map(([l, v, c, Ic, sub]) => (
-                  <div key={l} className="rounded-[16px] px-2.5 py-2 min-w-0" style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.12)" }}>
-                    <span className="flex items-center gap-1 text-[10.5px] font-bold" style={{ color: "rgba(255,255,255,0.75)" }}><Ic size={12} color={c} className="shrink-0" /> <span className="truncate">{l}</span></span>
+                {[["Recette", fmt(todayRecette), "#FFD978", Banknote, "encaissée"], ["Crédit dû", fmt(todayCredit), "#FFB4A8", Clock, "à recevoir"], ["Caisse du jour", fmt(Math.max(0, todayTotal - credit)), "#BFF5D7", Wallet, "ventes − crédits"]].map(([l, v, c, Ic, sub]) => (
+                  <div key={l} className="rounded-[16px] px-2.5 py-2 min-w-0" style={l === "Caisse du jour" ? { background: "rgba(191,245,215,0.16)", border: "1.5px solid rgba(191,245,215,0.55)", boxShadow: "0 8px 18px -12px rgba(0,0,0,0.5)" } : { background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.12)" }}>
+                    <span className={`flex items-center gap-1 font-bold leading-tight whitespace-nowrap ${l === "Caisse du jour" ? "text-[10px]" : "text-[10.5px]"}`} style={{ color: l === "Caisse du jour" ? "#fff" : "rgba(255,255,255,0.75)" }}><Ic size={l === "Caisse du jour" ? 11 : 12} color={c} className="shrink-0" /> <span className="min-w-0">{l}</span></span>
                     <p className={`font-display font-bold ${tile(v)} leading-tight mt-0.5 whitespace-nowrap`} style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{v}</p>
                     <p className="text-[10px] truncate" style={{ color: "rgba(255,255,255,0.6)" }}>{sub}</p>
                   </div>
@@ -4614,7 +4655,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
       </div>
       )}
 
-      <div className="px-4 mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+      <div className="px-4 mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5">
         {shown.map((p) => {
           const n = qtyInCart(p.id);
           const out = p.stock <= 0;
@@ -4663,8 +4704,8 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
 
       </>)}
 
-      {!showCart && !isBoutique && (
-        <div data-delivery-lane className="fixed left-3 right-3 z-30 gb-slide-up no-print mx-auto max-w-[600px]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
+      {!showCart && !isBoutique && !docked && (
+        <div data-delivery-lane className="gb-lane fixed left-3 right-3 z-30 gb-slide-up no-print mx-auto max-w-[600px]" style={{ bottom: "calc(88px + env(safe-area-inset-bottom))" }}>
           {count > 0 ? (
             nuit ? (
             <button onClick={() => setShowCart(true)} className="gb-focus w-full min-h-[64px] rounded-[20px] pl-4 pr-2 py-2 flex items-center gap-3 text-white" style={{ background: "var(--glass)", boxShadow: "0 12px 26px rgba(14,34,64,0.4)" }}>
@@ -4699,10 +4740,10 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
         </div>
       )}
 
-      {showCart && (
-        <div className="fixed inset-0 z-40 flex items-end no-print">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCart(false)} />
-          <div className={nuit ? "relative w-full h-full max-w-[600px] mx-auto px-4 gb-slide-up flex flex-col" : "relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col"} style={{ background: nuit ? "var(--paper)" : "var(--card)", paddingBottom: nuit ? "max(20px, calc(env(safe-area-inset-bottom) + 12px))" : "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+      {(showCart || docked) && (
+        <div className={docked ? "gb-cart-dock fixed z-[25] flex no-print" : "fixed inset-0 z-40 flex items-end no-print"}>
+          {!docked && <div className="absolute inset-0 bg-black/40" onClick={() => setShowCart(false)} />}
+          <div className={nuit ? "relative w-full h-full max-w-[600px] mx-auto px-4 gb-slide-up flex flex-col" : docked ? "relative w-full h-full p-4 flex flex-col" : "relative w-full rounded-t-3xl p-5 gb-slide-up max-h-[85vh] flex flex-col"} style={{ background: nuit ? "var(--paper)" : "var(--card)", paddingBottom: nuit ? "max(20px, calc(env(safe-area-inset-bottom) + 12px))" : "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
             {nuit ? (
               <div className="-mx-4 px-4 pb-3 mb-3 flex items-center gap-3 text-white shrink-0" style={{ background: "var(--glass)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
                 <button onClick={() => setShowCart(false)} className="gb-focus w-10 h-10 -ml-1 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Retour"><ArrowLeft size={19} /></button>
@@ -6263,9 +6304,13 @@ function DeleteSaleSheet({ sale, impact, currency, onCancel, onConfirm }) {
 
 // Bas de la barre d'en-tête fixe de l'application (nom de la boutique).
 const STICK_BASE = "calc(max(22px, env(safe-area-inset-top)) + 44px)";
-function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, onReturnSale, onSaveInvoice, pushToast }) {
+function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, isAdmin, onDeleteSale, onUpdateSale, onReturnSale, onSaveInvoice, pushToast, wide: wideProp = false }) {
   const fmt = useFmt();
+  // Tableau triable seulement si la place suffit (6 colonnes + panneau détail).
+  const roomForTable = useMediaQuery("(min-width: 1360px)");
+  const wide = wideProp && roomForTable;
   const [open, setOpen] = useState(null);
+  const [sortBy, setSortBy] = useState({ k: "date", d: -1 });
   const [returningSale, setReturningSale] = useState(null);
   const [finderOpen, setFinderOpen] = useState(false);
   const [viewReturn, setViewReturn] = useState(null);
@@ -6381,93 +6426,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
   const salesTotal = sorted.reduce((t, x) => t + (Number(x.total) || 0), 0);
   const firstName = (n) => { const w = (n || "").trim().split(/\s+/); return w.length > 1 && n === n.toUpperCase() ? w[w.length - 1].charAt(0) + w[w.length - 1].slice(1).toLowerCase() : w[0] || ""; };
   const iconBtn = "gb-focus flex flex-col items-center gap-0.5 w-[50px] shrink-0";
-  return (
-    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
-      <div ref={stickTopRef} className="sticky z-[11] -mx-4 px-4 pt-2 pb-2.5 mb-2.5 no-print" style={{ top: STICK_BASE, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.30)" }}>
-        <div className="flex items-center gap-1.5">
-          <div className="flex-1 min-w-0">
-            <h2 className="font-display font-bold text-[21px] leading-tight truncate">{vendorFilter ? "Mes ventes" : "Historique"}</h2>
-            <p className="text-[12px]" style={{ color: H.mut }}>{sorted.length} vente{sorted.length > 1 ? "s" : ""} · {periodLabel || "période choisie"}</p>
-          </div>
-          {onReturnSale && <button onClick={() => setFinderOpen(true)} className={iconBtn} aria-label="Retour produit"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Undo2 size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>Retour</span></button>}
-          <button onClick={() => exportSalesCSV(sorted, pushToast)} className={iconBtn} aria-label="Exporter en Excel"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Download size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>Excel</span></button>
-          <button onClick={() => setPdfPreview(true)} className={iconBtn} aria-label="PDF"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Printer size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>PDF</span></button>
-        </div>
-        <div className="flex gap-1 p-1 rounded-[14px] mt-2.5 overflow-x-auto gb-scroll" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-          {[["today", "Aujourd'hui"], ["7j", "7 jours"], ["30j", "30 jours"], ["all", "Tout"], ["custom", "Dates"]].map(([id, l]) => (
-            <button key={id} onClick={() => setPeriodFilter(id)} className="gb-focus flex-auto shrink-0 h-[36px] px-2 rounded-[10px] text-[12px] font-bold whitespace-nowrap flex items-center justify-center" style={periodFilter === id ? { background: "var(--glass)", color: "#fff", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.5)" } : { color: H.mut }}>{l}</button>
-          ))}
-        </div>
-        {periodFilter === "custom" && (
-          <div className="flex items-center gap-2 mt-2 gb-slide-up">
-            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
-            <span className="text-xs opacity-50">au</span>
-            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
-          </div>
-        )}
-        <div className="flex gap-1.5 mt-2">
-          <label className="flex-1 min-w-0 flex items-center gap-2 px-3 h-10 rounded-[12px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-            <Search size={15} style={{ color: H.mut }} />
-            <input value={histQuery} onChange={(e) => setHistQuery(e.target.value)} placeholder="Reçu, client, vendeur, produit" className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px]" />
-            {histQuery && <button onClick={() => setHistQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={13} /></button>}
-          </label>
-          <button onClick={() => setPayOpen((o) => !o)} aria-expanded={payOpen} aria-label="Filtrer par paiement" className="gb-focus w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0 relative" style={payOpen || payFilter !== "all" ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}>
-            <Layers size={16} />
-            {payFilter !== "all" && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: "var(--cap)", border: "2px solid var(--paper)" }} />}
-          </button>
-        </div>
-        {(payOpen || payFilter !== "all") && (
-          <div className="flex gap-1.5 overflow-x-auto gb-scroll -mx-4 px-4 mt-2 gb-slide-up">
-            {[["all", "Tous", sorted.length, null], ["especes", "Espèces", payCounts.especes || 0, "#1E7A46"], ["mobile", "Mobile", payCounts.mobile || 0, "#1D5FA8"], ["credit", "Crédit", payCounts.credit || 0, "#B3261E"], ["avoir", "Avoir", payCounts.avoir || 0, "#9A5B00"]].map(([id, l, n, c]) => (
-              <button key={id} onClick={() => setPayFilter(id)} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[11.5px] font-bold whitespace-nowrap" style={payFilter === id ? { background: c ? `${c}1A` : "var(--glass)", color: c || "#fff", border: `1.5px solid ${c || "var(--glass)"}` } : { background: "var(--card)", border: "1px solid var(--line)" }}>{l} ({n})</button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {pdfPreview && <SalesPdfPreview shop={shop} sales={sorted} vendorFilter={vendorFilter} onClose={() => setPdfPreview(false)} pushToast={pushToast} />}
-      {vendorFilter && <VendorGoalCard shop={shop} sales={sales} vendorName={vendorFilter} />}
-
-      <div className="rounded-[22px] px-4 pt-3.5 pb-3.5 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, var(--glass-light), var(--glass))", boxShadow: "0 14px 28px -16px rgba(0,0,0,0.55)" }}>
-        <span className="absolute -right-8 -top-10 w-32 h-32 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
-        <div className="relative flex items-end gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] opacity-80">Recette {periodLabel}</p>
-            <p className="font-display font-bold text-[28px] leading-tight truncate">{fmt(revenueInPeriod)}</p>
-          </div>
-          <div className="text-right text-[12px] leading-relaxed shrink-0 whitespace-nowrap">
-            <p><span className="opacity-75">Ventes </span><b style={{ color: "#A6E07A" }}>{fmt(salesTotal)}</b></p>
-            <p><span className="opacity-75">Crédit </span><b style={{ color: "#FFB4AB" }}>{fmt(creditGivenUnpaidInPeriod)}</b></p>
-          </div>
-        </div>
-        <div className="relative flex h-2 rounded-full overflow-hidden gap-[2px] mt-2.5" style={{ background: "rgba(255,255,255,0.12)" }}>
-          {revenueInPeriod > 0 && [[cashOnly, "#2FA565"], [mobileOnly, "#3B7DD8"], [creditCollectedInPeriod, "#E0A030"]].filter(([v]) => v > 0).map(([v, c]) => <div key={c} style={{ width: `${(v / revenueInPeriod) * 100}%`, background: c }} />)}
-        </div>
-        <div className="relative grid grid-cols-3 gap-1.5 mt-2.5">
-          {[["Espèces", cashOnly, "#6FD39A"], ["Mobile", mobileOnly, "#7EAAF0"], ["Crédits reçus", creditCollectedInPeriod, "#F0C060"]].map(([l, v, c]) => (
-            <div key={l} className="rounded-[10px] px-2 py-1.5 min-w-0" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <p className="text-[10.5px] opacity-80 whitespace-nowrap flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c }} />{l}</p>
-              <p className="text-[12.5px] font-bold whitespace-nowrap truncate">{fmt(v)}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {listShown.length === 0 && (
-        <div className="rounded-[20px] py-8 px-5 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
-          <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Receipt size={22} style={{ color: H.mut }} /></div>
-          <p className="font-semibold text-[14px]">{q || payFilter !== "all" ? "Aucune vente ne correspond" : "Aucune vente sur cette période"}</p>
-          <p className="text-[12px] mt-0.5" style={{ color: H.mut }}>{q || payFilter !== "all" ? "Changez la recherche ou le filtre." : "Choisissez une autre période ci-dessus."}</p>
-        </div>
-      )}
-      <div className="flex flex-col gap-3">
-        {listGroups.map((g) => (
-        <div key={g.key} className="rounded-[18px]" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
-          <div className="sticky z-[9] flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-3.5 py-2 rounded-t-[18px] no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top}px)`, background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
-            <span className="text-[11px] font-bold uppercase tracking-[0.05em] whitespace-nowrap" style={{ color: H.mut }}>{dayLabel(g)}</span>
-            <span className="text-[11px] font-bold shrink-0 whitespace-nowrap" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <span style={{ color: "var(--ink)" }}>{fmt(g.total)}</span>{!q && g.credit > 0 ? <span style={{ color: "#B3261E" }}> · crédit {fmt(g.credit)}</span> : null}</span>
-          </div>
-        {g.items.map((s, idx) => {
+  const renderSaleRow = (s, idx, total) => {
           const cs = withChangeAvoir(s, avoirs);
           const changeAvoir = cs.avoirMonnaie && cs.avoirAmount > 0 ? cs.avoirAmount : 0;
           const avSt = changeAvoir > 0 ? changeAvoirStatusOf(s, avoirs, changeAvoir) : null;
@@ -6498,7 +6457,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
           const moreItems = !fullyReturned && s.items.length > 2 ? s.items.length - 2 : 0;
           const isOpen = open === s.id;
           return (
-          <div key={s.id} style={{ borderTop: idx ? "1px solid var(--line)" : "none", background: isOpen ? "var(--paper)" : unpaid ? "#FFFAF9" : "transparent" }} className={idx === g.items.length - 1 ? "rounded-b-[18px]" : ""}>
+          <div key={s.id} style={{ borderTop: idx ? "1px solid var(--line)" : "none", background: isOpen ? "var(--paper)" : unpaid ? "#FFFAF9" : "transparent" }} className={idx === total - 1 ? "rounded-b-[18px]" : ""}>
             <button onClick={() => setOpen(isOpen ? null : s.id)} aria-expanded={isOpen} className="gb-focus w-full flex items-start gap-2.5 px-3.5 py-3 text-left">
               <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: payTint.bg }}><PayIcon size={16} color={payTint.fg} /></span>
               <span className="flex-1 min-w-0">
@@ -6592,10 +6551,152 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
             )}
           </div>
           );
-        })}
+  };
+
+  return (
+    <div className="px-4 pt-2" style={{ paddingBottom: "max(120px, calc(env(safe-area-inset-bottom) + 110px))" }}>
+      <div ref={stickTopRef} className="sticky z-[11] -mx-4 px-4 pt-2 pb-2.5 mb-2.5 no-print" style={{ top: STICK_BASE, background: "var(--paper)", boxShadow: "0 10px 12px -12px rgba(0,0,0,0.30)" }}>
+        <div className="flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <h2 className="font-display font-bold text-[21px] leading-tight truncate">{vendorFilter ? "Mes ventes" : "Historique"}</h2>
+            <p className="text-[12px]" style={{ color: H.mut }}>{sorted.length} vente{sorted.length > 1 ? "s" : ""} · {periodLabel || "période choisie"}</p>
+          </div>
+          {onReturnSale && <button onClick={() => setFinderOpen(true)} className={iconBtn} aria-label="Retour produit"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Undo2 size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>Retour</span></button>}
+          <button onClick={() => exportSalesCSV(sorted, pushToast)} className={iconBtn} aria-label="Exporter en Excel"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Download size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>Excel</span></button>
+          <button onClick={() => setPdfPreview(true)} className={iconBtn} aria-label="PDF"><span className="w-10 h-10 rounded-[12px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}><Printer size={17} /></span><span className="text-[9.5px] font-bold" style={{ color: H.mut }}>PDF</span></button>
+        </div>
+        <div className="flex gap-1 p-1 rounded-[14px] mt-2.5 overflow-x-auto gb-scroll" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          {[["today", "Aujourd'hui"], ["7j", "7 jours"], ["30j", "30 jours"], ["all", "Tout"], ["custom", "Dates"]].map(([id, l]) => (
+            <button key={id} onClick={() => setPeriodFilter(id)} className="gb-focus flex-auto shrink-0 h-[36px] px-2 rounded-[10px] text-[12px] font-bold whitespace-nowrap flex items-center justify-center" style={periodFilter === id ? { background: "var(--glass)", color: "#fff", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.5)" } : { color: H.mut }}>{l}</button>
+          ))}
+        </div>
+        {periodFilter === "custom" && (
+          <div className="flex items-center gap-2 mt-2 gb-slide-up">
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+            <span className="text-xs opacity-50">au</span>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="gb-focus flex-1 rounded-xl px-3 py-2 text-sm border" style={{ borderColor: "var(--line)", background: "var(--card)" }} />
+          </div>
+        )}
+        <div className="flex gap-1.5 mt-2">
+          <label className="flex-1 min-w-0 flex items-center gap-2 px-3 h-10 rounded-[12px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <Search size={15} style={{ color: H.mut }} />
+            <input value={histQuery} onChange={(e) => setHistQuery(e.target.value)} placeholder="Reçu, client, vendeur, produit" className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px]" />
+            {histQuery && <button onClick={() => setHistQuery("")} className="gb-focus p-1" aria-label="Effacer"><X size={13} /></button>}
+          </label>
+          <button onClick={() => setPayOpen((o) => !o)} aria-expanded={payOpen} aria-label="Filtrer par paiement" className="gb-focus w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0 relative" style={payOpen || payFilter !== "all" ? { background: "var(--glass)", color: "#fff" } : { background: "var(--card)", border: "1px solid var(--line)", color: "var(--glass)" }}>
+            <Layers size={16} />
+            {payFilter !== "all" && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: "var(--cap)", border: "2px solid var(--paper)" }} />}
+          </button>
+        </div>
+        {(payOpen || payFilter !== "all") && (
+          <div className="flex gap-1.5 overflow-x-auto gb-scroll -mx-4 px-4 mt-2 gb-slide-up">
+            {[["all", "Tous", sorted.length, null], ["especes", "Espèces", payCounts.especes || 0, "#1E7A46"], ["mobile", "Mobile", payCounts.mobile || 0, "#1D5FA8"], ["credit", "Crédit", payCounts.credit || 0, "#B3261E"], ["avoir", "Avoir", payCounts.avoir || 0, "#9A5B00"]].map(([id, l, n, c]) => (
+              <button key={id} onClick={() => setPayFilter(id)} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[11.5px] font-bold whitespace-nowrap" style={payFilter === id ? { background: c ? `${c}1A` : "var(--glass)", color: c || "#fff", border: `1.5px solid ${c || "var(--glass)"}` } : { background: "var(--card)", border: "1px solid var(--line)" }}>{l} ({n})</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {pdfPreview && <SalesPdfPreview shop={shop} sales={sorted} vendorFilter={vendorFilter} onClose={() => setPdfPreview(false)} pushToast={pushToast} />}
+      {vendorFilter && <VendorGoalCard shop={shop} sales={sales} vendorName={vendorFilter} />}
+
+      <div className="rounded-[22px] px-4 pt-3.5 pb-3.5 mb-3 relative overflow-hidden text-white" style={{ background: "linear-gradient(135deg, var(--glass-light), var(--glass))", boxShadow: "0 14px 28px -16px rgba(0,0,0,0.55)" }}>
+        <span className="absolute -right-8 -top-10 w-32 h-32 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <div className="relative flex items-end gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] opacity-80">Recette {periodLabel}</p>
+            <p className="font-display font-bold text-[28px] leading-tight truncate">{fmt(revenueInPeriod)}</p>
+          </div>
+          <div className="text-right text-[12px] leading-relaxed shrink-0 whitespace-nowrap">
+            <p><span className="opacity-75">Ventes </span><b style={{ color: "#A6E07A" }}>{fmt(salesTotal)}</b></p>
+            <p><span className="opacity-75">Crédit </span><b style={{ color: "#FFB4AB" }}>{fmt(creditGivenUnpaidInPeriod)}</b></p>
+          </div>
+        </div>
+        <div className="relative flex h-2 rounded-full overflow-hidden gap-[2px] mt-2.5" style={{ background: "rgba(255,255,255,0.12)" }}>
+          {revenueInPeriod > 0 && [[cashOnly, "#2FA565"], [mobileOnly, "#3B7DD8"], [creditCollectedInPeriod, "#E0A030"]].filter(([v]) => v > 0).map(([v, c]) => <div key={c} style={{ width: `${(v / revenueInPeriod) * 100}%`, background: c }} />)}
+        </div>
+        <div className="relative grid grid-cols-3 gap-1.5 mt-2.5">
+          {[["Espèces", cashOnly, "#6FD39A"], ["Mobile", mobileOnly, "#7EAAF0"], ["Crédits reçus", creditCollectedInPeriod, "#F0C060"]].map(([l, v, c]) => (
+            <div key={l} className="rounded-[10px] px-2 py-1.5 min-w-0" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <p className="text-[10.5px] opacity-80 whitespace-nowrap flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c }} />{l}</p>
+              <p className="text-[12.5px] font-bold whitespace-nowrap truncate">{fmt(v)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {listShown.length === 0 && (
+        <div className="rounded-[20px] py-8 px-5 text-center" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+          <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Receipt size={22} style={{ color: H.mut }} /></div>
+          <p className="font-semibold text-[14px]">{q || payFilter !== "all" ? "Aucune vente ne correspond" : "Aucune vente sur cette période"}</p>
+          <p className="text-[12px] mt-0.5" style={{ color: H.mut }}>{q || payFilter !== "all" ? "Changez la recherche ou le filtre." : "Choisissez une autre période ci-dessus."}</p>
+        </div>
+      )}
+      {wide && listShown.length > 0 && (() => {
+        const val = (s) => sortBy.k === "date" ? new Date(s.date).getTime()
+          : sortBy.k === "num" ? receiptNumber(s.id)
+          : sortBy.k === "vendor" ? (s.vendor || "").toLowerCase()
+          : sortBy.k === "items" ? s.items.reduce((t, i) => t + (Number(i.qty) || 0), 0)
+          : sortBy.k === "pay" ? paymentLabelOf(s)
+          : Number(s.total) || 0;
+        const rows = [...listShown].sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * sortBy.d; });
+        const sel = rows.find((s) => s.id === open) || null;
+        const cols = [["num", "N° reçu", "left"], ["date", "Date · heure", "left"], ["vendor", "Vendeur", "left"], ["items", "Articles", "left"], ["pay", "Paiement", "left"], ["total", "Montant", "right"]];
+        const tpl = "104px 118px minmax(80px,0.7fr) minmax(160px,1.6fr) minmax(170px,1.1fr) 116px";
+        return (
+          <div className="gb-hist-wide" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 360px", gap: 16, alignItems: "start" }}>
+            <div className="rounded-[18px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: tpl, background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+                {cols.map(([k, l, al]) => (
+                  <button key={k} onClick={() => setSortBy((o) => ({ k, d: o.k === k ? -o.d : (k === "date" || k === "total" ? -1 : 1) }))} className="gb-focus px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.05em] whitespace-nowrap flex items-center gap-1" style={{ color: sortBy.k === k ? "var(--ink)" : H.mut, justifyContent: al === "right" ? "flex-end" : "flex-start" }}>
+                    {l}<span style={{ opacity: sortBy.k === k ? 1 : 0.25 }}>{sortBy.k === k && sortBy.d > 0 ? "▲" : "▼"}</span>
+                  </button>
+                ))}
+              </div>
+              {rows.map((s, i) => {
+                const unpaid = s.paymentMethod === "credit" && !s.paid;
+                const isSel = open === s.id;
+                const nb = s.items.reduce((t, it) => t + (Number(it.qty) || 0), 0);
+                const first = s.items[0]?.product?.name;
+                return (
+                  <button key={s.id} onClick={() => setOpen(isSel ? null : s.id)} className="gb-focus gb-hist-row w-full text-left" style={{ display: "grid", gridTemplateColumns: tpl, alignItems: "center", borderTop: i ? "1px solid var(--line)" : "none", background: isSel ? "var(--paper)" : unpaid ? "#FFFAF9" : "transparent", boxShadow: isSel ? "inset 3px 0 0 var(--accent, #F2C14E)" : "none" }}>
+                    <span className="px-3 py-2.5 font-mono text-[12px] font-bold whitespace-nowrap">{receiptNumber(s.id)}</span>
+                    <span className="px-3 py-2.5 text-[12px] whitespace-nowrap" style={{ color: H.mut }}>{new Date(s.date).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                    <span className="px-3 py-2.5 text-[12.5px] font-semibold break-words">{firstName(s.vendor) || "—"}</span>
+                    <span className="px-3 py-2.5 text-[12.5px] break-words">{s.items.length ? <>{first}{s.items.length > 1 ? <span style={{ color: H.mut }}> +{s.items.length - 1}</span> : null} <span className="text-[11px] font-bold" style={{ color: H.mut }}>· {nb} art.</span></> : <span style={{ color: H.mut }}>Articles retournés</span>}</span>
+                    <span className="px-3 py-2.5"><span className="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold break-words" style={unpaid ? { background: "#FCEBEA", color: "#B3261E" } : { background: "var(--paper-dim)", color: "var(--ink)" }}>{paymentLabelOf(s)}</span></span>
+                    <span className="px-3 py-2.5 text-right text-[13px] font-extrabold whitespace-nowrap" data-no-count>{fmt(s.total)}</span>
+                  </button>
+                );
+              })}
+              <div className="flex justify-between px-3.5 py-2.5 text-[12px] font-bold" style={{ background: "var(--paper)", borderTop: "1px solid var(--line)", color: H.mut }}>
+                <span>{rows.length} vente{rows.length > 1 ? "s" : ""}</span>
+                <span style={{ color: "var(--ink)" }}>Total {fmt(rows.reduce((t, s) => t + (Number(s.total) || 0), 0))}</span>
+              </div>
+            </div>
+            <div data-no-count className="rounded-[18px] sticky" style={{ top: `calc(${STICK_BASE} + ${stickH.top}px + 8px)`, background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
+              {sel ? renderSaleRow(sel, 0, 1) : (
+                <div className="px-5 py-10 text-center">
+                  <div className="w-12 h-12 rounded-2xl mx-auto mb-2.5 flex items-center justify-center" style={{ background: "var(--paper-dim)" }}><Receipt size={22} style={{ color: H.mut }} /></div>
+                  <p className="font-semibold text-[14px]">Détail de la vente</p>
+                  <p className="text-[12px] mt-0.5" style={{ color: H.mut }}>Cliquez sur une ligne du tableau pour voir le reçu, imprimer, facturer ou faire un retour.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+      {!wide && <div className="flex flex-col gap-3">
+        {listGroups.map((g) => (
+        <div key={g.key} className="rounded-[18px]" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 4px 16px rgba(22,32,42,0.05)" }}>
+          <div className="sticky z-[9] flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-3.5 py-2 rounded-t-[18px] no-print" style={{ top: `calc(${STICK_BASE} + ${stickH.top}px)`, background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+            <span className="text-[11px] font-bold uppercase tracking-[0.05em] whitespace-nowrap" style={{ color: H.mut }}>{dayLabel(g)}</span>
+            <span className="text-[11px] font-bold shrink-0 whitespace-nowrap" style={{ color: H.mut }}>{g.items.length} vente{g.items.length > 1 ? "s" : ""} · <span style={{ color: "var(--ink)" }}>{fmt(g.total)}</span>{!q && g.credit > 0 ? <span style={{ color: "#B3261E" }}> · crédit {fmt(g.credit)}</span> : null}</span>
+          </div>
+        {g.items.map((s, idx) => renderSaleRow(s, idx, g.items.length))}
         </div>
         ))}
-      </div>
+      </div>}
 
       {finderOpen && <ReturnFinderModal sales={scoped} onPick={(sale) => { setFinderOpen(false); setReturningSale(sale); }} onClose={() => setFinderOpen(false)} />}
       {returningSale && <SaleReturnFlow sale={returningSale} shop={shop} onReturnSale={onReturnSale} onClose={() => setReturningSale(null)} pushToast={pushToast} />}
@@ -16864,32 +16965,114 @@ function SupportChatWindow({ conv, ownerAccess, pushToast, minimized, onToggleMi
 
 // Message groupé : le même texte envoyé à plusieurs administrateurs, chacun
 // le recevant dans SA propre conversation.
-function SupportBroadcastSheet({ targets, ownerAccess, pushToast, onClose, onDone }) {
+// Message groupé (espace propriétaire) : à TOUS les propriétaires
+// d'entreprise, aux seuls connectés, ou à une sélection. Le serveur dépose le
+// message dans la conversation de chacun ; l'administrateur est prévenu (cloche
+// + annonce vocale) à sa prochaine connexion.
+const BROADCAST_TEMPLATES = [
+  ["🔄 Mise à jour", "Bonjour 👋 Une nouvelle version de GestiOne est disponible. Rouvrez l'application pour profiter des dernières améliorations."],
+  ["⏳ Licence", "Bonjour 👋 Votre licence GestiOne arrive bientôt à expiration. Contactez-nous ici pour la renouveler sans interruption."],
+  ["🛠 Maintenance", "Bonjour 👋 Une courte maintenance est prévue ce soir. L'application reste utilisable, la synchronisation reprendra automatiquement."],
+  ["🎉 Nouveauté", "Bonjour 👋 Découvrez la nouvelle fonctionnalité de GestiOne dans votre menu Administration."],
+];
+function SupportBroadcastSheet({ targets = [], initialMode, ownerAccess, pushToast, onClose, onDone }) {
+  const [mode, setMode] = useState(initialMode || (targets.length ? "devices" : "all"));
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [counts, setCounts] = useState(null);
+  const [sent, setSent] = useState(null);
+  useEffect(() => {
+    let off = false;
+    api.ownerBroadcastTargets({ email: ownerAccess.email, secret: ownerAccess.secret }).then((d) => { if (!off) setCounts(d); }).catch(() => { if (!off) setCounts({ all: null, online: null, targets: [] }); });
+    return () => { off = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const n = mode === "devices" ? targets.length : mode === "online" ? counts?.online : counts?.all;
+  const preview = (mode === "devices" ? targets : (counts?.targets || []).filter((t) => mode === "all" || t.online)).slice(0, 5);
   const send = async () => {
-    const body = text.trim(); if (!body) return;
+    const body = text.trim(); if (!body || busy) return;
     setBusy(true);
-    const results = await Promise.allSettled(targets.map((c) => api.ownerSupportReply({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: c.device_id, message: body })));
-    const ok = results.filter((r) => r.status === "fulfilled").length;
-    setBusy(false);
-    pushToast?.(ok === targets.length ? `Message envoyé à ${ok} administrateur${ok > 1 ? "s" : ""}` : `Envoyé à ${ok} sur ${targets.length} — réessayez pour les autres`, ok === targets.length ? "ok" : "error");
-    onDone?.(targets.filter((_, i) => results[i].status === "fulfilled").map((c) => c.device_id));
+    try {
+      const r = await api.ownerBroadcast({ email: ownerAccess.email, secret: ownerAccess.secret, target: mode, deviceIds: targets.map((c) => c.device_id), message: body });
+      setSent(r.sent || 0);
+      setTimeout(() => onDone?.(r.device_ids || []), 1600);
+    } catch (e) {
+      pushToast?.(e?.data?.error || api.networkErrorText(e, "envoyer le message") || "Envoi impossible", "error");
+    } finally { setBusy(false); }
   };
+  const OPTS = [
+    ["all", "Tous les propriétaires", counts?.all == null ? "Toutes les entreprises" : `${counts.all} administrateur${counts.all > 1 ? "s" : ""} · tous types d'entreprise`, Users],
+    ["online", "Seulement les connectés", counts?.online == null ? "En ligne maintenant" : `${counts.online} en ligne maintenant`, Activity],
+    ...(targets.length ? [["devices", "Ma sélection", `${targets.length} administrateur${targets.length > 1 ? "s" : ""} choisi${targets.length > 1 ? "s" : ""}`, CheckSquare]] : []),
+  ];
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
-      <div className="w-full max-w-[600px] rounded-t-3xl px-5 pt-3 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(10,16,24,0.55)" }} onClick={() => !busy && onClose()}>
+      <div className="w-full max-w-[600px] rounded-t-[28px] px-5 pt-3 gb-slide-up max-h-[94vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 18px))" }} onClick={(e) => e.stopPropagation()}>
         <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
-        <div className="flex items-center gap-3 mb-3">
-          <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "#E6EEFA", color: "#1D4F91" }}><Users size={20} /></span>
-          <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px] leading-tight">Message groupé</p><p className="text-[12px] opacity-60">Chacun le reçoit dans sa propre conversation</p></div>
-          <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+        {sent != null ? (
+          <div className="flex flex-col items-center text-center py-6">
+            <span className="rounded-full flex items-center justify-center gb-pop" style={{ width: 84, height: 84, background: "#1E9E6A", boxShadow: "0 14px 30px -12px rgba(30,158,106,0.8)" }}><Send size={36} color="#fff" /></span>
+            <p className="font-display font-bold text-[20px] mt-4">Message envoyé à {sent} propriétaire{sent > 1 ? "s" : ""}</p>
+            <p className="text-[13px] opacity-65 mt-1 px-4">Chacun le retrouve dans sa conversation avec l'Assistance GestiOne. Il est prévenu par une notification et une annonce vocale à sa connexion.</p>
+          </div>
+        ) : (<>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 text-[22px]" style={{ background: "#FFF1D6" }}>📣</span>
+            <div className="flex-1 min-w-0"><p className="font-display font-bold text-[19px] leading-tight">Message groupé</p><p className="text-[12px] opacity-60">Chaque propriétaire le reçoit dans sa propre conversation</p></div>
+            <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+          </div>
+          <div className="flex flex-col gap-2">
+            {OPTS.map(([id, l, sub, Ic], i) => {
+              const on = mode === id;
+              return (
+                <button key={id} onClick={() => setMode(id)} aria-pressed={on} className="gb-focus w-full rounded-[16px] px-3 py-3 flex items-center gap-3 text-left" style={{ background: on ? "#FBF6EE" : "var(--card)", border: `1.5px solid ${on ? "#4A2E12" : "var(--line)"}`, animation: `gbcUp .35s ease ${i * 50}ms both` }}>
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ border: `2px solid ${on ? "#4A2E12" : "#C9CED6"}` }}>{on && <span className="w-3 h-3 rounded-full" style={{ background: "#4A2E12" }} />}</span>
+                  <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">{l}</span><span className="block text-[11.5px] opacity-60">{sub}</span></span>
+                  <Ic size={17} className="shrink-0 opacity-50" />
+                </button>
+              );
+            })}
+          </div>
+          {preview.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {preview.map((c) => <span key={c.device_id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full text-[11.5px] font-bold max-w-full" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><ClientAvatar name={c.name || "Administrateur"} size={20} /><span className="min-w-0">{c.name || "Administrateur"}{c.shop_name ? ` · ${c.shop_name}` : ""}</span><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c.online ? "#22A35A" : "#C9CED6" }} /></span>)}
+              {(n || 0) > preview.length && <span className="px-2.5 py-1 rounded-full text-[11.5px] font-bold" style={{ background: "var(--paper-dim)" }}>+{n - preview.length}</span>}
+            </div>
+          )}
+          <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 1000))} rows={4} placeholder="Écrivez votre message…" className="gb-focus w-full mt-3 rounded-[16px] p-3 text-[14.5px] leading-snug" style={{ background: "var(--card)", border: "1.5px solid var(--line)", resize: "none", minHeight: 110 }} />
+          <div className="flex justify-between items-center mt-1 px-0.5"><span className="text-[11px] opacity-50">Le message commence par 📣 chez le destinataire</span><span className="text-[11px] opacity-50">{text.length} / 1000</span></div>
+          <div className="flex gap-1.5 mt-2 overflow-x-auto gb-scroll pb-1">
+            {BROADCAST_TEMPLATES.map(([l, t]) => <button key={l} onClick={() => setText(t)} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[12px] font-bold" style={{ background: "#F4F1EA", color: "#4A2E12" }}>{l}</button>)}
+          </div>
+          <button onClick={send} disabled={busy || !text.trim() || !n} className="gb-focus w-full mt-3 min-h-[54px] rounded-[18px] text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg,#5A3816,#3E260F)", boxShadow: "0 10px 20px -10px rgba(74,46,18,0.9)" }}>{busy ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />} {n ? `Envoyer à ${n} propriétaire${n > 1 ? "s" : ""}` : "Aucun destinataire"}</button>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+// Bandeau d'arrivée d'un message de l'Assistance GestiOne (ou d'une annonce
+// groupée) : affiché à l'administrateur dès sa connexion. Un toucher ouvre
+// directement la messagerie.
+function SupportAlertBanner({ alert, onOpen, onClose }) {
+  useEffect(() => { const t = setTimeout(onClose, 20000); return () => clearTimeout(t); }, [alert?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!alert) return null;
+  return (
+    <div className="fixed left-0 right-0 z-[96] flex justify-center px-3 no-print" style={{ top: "calc(max(12px, env(safe-area-inset-top)) + 6px)" }} role="alert">
+      <style>{`@keyframes sabIn{from{opacity:0;transform:translateY(-24px) scale(.96)}to{opacity:1;transform:none}}@keyframes sabRing{0%{transform:scale(.8);opacity:.7}100%{transform:scale(1.8);opacity:0}}`}</style>
+      <div className="w-full max-w-[460px] rounded-[22px] p-3 text-white" style={{ background: "linear-gradient(150deg,#0F5A44,#14684A 60%,#1E8E6A)", boxShadow: "0 18px 36px -14px rgba(10,60,45,0.7)", animation: "sabIn .45s cubic-bezier(.2,.8,.2,1) both" }}>
+        <div className="flex items-start gap-3">
+          <span className="relative w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.16)" }}>
+            <span className="absolute inset-0 rounded-[14px]" style={{ background: "rgba(255,255,255,0.25)", animation: "sabRing 1.6s ease-out infinite" }} />
+            {alert.broadcast ? <span className="relative text-[20px]">📣</span> : <Headphones size={20} className="relative" />}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.08em] opacity-80">{alert.broadcast ? "Annonce · Équipe GestiOne" : "Assistance GestiOne"}</p>
+            <p className="text-[14.5px] font-bold leading-tight mt-0.5">{alert.count > 1 ? `${alert.count} nouveaux messages` : "Nouveau message"}</p>
+            {alert.preview && <p className="text-[12.5px] leading-snug mt-1 opacity-90 break-words" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{alert.preview}</p>}
+          </div>
+          <button onClick={onClose} className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.14)" }} aria-label="Fermer"><X size={16} /></button>
         </div>
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {targets.map((c) => <span key={c.device_id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full text-[12px] font-bold" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><ClientAvatar name={c.name || "Anonyme"} size={22} />{c.name || "Anonyme"}<span className="w-1.5 h-1.5 rounded-full" style={{ background: c.online ? "#22A35A" : "#D93B30" }} /></span>)}
-        </div>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} autoFocus placeholder="Ex : Bonjour, une mise à jour est disponible : pensez à rouvrir l'application." className="gb-focus w-full rounded-[14px] p-3 text-[14px]" style={{ background: "var(--card)", border: "1px solid var(--line)", resize: "none" }} />
-        <button onClick={send} disabled={busy || !text.trim()} className="gb-focus w-full mt-3 min-h-[54px] rounded-2xl text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: "#163A2E" }}>{busy ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />} Envoyer à {targets.length} administrateur{targets.length > 1 ? "s" : ""}</button>
+        <button onClick={onOpen} className="gb-focus w-full mt-2.5 min-h-[44px] rounded-[14px] text-[14px] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "#fff", color: "#0F5A44" }}><MessageCircle size={17} /> Ouvrir la messagerie</button>
       </div>
     </div>
   );
@@ -16969,7 +17152,7 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
   const [visited, setVisited] = useState([]);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState(() => new Set());
-  const [broadcast, setBroadcast] = useState(false);
+  const [broadcast, setBroadcast] = useState(false); // false | "all" | "devices"
   const listBusy = useRef(false);
   const markRead = (deviceId) => setSeen((cur) => { const n = { ...cur, [deviceId]: new Date().toISOString() }; try { localStorage.setItem(SUPPORT_READ_KEY, JSON.stringify(n)); } catch { /* stockage indisponible */ } return n; });
   const isUnread = (c) => !!c.last_message_at && new Date(c.last_message_at).getTime() > new Date(seen[c.device_id] || 0).getTime() + 1000;
@@ -17061,6 +17244,11 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
         })}
       </div>
 
+      <button onClick={() => setBroadcast("all")} className="gb-focus w-full mb-2 min-h-[50px] rounded-[16px] px-4 flex items-center gap-2.5 text-left active:scale-[0.99] transition-transform" style={{ background: "linear-gradient(180deg,#F2C14E,#E0A82E)", color: "#3A2408", boxShadow: "0 10px 20px -12px rgba(224,168,46,0.9)" }}>
+        <span className="text-[20px]">📣</span>
+        <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">Message à tous les propriétaires</span><span className="block text-[11.5px] opacity-75">Ou seulement aux connectés · chacun dans sa conversation</span></span>
+        <Send size={17} className="shrink-0" />
+      </button>
       <div className="grid grid-cols-2 gap-2 mb-3">
         <button onClick={() => { const nxt = activeConversations.find((c) => isUnread(c) && c.device_id !== activeId); if (nxt) { setPicking(false); selectConv(nxt.device_id); } }} disabled={!activeConversations.some((c) => isUnread(c) && c.device_id !== activeId)} className="gb-focus min-h-[44px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-45" style={{ background: "#E3F4EA", color: "#14684A", border: "1px solid #BFE6CF" }}><MessageCircle size={15} /> Prochaine non lue{nUnread ? ` (${nUnread})` : ""}</button>
         <button onClick={() => { setPicking((v) => !v); setPicked(new Set()); }} className="gb-focus min-h-[44px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={picking ? { background: "#1D4F91", color: "#fff" } : { background: "#E6EEFA", color: "#1D4F91", border: "1px solid #C9D9F2" }}><Users size={15} /> {picking ? "Annuler la sélection" : "Message groupé"}</button>
@@ -17143,11 +17331,11 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
       {picking && picked.size > 0 && (
         <div className="sticky bottom-[110px] z-10 mt-2 flex items-center gap-2 rounded-[18px] p-2 pl-3.5" style={{ background: "#1D4F91", boxShadow: "0 12px 24px -10px rgba(29,79,145,0.6)" }}>
           <span className="flex-1 text-[13.5px] font-bold text-white">{picked.size} sélectionné{picked.size > 1 ? "s" : ""}</span>
-          <button onClick={() => setBroadcast(true)} className="gb-focus min-h-[42px] px-4 rounded-[14px] text-[13.5px] font-bold flex items-center gap-1.5" style={{ background: "#fff", color: "#1D4F91" }}><Send size={15} /> Écrire le message</button>
+          <button onClick={() => setBroadcast("devices")} className="gb-focus min-h-[42px] px-4 rounded-[14px] text-[13.5px] font-bold flex items-center gap-1.5" style={{ background: "#fff", color: "#1D4F91" }}><Send size={15} /> Écrire le message</button>
         </div>
       )}
       {broadcast && (
-        <SupportBroadcastSheet targets={activeConversations.filter((c) => picked.has(c.device_id))} ownerAccess={ownerAccess} pushToast={pushToast}
+        <SupportBroadcastSheet initialMode={broadcast === "devices" ? "devices" : "all"} targets={broadcast === "devices" ? activeConversations.filter((c) => picked.has(c.device_id)) : []} ownerAccess={ownerAccess} pushToast={pushToast}
           onClose={() => setBroadcast(false)}
           onDone={(ids) => { setBroadcast(false); setPicking(false); setPicked(new Set()); ids.forEach(markRead); fetchList(ownerAccess.email, ownerAccess.secret, { silent: true }); }} />
       )}
@@ -17395,7 +17583,174 @@ function SecretCode({ label, value }) {
   );
 }
 
-function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm, onResetAdmin, onResetVendor, onDelete, resetResult }) {
+// ---------- Jours bonus (espace propriétaire) ----------
+// Le propriétaire de l'application offre des jours supplémentaires sur le
+// temps d'activation d'une entreprise. Validation par SON code PIN (vérifié
+// par le serveur), enregistrement en base dans la licence de l'entreprise.
+const BONUS_PRESETS = [1, 3, 7, 15, 30];
+const BONUS_REASONS = ["Geste commercial", "Problème technique", "Fidélité", "Parrainage"];
+function OwnerPinSheet({ ownerAccess, title, subtitle, onSubmit, onClose }) {
+  const [mode, setMode] = useState("loading"); // loading | enter | create | confirm | done
+  const [pin, setPin] = useState("");
+  const [first, setFirst] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [shake, setShake] = useState(0);
+  const [result, setResult] = useState(null);
+  useEffect(() => {
+    let off = false;
+    api.ownerPinStatus({ email: ownerAccess.email, secret: ownerAccess.secret })
+      .then((r) => { if (!off) setMode(r?.hasPin ? "enter" : "create"); })
+      .catch(() => { if (!off) setMode("enter"); });
+    return () => { off = true; };
+  }, [ownerAccess]);
+  const fail = (m) => { setErr(m); setShake((n) => n + 1); setPin(""); };
+  const submit = async (code) => {
+    if (mode === "create") { setFirst(code); setPin(""); setMode("confirm"); return; }
+    setBusy(true); setErr("");
+    try {
+      if (mode === "confirm") {
+        if (code !== first) { setMode("create"); setFirst(""); fail("Les deux codes ne correspondent pas. Recommencez."); return; }
+        await api.ownerSetPin({ email: ownerAccess.email, secret: ownerAccess.secret, newPin: code });
+      }
+      const r = await onSubmit(code);
+      setResult(r); setMode("done");
+    } catch (e) {
+      const d = e?.data || {};
+      if (d.error === "PIN_SETUP_REQUIRED") { setMode("create"); fail("Créez d'abord votre code PIN."); }
+      else if (e?.status === 403 && d.error === "Code PIN incorrect") fail(`Code PIN incorrect${Number.isFinite(d.attempts_left) ? ` · ${d.attempts_left} essai${d.attempts_left > 1 ? "s" : ""} restant${d.attempts_left > 1 ? "s" : ""}` : ""}`);
+      else fail(d.error || (/OFFLINE/.test(String(e?.message)) ? "Pas de connexion internet." : e?.message || "Opération impossible."));
+    } finally { setBusy(false); }
+  };
+  const press = (d) => {
+    if (busy || mode === "loading") return;
+    setErr("");
+    if (d === "back") { setPin((p) => p.slice(0, -1)); return; }
+    setPin((p) => { if (p.length >= 4) return p; const n = p + d; if (n.length === 4) setTimeout(() => submit(n), 120); return n; });
+  };
+  const heading = mode === "create" ? "Créez votre code PIN" : mode === "confirm" ? "Confirmez le code PIN" : "Code PIN du propriétaire";
+  const hint = mode === "create" ? "4 chiffres, demandés à chaque validation de jours bonus" : mode === "confirm" ? "Saisissez le même code une seconde fois" : subtitle;
+  return (
+    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center no-print" role="dialog" aria-modal="true" aria-label={title}>
+      <style>{DEL_CSS}</style>
+      <div className="absolute inset-0" style={{ background: "rgba(10,16,24,0.6)" }} onClick={() => !busy && onClose(result)} />
+      <div className="relative w-full max-w-[440px] rounded-t-[28px] sm:rounded-[28px] gb-slide-up overflow-hidden" style={{ background: "#F6F5F0", color: "#16202A", fontFamily: "inherit" }}>
+        <div className="h-1.5" style={{ background: mode === "done" ? "linear-gradient(90deg,#1E9E6A,#7BE0B0)" : "linear-gradient(90deg,#8A5208,#EF9F27,#F6C453)" }} />
+        <div className="px-5 pt-3" style={{ paddingBottom: "max(24px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+          <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "#E6E3DB" }} />
+          {mode !== "done" ? (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "#FDF0DA", color: "#8A5208" }}><Gift size={22} /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-display font-bold text-[18px] leading-tight">{heading}</p>
+                  <p className="text-[12.5px] opacity-65 break-words">{title}</p>
+                </div>
+                <button onClick={() => onClose(null)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#EDEBE5" }} aria-label="Fermer"><X size={18} /></button>
+              </div>
+              <div key={shake} className="flex justify-center gap-3.5 mt-6" style={{ animation: shake ? "delShake .45s ease" : "none" }}>
+                {[0, 1, 2, 3].map((i) => <span key={i} className="w-[18px] h-[18px] rounded-full" style={{ background: i < pin.length ? (err ? "#B3261E" : "#16202A") : "transparent", border: `2px solid ${err ? "#B3261E" : i < pin.length ? "#16202A" : "#C9CED6"}`, transition: "all .15s" }} />)}
+              </div>
+              <p className="text-center text-[12.5px] mt-3 min-h-[36px] font-semibold px-2" style={{ color: err ? "#B3261E" : "#16202A", opacity: err ? 1 : 0.6 }} role="alert">{mode === "loading" ? "Vérification…" : busy ? "Validation…" : err || hint}</p>
+              <div className="grid grid-cols-3 gap-2.5 max-w-[320px] w-full mx-auto">
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"].map((d, i) => d === "" ? <span key={i} /> : (
+                  <button key={i} onClick={() => press(d)} disabled={busy || mode === "loading"} className="gb-focus h-[58px] rounded-[18px] text-[22px] font-bold flex items-center justify-center active:scale-[0.94] transition-transform disabled:opacity-50" style={{ background: d === "back" ? "transparent" : "#FFFFFF", border: d === "back" ? "none" : "1px solid #E6E3DB" }} aria-label={d === "back" ? "Effacer" : d}>{d === "back" ? <ArrowLeft size={22} /> : d}</button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center text-center pt-1">
+              <span className="relative rounded-full flex items-center justify-center" style={{ width: 84, height: 84, background: "#1E9E6A", animation: "delPop .5s cubic-bezier(.2,.8,.2,1) both", boxShadow: "0 14px 30px -12px rgba(30,158,106,0.8)" }}>
+                <span className="absolute inset-0 rounded-full" style={{ background: "#1E9E6A", animation: "delRing 1.4s ease-out .3s 2" }} />
+                <Gift size={36} color="#fff" className="relative" />
+              </span>
+              <p className="font-display font-bold text-[21px] mt-4">+{result?.bonus?.days} jour{result?.bonus?.days > 1 ? "s" : ""} offert{result?.bonus?.days > 1 ? "s" : ""}</p>
+              <p className="text-[13px] opacity-70 mt-1 break-words px-2">{title}</p>
+              {result?.bonus?.to && <p className="text-[13px] mt-2 px-3 py-2 rounded-[12px]" style={{ background: "#E6F4EC", color: "#1E7A46" }}>Nouvelle fin d'activation : <b>{new Date(result.bonus.to).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</b></p>}
+              <p className="text-[11.5px] opacity-55 mt-2">Enregistré sur le serveur · les téléphones de l'entreprise se mettent à jour à la prochaine synchronisation.</p>
+              <button onClick={() => onClose(result)} className="gb-focus mt-4 w-full h-[52px] rounded-[16px] text-[15px] font-bold text-white" style={{ background: "#12352A" }}>Terminer</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OwnerBonusPanel({ s, ownerAccess, onDone }) {
+  const sub = s.subscription || {};
+  const [days, setDays] = useState(7);
+  const [reason, setReason] = useState("");
+  const [pinOpen, setPinOpen] = useState(false);
+  const now = Date.now();
+  const cur = sub.expiresAt ? new Date(sub.expiresAt).getTime() : null;
+  const base = cur && cur > now ? cur : now;
+  const next = new Date(base + days * 864e5);
+  const left = Math.ceil((next.getTime() - now) / 864e5);
+  const hist = Array.isArray(sub.bonusHistory) ? sub.bonusHistory : [];
+  const setD = (v) => setDays(Math.max(1, Math.min(365, Math.round(Number(v) || 1))));
+  return (
+    <div className="mt-2.5 rounded-[18px] overflow-hidden" style={{ border: "1.5px solid #F2C98A", background: "linear-gradient(180deg,#FFF9EE,#FFFFFF)", animation: "gbcUp .4s cubic-bezier(.2,.8,.2,1) both" }}>
+      <div className="px-3 py-2.5 flex items-center gap-2.5" style={{ background: "linear-gradient(90deg,#FDF0DA,#FFF6E5)" }}>
+        <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "#EF9F27", color: "#fff", boxShadow: "0 6px 14px -8px #EF9F27" }}><Gift size={18} /></span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[13.5px] font-bold" style={{ color: "#6B3F05" }}>Jours bonus</span>
+          <span className="block text-[11.5px]" style={{ color: "#8A5208" }}>Prolonger l'activation · code PIN exigé</span>
+        </span>
+        {Number(sub.bonusDays) > 0 && <span className="shrink-0 text-[11px] font-bold px-2 py-1 rounded-full" style={{ background: "#fff", color: "#8A5208", border: "1px solid #F2C98A" }}>{sub.bonusDays} j offerts</span>}
+      </div>
+      <div className="p-3">
+        <div className="flex gap-1.5 flex-wrap">
+          {BONUS_PRESETS.map((d) => (
+            <button key={d} onClick={() => setDays(d)} className="gb-focus h-9 px-3 rounded-full text-[13px] font-bold active:scale-[0.95] transition-transform" style={days === d ? { background: "#8A5208", color: "#fff", boxShadow: "0 6px 12px -8px #8A5208" } : { background: "#fff", border: "1px solid #EADBC2", color: "#6B3F05" }}>+{d} j</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 mt-2.5">
+          <button onClick={() => setD(days - 1)} className="gb-focus w-11 h-11 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "#fff", border: "1px solid #EADBC2" }} aria-label="Moins un jour"><Minus size={16} /></button>
+          <label className="flex-1 min-w-0 h-11 rounded-[12px] flex items-center justify-center gap-1.5" style={{ background: "#fff", border: "1.5px solid #EF9F27" }}>
+            <input type="number" inputMode="numeric" min="1" max="365" value={days} onChange={(e) => setD(e.target.value)} className="w-16 bg-transparent outline-none text-center text-[20px] font-bold" aria-label="Nombre de jours bonus" />
+            <span className="text-[13px] font-bold opacity-60">jour{days > 1 ? "s" : ""}</span>
+          </label>
+          <button onClick={() => setD(days + 1)} className="gb-focus w-11 h-11 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: "#fff", border: "1px solid #EADBC2" }} aria-label="Plus un jour"><Plus size={16} /></button>
+        </div>
+        <div className="flex gap-1.5 flex-wrap mt-2.5">
+          {BONUS_REASONS.map((r) => (
+            <button key={r} onClick={() => setReason(reason === r ? "" : r)} className="gb-focus h-8 px-2.5 rounded-full text-[11.5px] font-bold" style={reason === r ? { background: "#16202A", color: "#fff" } : { background: "var(--paper-dim)" }}>{r}</button>
+          ))}
+        </div>
+        <input value={reason} onChange={(e) => setReason(e.target.value.slice(0, 120))} placeholder="Motif (facultatif)" className="gb-focus mt-2 w-full h-10 rounded-[12px] px-3 text-[13px] outline-none" style={{ background: "#fff", border: "1px solid #EADBC2" }} />
+        <div className="mt-2.5 rounded-[14px] px-3 py-2.5 flex items-center gap-2.5" style={{ background: "#E6F4EC", border: "1px solid #CBE7D6" }}>
+          <CalendarCheck size={18} color="#1E7A46" className="shrink-0" />
+          <span className="flex-1 min-w-0 text-[12px] leading-snug" style={{ color: "#14532D" }}>
+            Nouvelle fin : <b>{next.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</b>
+            <span className="block opacity-80">{cur && cur > now ? `ajoutés à la date actuelle (${new Date(cur).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })})` : "à partir d'aujourd'hui (activation expirée)"} · {left} j restants</span>
+          </span>
+        </div>
+        <button onClick={() => setPinOpen(true)} className="gb-focus mt-2.5 w-full min-h-[50px] rounded-[15px] text-[14.5px] font-bold text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg,#A86510,#7A4507)", boxShadow: "0 10px 20px -10px rgba(122,69,7,0.85)" }}><LockKeyhole size={16} /> Valider +{days} jour{days > 1 ? "s" : ""} avec mon PIN</button>
+        {hist.length > 0 && (
+          <div className="mt-3">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] opacity-55 mb-1">Historique des bonus</p>
+            {hist.slice(0, 4).map((h, i) => (
+              <div key={i} className="flex items-center gap-2 py-1.5 text-[12px]" style={{ borderTop: i ? "1px dashed var(--line)" : "none" }}>
+                <span className="font-bold px-1.5 py-0.5 rounded-md shrink-0" style={{ background: "#FDF0DA", color: "#8A5208" }}>+{h.days} j</span>
+                <span className="flex-1 min-w-0 break-words opacity-75">{h.reason || "Sans motif"}</span>
+                <span className="shrink-0 opacity-55">{new Date(h.at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {pinOpen && createPortal(
+        <OwnerPinSheet ownerAccess={ownerAccess} title={`${s.name} · +${days} jour${days > 1 ? "s" : ""}`} subtitle="Saisissez votre code PIN pour valider le bonus"
+          onSubmit={(pin) => api.ownerAddBonusDays({ email: ownerAccess.email, secret: ownerAccess.secret, shopId: s.id, days, reason, pin })}
+          onClose={(r) => { setPinOpen(false); if (r?.subscription) { onDone(r.subscription); setReason(""); } }} />,
+        document.body
+      )}
+    </div>
+  );
+}
+
+function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm, onResetAdmin, onResetVendor, onDelete, resetResult, bonusPanel, index = 0 }) {
   const typeLabel = ESTABLISHMENT_TYPES.find((t) => t.id === s.type)?.label || s.type || "Entreprise";
   const sub = s.subscription || {};
   const st = s.stats || {};
@@ -17412,7 +17767,7 @@ function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm
   const online = lastAct != null && lastAct < 864e5;
   const ago = (ms) => (ms < 36e5 ? `il y a ${Math.max(1, Math.round(ms / 6e4))} min` : ms < 864e5 ? `il y a ${Math.round(ms / 36e5)} h` : `il y a ${Math.round(ms / 864e5)} j`);
   return (
-    <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${tone.ring}`, boxShadow: "0 2px 8px rgba(15,27,22,0.05)" }}>
+    <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${tone.ring}`, boxShadow: "0 2px 8px rgba(15,27,22,0.05)", animation: `gbcUp .45s cubic-bezier(.2,.8,.2,1) ${Math.min(index, 8) * 60}ms both` }}>
       <button onClick={onToggle} aria-expanded={open} className="gb-focus w-full text-left p-3.5 pb-3">
         <div className="flex items-start gap-3">
           <span className="w-[46px] h-[46px] rounded-[14px] flex items-center justify-center shrink-0 font-display font-bold text-[16px]" style={{ background: tone.bg, color: tone.fg }}>{clientInitials(s.name)}</span>
@@ -17434,6 +17789,7 @@ function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm
             <span>{planLabel}</span>
             <span className="opacity-40">·</span>
             <span>{lifetime ? "sans expiration" : daysTo == null ? "—" : daysTo > 0 ? `${daysTo} j restant${daysTo > 1 ? "s" : ""}` : `expirée depuis ${-daysTo} j`}</span>
+            {Number(sub.bonusDays) > 0 && <><span className="opacity-40">·</span><span className="inline-flex items-center gap-1" style={{ color: "#8A5208" }}><Gift size={12} /> +{sub.bonusDays} j bonus</span></>}
             {st.sales30d != null && <><span className="opacity-40">·</span><span style={{ color: "var(--ink)", opacity: 0.7 }}>{money(st.sales30d)} / 30 j</span></>}
           </p>
         )}
@@ -17445,7 +17801,7 @@ function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm
             <span className="font-bold truncate">{planLabel}</span>
             <span className="font-bold whitespace-nowrap">{lifetime ? "sans expiration" : daysTo == null ? "—" : daysTo > 0 ? `${daysTo} j restant${daysTo > 1 ? "s" : ""}` : `expirée depuis ${-daysTo} j`}</span>
           </div>
-          <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.7)" }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: tone.bar }} /></div>
+          <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.7)" }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: tone.bar, transition: "width .9s cubic-bezier(.2,.8,.2,1)" }} /></div>
           {sub.expiresAt && <p className="text-[11px] mt-1" style={{ color: tone.fg, opacity: 0.8 }}>{isPaid || isTrial ? "Expire" : "A expiré"} le {new Date(sub.expiresAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</p>}
         </div>
 
@@ -17457,6 +17813,8 @@ function OwnerShopCard({ s, open, onToggle, onActivate, activating, activateForm
             </span>
           ))}
         </div>
+
+        {!lifetime && bonusPanel}
 
         <button onClick={onActivate} className="gb-focus w-full mt-2.5 min-h-[44px] rounded-[12px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#E6F1FB", color: "#185FA5" }}><KeyRound size={14} /> Activer une licence</button>
         {activating && activateForm}
@@ -17783,8 +18141,9 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
         })()}
       </div>
       <div className="flex flex-col gap-2.5">
-        {filteredShops.map((s) => (
-          <OwnerShopCard key={s.id} s={s} open={openIds.has(s.id)} onToggle={() => toggleShop(s.id)}
+        {filteredShops.map((s, idx) => (
+          <OwnerShopCard key={s.id} s={s} index={idx} open={openIds.has(s.id)} onToggle={() => toggleShop(s.id)}
+            bonusPanel={<OwnerBonusPanel s={s} ownerAccess={ownerAccess} onDone={(subscription) => { onActivated(s.id, subscription); pushToast(`Jours bonus ajoutés à ${s.name}`, "ok"); }} />}
             activating={activatingId === s.id}
             onActivate={() => setActivatingId(activatingId === s.id ? null : s.id)}
             activateForm={<OwnerActivateForm shopId={s.id} ownerAccess={ownerAccess} pushToast={pushToast} onCancel={() => setActivatingId(null)} onActivated={(subscription) => onActivated(s.id, subscription)} />}
@@ -17976,7 +18335,7 @@ function notifMeta(n, fmtM) {
       ? T(PackageX, "#5B3FB0", "#EFEAFB", "argent", `Avoir produit · ${n.clientName}`, `${n.itemCount} article${n.itemCount > 1 ? "s" : ""} à remettre`)
       : T(Coins, "#9A5B00", "#FFF1D6", "argent", `Avoir monnaie · ${n.clientName}`, `${fmtM(n.amount)} à rendre`);
     case "trial": return T(Gift, "#9A5B00", "#FFF1D6", "compte", `Essai gratuit : ${n.daysLeft} jour${n.daysLeft > 1 ? "s" : ""} restant${n.daysLeft > 1 ? "s" : ""}`, "Activez une licence pour continuer sans interruption.");
-    case "support_reply": return T(Headphones, "#14684A", "#E3F1EA", "compte", n.count > 1 ? `${n.count} nouveaux messages de l'Assistance GestiOne` : "Nouveau message de l'Assistance GestiOne", "Le contenu est visible uniquement dans Admin › Assistance.");
+    case "support_reply": return T(Headphones, "#14684A", "#E3F1EA", "compte", n.broadcast ? "📣 Annonce de l'équipe GestiOne" : n.count > 1 ? `${n.count} nouveaux messages de l'Assistance GestiOne` : "Nouveau message de l'Assistance GestiOne", "Touchez « Ouvrir la messagerie » pour le lire et répondre.");
     case "support_inbox": return T(MessageCircle, "#1D4F91", "#E6EEFA", "compte", n.count > 1 ? `${n.count} nouveaux messages des boutiques` : "Nouveau message d'une boutique", "Espace propriétaire › Messages (déverrouillage requis).");
     case "vendor_blocked": return T(Lock, "#B3261E", "#FCEBEA", "compte", "Vendeur bloqué", n.vendorName);
     case "vendor_unblocked": return T(Unlock, "#1E7A46", "#E6F4EC", "compte", "Vendeur débloqué", n.vendorName);
@@ -18068,7 +18427,7 @@ function NotificationPanel({ notifications, currency, onClear, onRemove, onClose
                         <span className="text-[10.5px] shrink-0" style={{ color: "#8A939C" }}>{notifAgo(n.date)}</span>
                       </div>
                       {m.text && <p className="text-[12px] leading-snug mt-0.5" style={{ color: "#66707A" }}>{m.text}</p>}
-                      {n.type === "support_reply" && onOpenSupport && <button onClick={() => { onOpenSupport(); onClose?.(); }} className="gb-focus mt-2 h-8 px-3 rounded-[10px] text-[12px] font-bold flex items-center gap-1.5 text-white" style={{ background: "#14684A" }}><Headphones size={13} /> Ouvrir l'Assistance</button>}
+                      {n.type === "support_reply" && onOpenSupport && <button onClick={() => { onOpenSupport(); onClose?.(); }} className="gb-focus mt-2 h-8 px-3 rounded-[10px] text-[12px] font-bold flex items-center gap-1.5 text-white" style={{ background: "#14684A" }}><Headphones size={13} /> Ouvrir la messagerie</button>}
                     </div>
                     {onRemove && <button onClick={() => onRemove(n)} aria-label={`Effacer : ${m.title}`} className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)", color: "#66707A" }}><X size={14} /></button>}
                   </div>
@@ -18971,13 +19330,13 @@ function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, cashO
     : { t: `${license?.planId === "trial" ? "Essai" : "Licence active"}${daysLeft !== null ? ` · ${daysLeft} j restants` : ""}`, c: "#1E7A46", b: "#E6F4EC" };
   const badge = (id) => id === "comptabilite" ? (cashOpen ? { t: "Ouverte", c: "#fff", b: "#1E8E50" } : { t: "Fermée", c: "#5B6470", b: "#E6E8EB" }) : id === "assistance" && supportUnread > 0 ? { t: String(supportUnread), c: "#fff", b: "#D93B30" } : id === "abonnement" && ownerUnread > 0 ? { t: String(ownerUnread), c: "#fff", b: "#1D4F91" } : id === "produits" && lowStockCount > 0 ? { t: String(lowStockCount), c: "#fff", b: "#D9483B" } : id === "licence" && (licenseStatus === "expiring" || licenseStatus === "expired") ? { t: "!", c: "#fff", b: "#D9483B" } : null;
   return (
-    <div className="fixed inset-0 z-[15] flex no-print">
+    <div className="gb-admin-drawer fixed inset-0 z-[15] flex no-print">
       <div className="absolute inset-0 bg-black/45" onClick={onClose} />
       <div className="relative h-full flex flex-col gb-slide-in-left" style={{ width: "min(88%, 380px)", background: "var(--paper)", boxShadow: "12px 0 40px rgba(0,0,0,0.25)" }}>
         <div className="shrink-0 px-4 pb-4 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", paddingTop: "calc(max(22px, env(safe-area-inset-top)) + 64px)" }}>
           <div className="absolute -right-10 -top-6 w-36 h-36 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
           <div className="flex items-center gap-3 relative">
-            <div onClick={tapLogo} className="shrink-0 rounded-[12px] overflow-hidden select-none" style={{ width: 42, height: 42 }}><GestiOneIcon size={42} /></div>
+            <div onClick={tapLogo} className="shrink-0 rounded-[14px] overflow-hidden select-none" style={{ width: 52, height: 52, boxShadow: "0 8px 18px -8px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.18)" }}><GestiOneIcon size={52} /></div>
             <div className="min-w-0 flex-1">
               <p className="font-display font-bold text-[17px] truncate">{shop.name}</p>
               <p className="text-[12px] truncate" style={{ color: "rgba(255,255,255,0.65)" }}>{shop.adminDisplayName?.trim() || "Administrateur"}</p>
@@ -19065,7 +19424,7 @@ function AdminScreen({
     <div className="px-4 pt-4" style={{ paddingBottom: "calc(170px + env(safe-area-inset-bottom))" }}>
       {/* En-tête fixe : reste visible pendant le défilement, juste sous la barre du haut. */}
       <div className="h-[58px] -mt-1 mb-2" aria-hidden="true" />
-      <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[12] px-4 pt-2 pb-2.5 flex items-center gap-3 no-print" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 44px)", background: "var(--paper)", boxShadow: "0 8px 12px -12px rgba(0,0,0,0.35)" }}>
+      <div className="gb-fixed-col fixed left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] z-[12] px-4 pt-2 pb-2.5 flex items-center gap-3 no-print" style={{ top: "calc(max(22px, env(safe-area-inset-top)) + 44px)", background: "var(--paper)", boxShadow: "0 8px 12px -12px rgba(0,0,0,0.35)" }}>
         <button onClick={() => setMenuOpen(true)} className="gb-focus shrink-0 h-11 pl-3 pr-3.5 rounded-[14px] flex items-center gap-2 text-white text-[13px] font-bold" style={{ background: "var(--glass)", boxShadow: "0 6px 14px -6px rgba(0,0,0,0.45)" }} aria-label="Ouvrir le menu d'administration">
           <LayoutGrid size={17} /> Menu
         </button>
@@ -20708,6 +21067,38 @@ function AppInner() {
   const [orders, setOrders] = useState(null);
   // Livraison fournisseur fraîchement réceptionnée → camion animé sur Vendre.
   const [delivery, setDelivery] = useState(null);
+  // Tablette (≥ 768 px) et ordinateur (≥ 1180 px) : barre latérale, pleine largeur.
+  const isTabletUp = useMediaQuery("(min-width: 768px)");
+  const wideDesk = useMediaQuery("(min-width: 1180px)");
+  // Raccourcis clavier + lecteur de code-barres (qui « tape » très vite puis Entrée).
+  const keyCtx = useRef({});
+  useEffect(() => {
+    let buf = ""; let last = 0;
+    const isField = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    const onKey = (e) => {
+      const c = keyCtx.current;
+      if (!c.role || c.locked || !c.std) return;
+      const now = Date.now();
+      // Lecteur de code-barres : caractères à moins de 40 ms d'intervalle.
+      if (!isField(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === "Enter" && buf.length >= 4 && now - last < 80) {
+          const code = buf; buf = "";
+          e.preventDefault();
+          if (c.view !== "sell") c.setView("sell");
+          setTimeout(() => window.dispatchEvent(new CustomEvent("gb-scan", { detail: code })), c.view !== "sell" ? 350 : 0);
+          return;
+        }
+        if (e.key.length === 1) { buf = now - last < 40 ? buf + e.key : e.key; last = now; }
+      }
+      if (isField(e.target) && e.key !== "F2" && e.key !== "F4") return;
+      if (e.key === "/" ) { e.preventDefault(); if (c.view !== "sell") c.setView("sell"); setTimeout(() => window.dispatchEvent(new CustomEvent("gb-key", { detail: "search" })), 60); return; }
+      if (e.key === "F2") { e.preventDefault(); if (c.view !== "sell") c.setView("sell"); c.openCart(); return; }
+      if (e.key === "F4") { e.preventDefault(); window.dispatchEvent(new CustomEvent("gb-key", { detail: "hold" })); return; }
+      if (e.altKey && /^[1-6]$/.test(e.key)) { const t = c.tabs?.[Number(e.key) - 1]; if (t) { e.preventDefault(); c.setView(t.id); } }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Vente en attente dont on affiche / imprime le ticket « paiement en attente ».
   const [heldPrintId, setHeldPrintId] = useState(null);
   const [supplierProducts, setSupplierProducts] = useState(null);
@@ -20810,6 +21201,14 @@ function AppInner() {
   // depuis « Plus » ou « Rapports ».
   const [adminJump, setAdminJump] = useState(null);
   const goAdminSection = (id) => { setAdminMenuOpen(false); setAdminJump({ id, n: Date.now() }); setView("admin"); };
+  // Ouvre la messagerie avec l'Assistance GestiOne, quel que soit le type
+  // d'entreprise (les écrans hôtel / cyber / bar / aluminium ont leur propre
+  // fenêtre de discussion).
+  const openSupportChat = () => {
+    setSupportAlert(null); setNotifPanelOpen(false);
+    if (["hotel", "cyber", "bar", "alu"].includes(shop?.type)) { setHotelSupportAsked(true); setSupportPrefill({ text: "", n: Date.now() }); return; }
+    goAdminSection("assistance");
+  };
   useEffect(() => { if (view !== "admin") setActiveAdminSection("stats"); }, [view]);
   const [pendingSync, setPendingSync] = useState(0);
   const [license, setLicense] = useState(undefined); // undefined = chargement, null = jamais activée
@@ -21022,7 +21421,9 @@ function AppInner() {
   // prévenu à la connexion puis chaque minute — annonce vocale + notification
   // dans la cloche, sans afficher le contenu du message.
   const [supportUnread, setSupportUnread] = useState(0);
-  useEffect(() => { if (view === "admin" && activeAdminSection === "assistance") setSupportUnread(0); }, [view, activeAdminSection]);
+  // Bandeau « Nouveau message de l'Assistance » (administrateur uniquement).
+  const [supportAlert, setSupportAlert] = useState(null); // { count, preview, broadcast }
+  useEffect(() => { if (view === "admin" && activeAdminSection === "assistance") { setSupportUnread(0); setSupportAlert(null); } }, [view, activeAdminSection]);
   const supportWatchRef = useRef({ section: null, view: null });
   supportWatchRef.current = { section: activeAdminSection, view };
   useEffect(() => {
@@ -21030,11 +21431,21 @@ function AppInner() {
     let stop = false;
     const check = async () => {
       if (stop || document.visibilityState === "hidden") return;
-      if (localStorage.getItem("support_started") !== "true") return;
+      // Tous les administrateurs sont vérifiés (même ceux qui n'ont jamais
+      // écrit) : un message groupé du propriétaire doit leur parvenir.
       try {
         const d = await api.supportPoll();
         const owner = (d?.messages || []).filter((m) => m.sender === "owner").map((m) => m.created_at).sort();
         if (!owner.length || stop) return;
+        // L'équipe GestiOne a écrit à cet administrateur (message direct ou
+        // groupé) : la messagerie s'ouvre directement sur la discussion.
+        try {
+          if (localStorage.getItem("support_started") !== "true") {
+            localStorage.setItem("support_started", "true");
+            if (!localStorage.getItem("support_name")) localStorage.setItem("support_name", (shop?.adminDisplayName || "").trim() || "Administrateur");
+            if (!localStorage.getItem("support_phone")) localStorage.setItem("support_phone", String(shop?.invoicePhone || shop?.phone || "").trim());
+          }
+        } catch { /* stockage indisponible */ }
         const latest = owner[owner.length - 1];
         // Référence : dernier passage dans la discussion ; à défaut, le dernier
         // message envoyé par l'administrateur (toute réponse après est nouvelle).
@@ -21051,13 +21462,20 @@ function AppInner() {
         if (w.view === "admin" && w.section === "assistance") { localStorage.setItem("support_owner_seen", latest); setSupportUnread(0); return; }
         if (localStorage.getItem("support_owner_notified") === latest) return;
         localStorage.setItem("support_owner_notified", latest);
-        pushNotification({ type: "support_reply", count: fresh.length });
+        const freshMsgs = (d?.messages || []).filter((m) => m.sender === "owner" && m.created_at > seen);
+        const last = freshMsgs[freshMsgs.length - 1];
+        const isBroadcast = freshMsgs.some((m) => String(m.body || "").startsWith("📣"));
+        const preview = String(last?.body || "").replace(/^📣\s*/, "").slice(0, 140);
+        pushNotification({ type: "support_reply", count: fresh.length, broadcast: isBroadcast });
+        setSupportAlert({ count: fresh.length, preview, broadcast: isBroadcast, at: latest });
         // Annonce vocale toujours faite, sauf si ce type est désactivé à la main.
-        speak(`Vous avez reçu ${fresh.length > 1 ? `${fresh.length} nouveaux messages` : "un nouveau message"} de l'assistance GestiOne. Pour le lire, ouvrez Assistance dans le menu Administration.`, readVoicePrefs(shop).types.support !== false);
+        speak(isBroadcast
+          ? `Annonce de l'équipe GestiOne. Vous avez ${fresh.length > 1 ? `${fresh.length} nouveaux messages` : "un nouveau message"}. Touchez la notification pour le lire dans la messagerie.`
+          : `Vous avez reçu ${fresh.length > 1 ? `${fresh.length} nouveaux messages` : "un nouveau message"} de l'assistance GestiOne. Touchez la notification pour ouvrir la messagerie.`, readVoicePrefs(shop).types.support !== false);
       } catch { /* hors ligne : nouvel essai à la prochaine vérification */ }
     };
     const first = setTimeout(check, 4000);
-    const t = setInterval(check, 45000);
+    const t = setInterval(check, 60000);
     const onVis = () => { if (document.visibilityState === "visible") check(); };
     document.addEventListener("visibilitychange", onVis);
     return () => { stop = true; clearTimeout(first); clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
@@ -23326,11 +23744,13 @@ function AppInner() {
   const cyberLook = isCyberTheme(shop);
   const themeVars = { "--glass": activeTheme.glass, "--glass-light": activeTheme.glassLight, "--cap": activeTheme.cap, "--cap-2": activeTheme.cap2 || (activeTheme.id === "nuit" ? "#FF9A3D" : activeTheme.cap), "--cap-soft": activeTheme.id === "nuit" ? "rgba(242,122,26,0.18)" : cyberLook ? "rgba(34,211,238,0.18)" : `${activeTheme.cap}2E`, ...(nuit && !isDark ? { "--paper": "#F2F4F8", "--paper-dim": "#E6EAF1", "--line": "#E1E6EE" } : {}), ...(cyberLook && !isDark ? { "--paper": "#EEF2F8", "--paper-dim": "#E2E8F0", "--line": "#DDE4EE", "--ink": "#0F172A" } : {}) };
   const tr = (key) => (TRANSLATIONS[shop?.language || "fr"] && TRANSLATIONS[shop?.language || "fr"][key]) || TRANSLATIONS.fr[key] || key;
+  const wideLayout = !!(isTabletUp && role && shop && !homeScreenActive && licenseStatus !== "expired" && !["hotel", "cyber", "bar", "alu"].includes(shop.type));
+  keyCtx.current = { std: !!shop && !["hotel", "cyber", "bar", "alu"].includes(shop.type), role, locked, view, setView, tabs: role ? (nuit ? TABS_NUIT : TABS[role]) : [], openCart: () => setOpenCartSignal((n) => n + 1) };
 
   return (
-    <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}${cyberLook ? " gb-cyber" : ""}`} style={themeVars}>
+    <div className={`gb-root min-h-screen flex justify-center${isDark ? " gb-dark" : ""}${cyberLook ? " gb-cyber" : ""}${wideLayout ? " gb-wide" : ""}`} style={themeVars}>
       <GlobalStyle />
-      <div className={`w-full ${(shop?.type === "bar" || shop?.type === "alu") && role && !homeScreenActive ? "" : "max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px]"} min-h-screen relative`} style={{ background: "var(--paper)", paddingTop: (shop?.type === "bar" || shop?.type === "alu") && role && !homeScreenActive ? 0 : "max(22px, env(safe-area-inset-top))" }}>
+      <div className={`gb-shell w-full ${(shop?.type === "bar" || shop?.type === "alu") && role && !homeScreenActive ? "" : "max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px]"} min-h-screen relative`} style={{ background: "var(--paper)", paddingTop: (shop?.type === "bar" || shop?.type === "alu") && role && !homeScreenActive ? 0 : "max(22px, env(safe-area-inset-top))" }}>
         {role === "admin" && shop?.type !== "hotel" && shop?.type !== "cyber" && shop?.type !== "bar" && shop?.type !== "alu" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" && <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} />}
         {homeScreenActive ? (
           <OnboardingScreen
@@ -23476,7 +23896,7 @@ function AppInner() {
               </>
             ) : (
               <>
-                <div className={`fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-4 pb-2 flex items-center justify-between z-20 no-print${nuit ? " gb-nuit-bar" : ""}`} style={{ background: nuit ? "var(--glass)" : "var(--paper)", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.18)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
+                <div className={`gb-topbar fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-4 pb-2 flex items-center justify-between z-20 no-print${nuit ? " gb-nuit-bar" : ""}`} style={{ background: nuit ? "var(--glass)" : "var(--paper)", boxShadow: "0 4px 10px -6px rgba(0,0,0,0.18)", paddingTop: "max(22px, env(safe-area-inset-top))" }}>
                   <div className="flex items-center gap-2.5 min-w-0" style={nuit ? { color: "#fff" } : undefined}>
                     {nuit && <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "var(--cap)" }}><ShoppingCart size={18} color="#fff" /></span>}
                   <div className="min-w-0">
@@ -23515,7 +23935,7 @@ function AppInner() {
                             onRemove={(n) => setNotifications((cur) => cur.filter((x) => x !== n && (!n.id || x.id !== n.id)))}
                             onClose={() => setNotifPanelOpen(false)}
                             voice={{ prefs: voicePrefs, onChange: saveVoicePrefs, expanded: voiceSettingsOpen, onToggle: () => setVoiceSettingsOpen((v) => !v) }}
-                            onOpenSupport={role === "admin" ? () => goAdminSection("assistance") : undefined}
+                            onOpenSupport={role === "admin" ? openSupportChat : undefined}
                           />
                         )}
                       </div>
@@ -23547,7 +23967,7 @@ function AppInner() {
                         onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} />
                     )}
                     {view === "sell" && (
-                      <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={checkoutWithHeld} heldSales={heldSales} resumedHeld={heldSales.find((h) => h.id === resumedHeldId) || null} onHoldSale={handleHoldSale} onOpenHeld={() => { setHistoryTab("held"); setView("history"); }} openCartSignal={openCartSignal} onCartSignalDone={() => setOpenCartSignal(0)} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
+                      <SellScreen shop={shop} categories={categories} products={products} sales={sales} clients={clients} avoirs={avoirs} onCreateClient={onCreateClient} cart={cart} setCart={setCart} onCheckout={checkoutWithHeld} heldSales={heldSales} resumedHeld={heldSales.find((h) => h.id === resumedHeldId) || null} onHoldSale={handleHoldSale} onOpenHeld={() => { setHistoryTab("held"); setView("history"); }} openCartSignal={openCartSignal} onCartSignalDone={() => setOpenCartSignal(0)} onCreateMoneyAvoir={handleCreateMoneyAvoir} onCreateProductAvoir={handleCreateProductAvoir} onCreateProductAndMoneyAvoir={handleCreateProductAndMoneyAvoir} pushToast={pushToast} wide={wideLayout} hasCashToday={!!todayCashEntry} onRequireCash={() => { pushToast("Renseignez le montant de la caisse avant de commencer les ventes du jour", "error"); setCashRegisterModalOpen(true); }} />
                     )}
                     {view === "stock" && nuit && (
                       <NuitStockScreen products={products.filter((p) => !p.stockFrom)} categories={categories} sales={sales || []} movements={movements || []} inventories={inventories || []} suppliers={suppliers || []} supplierProducts={supplierProducts || []} isAdmin={role === "admin"}
@@ -23573,7 +23993,7 @@ function AppInner() {
                         {(heldSales.length > 0 || historyTab === "held") && <HistoryTabs tab={historyTab} setTab={setHistoryTab} heldCount={heldSales.length} />}
                         {historyTab === "held"
                           ? <HeldSalesWithFmt heldSales={heldSales} products={products} resumedId={resumedHeldId} onResume={(id) => resumeHeldSale(id)} onPay={(id) => resumeHeldSale(id, { pay: true })} onDelete={deleteHeldSale} onPrint={(id) => setHeldPrintId(id)} />
-                          : <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method, date) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method, date))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} />}
+                          : <HistoryScreen shop={shop} sales={sales} products={products} clients={clients} avoirs={avoirs} vendorFilter={role === "admin" ? null : currentVendorName} isAdmin={role === "admin"} onDeleteSale={(id) => requireAdmin("Supprimer une vente", () => handleDeleteSale(id))} onUpdateSale={(id, items, method, date) => requireAdmin("Modifier une vente", () => handleUpdateSale(id, items, method, date))} onReturnSale={handleReturnSale} onSaveInvoice={handleSaveInvoice} pushToast={pushToast} wide={wideDesk && wideLayout} />}
                       </>
                     )}
                     {view === "expenses" && role === "vendeur" && (
@@ -23614,12 +24034,17 @@ function AppInner() {
                 {delivery && role && !locked && licenseStatus !== "expired" && <DeliveryTruck key={delivery.key} delivery={delivery} onDone={() => setDelivery(null)} />}
                 {licenseStatus !== "expired" && <ScrollTopBubble key={view} bottom={role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" ? 168 : view === "sell" ? 156 : 92} />}
                 {licenseStatus !== "expired" && (
-                <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 pt-2 z-30 no-print" style={{ background: "linear-gradient(to top, var(--paper) 60%, transparent)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
-                  <div className="rounded-2xl flex items-stretch shadow-lg overflow-hidden" style={{ background: "var(--glass)" }}>
+                <div className="gb-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 pt-2 z-30 no-print" style={{ background: "linear-gradient(to top, var(--paper) 60%, transparent)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
+                  <div className="gb-nav-inner rounded-2xl flex items-stretch shadow-lg overflow-hidden" style={{ background: "var(--glass)" }}>
+                    {/* Tablette / ordinateur : logo et nom de l'entreprise en haut de la barre latérale */}
+                    <div className="gb-nav-brand hidden items-center gap-2.5 px-1.5 pb-3 mb-1 text-white" style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                      <span className="shrink-0 rounded-[13px] overflow-hidden" style={{ width: 44, height: 44 }}><GestiOneIcon size={44} /></span>
+                      <span className="gb-nav-wide min-w-0"><span className="block font-display font-bold text-[15px] leading-tight break-words">{shop.name}</span><span className="block text-[11px] opacity-70 break-words">{currentVendorName}</span></span>
+                    </div>
                     {nuit && TABS_NUIT.map((t) => {
                       const on = t.id === "more" ? NUIT_MORE_VIEWS.has(view) : view === t.id;
                       return (
-                        <button key={t.id} data-nav={t.id} onClick={() => { setAdminMenuOpen(false); setView(t.id); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2" aria-current={on ? "page" : undefined}>
+                        <button key={t.id} data-nav={t.id} onClick={() => { setAdminMenuOpen(false); setView(t.id); }} className="gb-nav-btn gb-focus flex-1 flex flex-col items-center gap-1 py-2" aria-current={on ? "page" : undefined}>
                           <span className="relative flex flex-col items-center gap-1 px-2.5 py-1 rounded-[12px]" style={{ background: on ? "var(--cap-soft)" : "transparent" }}>
                             <t.Icon size={19} color={on ? "var(--cap)" : "#9FB0C8"} />
                             {t.id === "history" && heldSales.length > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-[3px] rounded-full text-[8.5px] font-bold flex items-center justify-center text-white" style={{ background: "#E8771E" }}>{heldSales.length}</span>}
@@ -23631,7 +24056,7 @@ function AppInner() {
                       );
                     })}
                     {!nuit && TABS[role].map((t0) => (shopProfile(shop) === "boutique" && t0.id === "sell" ? { ...t0, label: "Boutique", Icon: ShoppingBag } : t0)).map((t) => (
-                      <button key={t.id} data-nav={t.id} onClick={() => { setView(t.id); if (t.id === "admin") setAdminMenuOpen(true); }} className="gb-focus flex-1 flex flex-col items-center gap-1 py-2.5" style={{ background: view === t.id ? "var(--glass-light)" : "transparent" }}>
+                      <button key={t.id} data-nav={t.id} onClick={() => { setView(t.id); if (t.id === "admin") setAdminMenuOpen(!wideDesk); }} className="gb-nav-btn gb-focus flex-1 flex flex-col items-center gap-1 py-2.5" style={{ background: view === t.id ? "var(--glass-light)" : "transparent" }}>
                         <div className="relative">
                           <t.Icon size={17} color={view === t.id ? "var(--cap)" : "#ffffff90"} />
                           {t.id === "history" && heldSales.length > 0 && (
@@ -23647,7 +24072,7 @@ function AppInner() {
                             <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-[3px] rounded-full text-[8px] font-bold flex items-center justify-center text-white" style={{ background: "var(--danger)" }}>{creditCount}</span>
                           )}
                         </div>
-                        <span className="text-[10px] font-medium" style={{ color: view === t.id ? "#fff" : "#ffffff70" }}>
+                        <span className="gb-nav-short text-[10px] font-medium" style={{ color: view === t.id ? "#fff" : "#ffffff70" }}>
                           {t.id === "credits" ? (
                             <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, fontSize: 9, textAlign: "center" }}>
                               <span>{tr("creditWord")}</span>
@@ -23655,8 +24080,23 @@ function AppInner() {
                             </span>
                           ) : t.label === "Boutique" ? "Boutique" : tr(t.id)}
                         </span>
+                        <span className="gb-nav-wide hidden text-[14px] font-semibold" style={{ color: view === t.id ? "#fff" : "#ffffffb0" }}>{t.id === "credits" ? `${tr("creditWord")} / ${tr("avoirWord")}` : t.label === "Boutique" ? "Boutique" : tr(t.id)}</span>
                       </button>
                     ))}
+                    {/* Ordinateur : rubriques d'administration toujours visibles */}
+                    {!nuit && role === "admin" && (
+                      <div className="gb-nav-admin hidden flex-col gap-0.5 mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+                        <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.45)" }}>Administration</p>
+                        {[["stats", "Vue d'ensemble", TrendingUp], ["produits", "Produits", Boxes], ["fournisseurs", "Fournisseurs", Truck], ["depenses", "Dépenses", Wallet], ["comptabilite", "Comptabilité", Receipt], ["actionnaires", "Actionnaires", Users], ["vendeurs", "Équipe", UserCheck]].map(([id, l, Ic]) => {
+                          const on = view === "admin" && activeAdminSection === id;
+                          return (
+                            <button key={id} onClick={() => goAdminSection(id)} className="gb-focus flex items-center gap-3 px-3 py-2 rounded-[12px] text-left text-[13px] font-semibold" style={{ background: on ? "var(--glass-light)" : "transparent", color: on ? "#fff" : "rgba(255,255,255,0.72)", boxShadow: on ? "inset 3px 0 0 var(--cap)" : "none" }}>
+                              <Ic size={16} className="shrink-0" /> <span className="min-w-0">{l}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
                 )}
@@ -23667,6 +24107,7 @@ function AppInner() {
         )}
 
         <Toast toast={toast} />
+        {role === "admin" && supportAlert && !locked && <SupportAlertBanner alert={supportAlert} onOpen={openSupportChat} onClose={() => setSupportAlert(null)} />}
         <SaleToastStack toasts={saleToasts} />
         {cashRegisterModalOpen && role && <CashRegisterModal afterVersement={cashModalAfterVersement} onSave={recordCashRegister} onClose={() => { setCashRegisterModalOpen(false); setCashModalAfterVersement(false); }} />}
       </div>
