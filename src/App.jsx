@@ -28,6 +28,9 @@ import BarApp from "./bar/BarApp.jsx";
 import { BAR_KEYS } from "./bar/barEngine.js";
 import AluApp from "./alu/AluApp.jsx";
 import { DeliveryTruck } from "./DeliveryTruck.jsx";
+import { installCountUp } from "./countUp.js";
+// Montants qui « comptent » de 0 jusqu'à leur valeur à l'affichage des pages.
+installCountUp();
 import { ALU_KEYS } from "./alu/aluEngine.js";
 // Clés synchronisées des modules à part entière (une liste par type d'entreprise).
 const MOD_KEYS = { bar: BAR_KEYS, alu: ALU_KEYS };
@@ -4500,26 +4503,73 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           )}
         </div>
       </>) : (<>
-      <section className={nuit ? "px-4 pb-4 flex flex-col gap-3 text-white rounded-b-[24px]" : "mx-3 mt-3 rounded-[24px] px-4 pt-4 pb-4 flex flex-col gap-3 text-white"} style={{ background: nuit ? "var(--glass)" : "#1F2A33", ...(nuit ? { marginTop: -20, paddingTop: 34 } : {}) }}>
-        {!nuit && <>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[13px] capitalize" style={{ color: "#C9D1D8" }}>{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-2xl px-3 py-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
-            <span className="text-[11.5px]" style={{ color: "#C9D1D8" }}>Ventes du jour</span>
-            <span className="font-display font-bold text-[18px] whitespace-nowrap" style={{ color: "#A6E07A" }}>{fmt(todayTotal)}</span>
-            <span className="text-[11.5px] font-semibold whitespace-nowrap mt-0.5 pt-1" style={{ color: "#FFFFFF", borderTop: "1px solid rgba(255,255,255,0.12)" }}>Crédit : <span style={{ color: "#FF8A80" }}>{fmt(todayCredit)}</span></span>
-            <span className="text-[11.5px] font-semibold whitespace-nowrap" style={{ color: "#FFFFFF" }}>Recette : <span style={{ color: "#F2C14E" }}>{fmt(todayRecette)}</span></span>
-          </div>
-          <div className="rounded-2xl px-3 py-2.5 flex flex-col gap-0.5 min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
-            <span className="text-[11.5px]" style={{ color: "#C9D1D8" }}>Tickets</span>
-            <span className="font-display font-bold text-[18px]">{todaySales.length}</span>
-          </div>
-        </div>
-        </>}
-        <div className="flex gap-2">
-          <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] pl-3.5 pr-1.5 rounded-2xl" style={{ background: "#fff" }}>
+      <section className={nuit ? "px-4 pb-4 flex flex-col gap-3 text-white rounded-b-[24px]" : "relative overflow-hidden mx-3 mt-3 rounded-[26px] px-4 pt-4 pb-4 flex flex-col gap-3 text-white"} style={nuit ? { background: "var(--glass)", marginTop: -20, paddingTop: 34 } : { background: "var(--glass-light)", backgroundImage: "radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--cap) 55%, transparent) 0%, transparent 55%), linear-gradient(150deg, var(--glass) 0%, var(--glass-light) 70%)", boxShadow: "0 18px 34px -20px var(--glass)" }}>
+        {!nuit && (() => {
+          const yStr = new Date(Date.now() - MS_DAY).toDateString();
+          const yTotal = (sales || []).filter((x) => new Date(x.date).toDateString() === yStr).reduce((t, x) => t + (Number(x.total) || 0), 0);
+          const delta = yTotal > 0 ? Math.round(((todayTotal - yTotal) / yTotal) * 100) : null;
+          const nItems = todaySales.reduce((t, x) => t + (x.items || []).reduce((u, i) => u + (Number(i.qty) || 0), 0), 0);
+          const cash = todaySales.reduce((t, x) => t + cashPartOf(x), 0);
+          const mobile = todaySales.reduce((t, x) => t + mobilePartOf(x), 0);
+          const credit = todaySales.filter((x) => x.paymentMethod === "credit").reduce((t, x) => t + (Number(x.total) || 0), 0);
+          const split = Math.max(1, cash + mobile + credit);
+          const avg = todaySales.length ? Math.round(todayTotal / todaySales.length) : 0;
+          const last = todaySales.reduce((m, x) => (!m || x.date > m ? x.date : m), null);
+          const big = fmt(todayTotal);
+          const tile = (v) => (String(v).length > 11 ? "text-[12.5px]" : "text-[14.5px]");
+          return (
+            <>
+              <span className="pointer-events-none absolute -right-14 -top-16 w-48 h-48 rounded-full" style={{ background: "rgba(255,255,255,0.07)" }} />
+              <span className="pointer-events-none absolute -left-10 -bottom-20 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.05)" }} />
+              <div className="relative flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[12.5px] font-semibold capitalize min-w-0 truncate" style={{ color: "rgba(255,255,255,0.82)" }}><Calendar size={14} className="shrink-0" /> {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</span>
+                <span className="shrink-0 flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.14)", color: "#fff" }}>
+                  <span className="relative w-2 h-2"><span className="absolute inset-0 rounded-full animate-ping" style={{ background: "#7BE0B0", opacity: 0.6 }} /><span className="absolute inset-0 rounded-full" style={{ background: "#7BE0B0" }} /></span>
+                  {last ? `Dernière vente ${new Date(last).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "Caisse ouverte"}
+                </span>
+              </div>
+
+              <div className="relative">
+                <p className="text-[11.5px] font-bold uppercase tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.7)" }}>Ventes du jour</p>
+                <div className="flex items-end justify-between gap-2 mt-0.5">
+                  <p className={`font-display font-bold leading-none ${big.length > 15 ? "text-[28px]" : "text-[36px]"}`} style={{ fontVariantNumeric: "tabular-nums", textShadow: "0 2px 12px rgba(0,0,0,0.18)" }}>{big}</p>
+                  {delta !== null && (
+                    <span className="shrink-0 mb-1 inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-1 rounded-full" style={{ background: delta >= 0 ? "rgba(123,224,176,0.22)" : "rgba(255,138,128,0.22)", color: delta >= 0 ? "#BFF5D7" : "#FFD0CA" }}>
+                      {delta >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />} {delta >= 0 ? "+" : ""}{delta} % vs hier
+                    </span>
+                  )}
+                </div>
+                <p className="text-[12.5px] mt-1.5" style={{ color: "rgba(255,255,255,0.78)" }}>
+                  <b className="text-white">{todaySales.length}</b> ticket{todaySales.length > 1 ? "s" : ""} · <b className="text-white">{nItems}</b> article{nItems > 1 ? "s" : ""} vendu{nItems > 1 ? "s" : ""}
+                </p>
+              </div>
+
+              {/* Répartition des paiements */}
+              <div className="relative">
+                <div className="h-2.5 rounded-full overflow-hidden flex gap-[2px]" style={{ background: "rgba(255,255,255,0.14)" }}>
+                  {todayTotal > 0 && [[cash, "#8EE4B0"], [mobile, "#9CC8FF"], [credit, "#FFB4A8"]].map(([v, c], i) => v > 0 && <span key={i} className="h-full" style={{ width: `${(v / split) * 100}%`, background: c, transition: "width .8s cubic-bezier(.2,.8,.2,1)" }} />)}
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px] font-semibold" style={{ color: "rgba(255,255,255,0.85)" }}>
+                  {[["Espèces", cash, "#8EE4B0"], ["Mobile", mobile, "#9CC8FF"], ["Crédit", credit, "#FFB4A8"]].map(([l, v, c]) => (
+                    <span key={l} className="flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full" style={{ background: c }} />{l} <b style={{ color: "#fff" }}>{fmt(v)}</b></span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="relative grid grid-cols-3 gap-2">
+                {[["Recette", fmt(todayRecette), "#FFD978", Banknote, "encaissée"], ["Crédit dû", fmt(todayCredit), "#FFB4A8", Clock, "à recevoir"], ["Moyenne", fmt(avg), "#BFF5D7", ShoppingBag, "par ticket"]].map(([l, v, c, Ic, sub]) => (
+                  <div key={l} className="rounded-[16px] px-2.5 py-2 min-w-0" style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.12)" }}>
+                    <span className="flex items-center gap-1 text-[10.5px] font-bold" style={{ color: "rgba(255,255,255,0.75)" }}><Ic size={12} color={c} className="shrink-0" /> <span className="truncate">{l}</span></span>
+                    <p className={`font-display font-bold ${tile(v)} leading-tight mt-0.5 whitespace-nowrap`} style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{v}</p>
+                    <p className="text-[10px] truncate" style={{ color: "rgba(255,255,255,0.6)" }}>{sub}</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          );
+        })()}
+        <div className="relative flex gap-2">
+          <label className="flex-1 min-w-0 flex items-center gap-2.5 min-h-[50px] pl-3.5 pr-1.5 rounded-2xl" style={{ background: "#fff", boxShadow: "0 6px 16px -10px rgba(0,0,0,0.45)" }}>
             <Search size={17} color="#5B6470" className="shrink-0" />
             <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={searchKey} placeholder="Rechercher…" aria-label="Rechercher un produit ou saisir un code-barres" className="bg-transparent outline-none text-[15px] flex-1 min-w-0" style={{ color: "#16202A" }} />
             <button onClick={startVoiceSearch} className="gb-focus w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: listening ? "var(--danger)" : "#F0EFEA" }} aria-label="Recherche vocale">
