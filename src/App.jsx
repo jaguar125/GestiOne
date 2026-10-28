@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useContext, createContext, Component, useMemo, Fragment } from "react";
+import { useState, useEffect, useRef, useContext, createContext, Component, useMemo, Fragment, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowUp, ScanLine, ShoppingCart, Boxes, History, ShieldCheck, Plus, Minus,
@@ -9,7 +9,7 @@ import {
   ClipboardList, ArrowUpCircle, ArrowDownCircle, Layers, ClipboardCheck, Camera, Sun, Moon, Mic, Star, Volume2, UserPlus, User, Gift, MessageCircle, Lock, Unlock,
   Zap, Rocket, Crown, TrendingDown, LayoutGrid, Monitor, Eye, EyeOff, Shirt, Footprints, ShoppingBag, Watch, Gem, Tag, Palette, Ruler, ImagePlus, Building2, Infinity, Barcode, Banknote, Smartphone, Clock, KeyRound, CalendarCheck, RefreshCw, Croissant, Cookie, Popcorn, FileText, Scale, Coins, PackageX, CheckSquare,
   Phone, Link2, Info, UserCheck, Activity, Flame, Minimize2, Maximize2, Mail, LockKeyhole, ShieldAlert, Timer, Calendar, Hourglass, ArrowUpDown, StickyNote, Send, Paperclip, HelpCircle, ExternalLink, Copy, Headphones, Play, UserMinus, MoreVertical, PackageCheck, Undo2, Sparkles, Cloud, BarChart3, Home, MoreHorizontal, Package, ArrowLeft, Share2, Settings,
-  PauseCircle,
+  PauseCircle, Fingerprint,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, PieChart, Pie } from "recharts";
 import * as api from "./api.js";
@@ -17,19 +17,27 @@ import { startLive } from "./live.js";
 import { UpdateGate } from "./UpdateGate.jsx";
 import { scheduleLicenseReminders } from "./licenseNotifications.js";
 import { phoneNotify, preparePhoneNotifications } from "./phoneNotify.js";
-import { exportCsvFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber, openWhatsAppChat, whatsappDisplay } from "./nativeExport.js";
+import { exportCsvFile, exportTextFile, exportPdfDoc, shareText, exportBinaryFile, sharePdfDoc, shareImage, whatsappNumber, openWhatsAppChat, whatsappDisplay } from "./nativeExport.js";
 import { ReceiptCodes } from "./ReceiptCodes.jsx";
 import { DragBubble } from "./DragBubble.jsx";
 import { uiSound } from "./tapSound.js";
 import { MomoPicker, DEFAULT_MOMO } from "./MomoPicker.jsx";
 import { HoldSaleSheet, HeldSalesBanner, HistoryTabs, HeldSalesList, heldStockProblems } from "./HeldSales.jsx";
-import HotelApp from "./hotel/HotelApp.jsx";
-import CyberApp from "./cyber/CyberApp.jsx";
-import BarApp from "./bar/BarApp.jsx";
+// Chargé seulement pour ce type d'entreprise (application plus légère au démarrage).
+const HotelApp = lazy(() => import("./hotel/HotelApp.jsx"));
+// Chargé seulement pour ce type d'entreprise (application plus légère au démarrage).
+const CyberApp = lazy(() => import("./cyber/CyberApp.jsx"));
+// Chargé seulement pour ce type d'entreprise (application plus légère au démarrage).
+const BarApp = lazy(() => import("./bar/BarApp.jsx"));
 import { BAR_KEYS } from "./bar/barEngine.js";
-import AluApp from "./alu/AluApp.jsx";
+// Chargé seulement pour ce type d'entreprise (application plus légère au démarrage).
+const AluApp = lazy(() => import("./alu/AluApp.jsx"));
 import { DeliveryTruck } from "./DeliveryTruck.jsx";
 import { installCountUp } from "./countUp.js";
+import { flyToCart } from "./flyToCart.js";
+import { bioIsNative, bioStatus, bioAuth, bioEnabled, setBioEnabled } from "./biometric.js";
+import { useOta, otaAppReady, otaCheck, otaApplyNow, otaLater, otaSetAuto, otaListBundles, otaUseBundle, otaResetToBuiltin, otaIsNative, currentCodeId } from "./otaUpdate.js";
+import { APP_VERSION } from "./appVersion.js";
 // Montants qui « comptent » de 0 jusqu'à leur valeur à l'affichage des pages.
 installCountUp();
 import { ALU_KEYS } from "./alu/aluEngine.js";
@@ -40,6 +48,49 @@ import { flushPhotos as flushHotelPhotos } from "./hotel/hotelPhotos.js";
 import { isPrinterFeatureAvailable, printRawEscPos, printReceipt, printCreditReceipt, printAvoirReceipt, printCombinedAvoirReceipt, isBluetoothPrintDisabled, setBluetoothPrintDisabled, printCashReport, printReturnReceipt, printOrder, printHeldReceipt } from "./printer.js";
 
 const GESTIONE_ICON_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJpY29uVGl0bGUiPgogIDx0aXRsZSBpZD0iaWNvblRpdGxlIj5HZXN0aU9uZSDigJQgaWPDtG5lIGRlIGwnYXBwbGljYXRpb248L3RpdGxlPgogIDxkZWZzPgogICAgPCEtLSA9PT09PT09PT09PT09PT09PSBEw4lHUkFEw4lTIChtb2RpZmlhYmxlKSA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdHcmFkIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDYzQjczIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTUlIiBzdG9wLWNvbG9yPSIjMDYxQjQ1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2MUI0NSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxyYWRpYWxHcmFkaWVudCBpZD0iZ2xvd0dyYWQiIGN4PSIxNSUiIGN5PSIxMCUiIHI9Ijc1JSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiICBzdG9wLWNvbG9yPSIjMDBEOUE1IiBzdG9wLW9wYWNpdHk9IjAuNTUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0NSUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMC4xMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwMEI4RDkiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYXduaW5nT3JhbmdlIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjhBMDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjRkY2QjAwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJhd25pbmdXaGl0ZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZGRkZGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0U4RUNGNSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZmFjYWRlR3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjRkZEMjFGIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZG93R3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMDBCOEQ5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA2M0I3MyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ2VhckdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJhckdyYWQiIHgxPSIwIiB5MT0iMSIgeDI9IjAiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGNkIwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRkQyMUYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9Im9uZUdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0ZGRDIxRiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNGRjZCMDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJzb2Z0U2hhZG93IiB4PSItNDAlIiB5PSItNDAlIiB3aWR0aD0iMTgwJSIgaGVpZ2h0PSIxODAlIj4KICAgICAgPGZlRHJvcFNoYWRvdyBkeD0iMCIgZHk9IjEwIiBzdGREZXZpYXRpb249IjE0IiBmbG9vZC1jb2xvcj0iIzA2MUI0NSIgZmxvb2Qtb3BhY2l0eT0iMC40NSIvPgogICAgPC9maWx0ZXI+CiAgICA8ZmlsdGVyIGlkPSJzbWFsbFNoYWRvdyIgeD0iLTYwJSIgeT0iLTYwJSIgd2lkdGg9IjIyMCUiIGhlaWdodD0iMjIwJSI+CiAgICAgIDxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSI0IiBzdGREZXZpYXRpb249IjYiIGZsb29kLWNvbG9yPSIjMDYxQjQ1IiBmbG9vZC1vcGFjaXR5PSIwLjM1Ii8+CiAgICA8L2ZpbHRlcj4KCiAgICA8Y2xpcFBhdGggaWQ9Imljb25DbGlwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiByeD0iMjI0Ii8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPGcgY2xpcC1wYXRoPSJ1cmwoI2ljb25DbGlwKSI+CiAgICA8IS0tID09PT09PT09PT09PT09PT09IGcjYmFja2dyb3VuZCA9PT09PT09PT09PT09PT09PSAtLT4KICAgIDxnIGlkPSJiYWNrZ3JvdW5kIj4KICAgICAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNiZ0dyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9InVybCgjZ2xvd0dyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik0gLTYwLDUxMiBBIDU2MCw1NjAgMCAwIDAgNjAsOTYwIiBmaWxsPSJub25lIiBzdHJva2U9IiMwMEQ5QTUiIHN0cm9rZS1vcGFjaXR5PSIwLjM1IiBzdHJva2Utd2lkdGg9IjM0Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNjIgMTQ4KSBzY2FsZSgxKSI+CiAgICAgIAogIDxnIGlkPSJicmFuZE1hcmsiPgogICAgPCEtLSA9PT09PSBnI3N0b3JlIDogYm91dGlxdWUgKGF1dmVudCwgZmHDp2FkZSwgdml0cmluZSwgcG9ydGUpID09PT09IC0tPgogICAgPGcgaWQ9InN0b3JlIiBmaWx0ZXI9InVybCgjc29mdFNoYWRvdykiPgogICAgICA8IS0tIGJhbmRlYXUgaGF1dCBkZSBsJ2F1dmVudCAtLT4KICAgICAgPHJlY3QgeD0iODAiIHk9Ijg2IiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjQ0IiByeD0iMTYiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICA8IS0tIGxhbWJyZXF1aW4gcmF5w6kgKHJheXVyZXMgb3JhbmdlIC8gYmxhbmMsIGJhcyBhcnJvbmRpIGZhw6dvbiBzdG9yZSBiYW5uZSkgLS0+CiAgICAgIDxnIGlkPSJhd25pbmctc3RyaXBlcyI+CiAgICAgICAgPHBhdGggZD0iTTgwLDEzMCBoNjggdjc4IHEwLDI2IC0zNCwyNiBxLTM0LDAgLTM0LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgICA8cGF0aCBkPSJNMTQ4LDEzMCBoNjggdjg4IHEwLDI0IC0zNCwyNCBxLTM0LDAgLTM0LC0yNCBaIiBmaWxsPSJ1cmwoI2F3bmluZ1doaXRlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yMTYsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nT3JhbmdlKSIvPgogICAgICAgIDxwYXRoIGQ9Ik0yODQsMTMwIGg2OCB2OTYgcTAsMjIgLTM0LDIyIHEtMzQsMCAtMzQsLTIyIFoiIGZpbGw9InVybCgjYXduaW5nV2hpdGUpIi8+CiAgICAgICAgPHBhdGggZD0iTTM1MiwxMzAgaDY4IHY4OCBxMCwyNCAtMzQsMjQgcS0zNCwwIC0zNCwtMjQgWiIgZmlsbD0idXJsKCNhd25pbmdPcmFuZ2UpIi8+CiAgICAgICAgPHBhdGggZD0iTTQyMCwxMzAgaDY4IHY3OCBxMCwyNiAtMzQsMjYgcS0zNCwwIC0zNCwtMjYgWiIgZmlsbD0idXJsKCNhd25pbmdXaGl0ZSkiLz4KICAgICAgICA8cGF0aCBkPSJNNDg4LDEzMCBoNzIgdjcwIHEwLDI2IC0zNiwyNiBxLTM2LDAgLTM2LC0yNiBaIiBmaWxsPSJ1cmwoI2F3bmluZ09yYW5nZSkiLz4KICAgICAgPC9nPgogICAgICA8IS0tIGZhw6dhZGUgLS0+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJ1cmwoI2ZhY2FkZUdyYWQpIi8+CiAgICAgIDxyZWN0IHg9IjEwOCIgeT0iMjMwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjI4MCIgcng9IjE4IiBmaWxsPSJub25lIiBzdHJva2U9IiMwNjFCNDUiIHN0cm9rZS1vcGFjaXR5PSIwLjE1IiBzdHJva2Utd2lkdGg9IjQiLz4KICAgICAgPCEtLSB2aXRyaW5lIGJsZXVlIGF2ZWMgcGFuaWVyIC0tPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0idXJsKCN3aW5kb3dHcmFkKSIvPgogICAgICA8cmVjdCB4PSIxNTgiIHk9IjI3OCIgd2lkdGg9IjE5MCIgaGVpZ2h0PSIxNzYiIHJ4PSIxNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utb3BhY2l0eT0iMC4zNSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICAgIDxnIGlkPSJiYXNrZXQiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLXdpZHRoPSIxMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIj4KICAgICAgICA8cGF0aCBkPSJNMjIzLDM1MiBxMzAsLTQ2IDYwLDAiIC8+CiAgICAgICAgPHBhdGggZD0iTTIwMywzNTIgaDE2MCBsLTE2LDc4IHEtMywxNCAtMTgsMTQgaC05MiBxLTE1LDAgLTE4LC0xNCBaIiBmaWxsPSIjRkZGRkZGIiBzdHJva2U9Im5vbmUiLz4KICAgICAgICA8cGF0aCBkPSJNMjI4LDM2NiB2NTYgTTI1MywzNjYgdjYyIE0yNzgsMzY2IHY1NiIgc3Ryb2tlPSIjMDBCOEQ5IiBzdHJva2Utd2lkdGg9IjgiLz4KICAgICAgPC9nPgogICAgICA8IS0tIHBvcnRlIC0tPgogICAgICA8cmVjdCB4PSIzOTIiIHk9IjMyMiIgd2lkdGg9IjExMiIgaGVpZ2h0PSIxODgiIHJ4PSIxMCIgZmlsbD0iIzA2MUI0NSIvPgogICAgICA8Y2lyY2xlIGN4PSI0NzIiIGN5PSI0MTYiIHI9IjciIGZpbGw9IiNGRkQyMUYiLz4KICAgIDwvZz4KCiAgICA8IS0tID09PT09IGcjZ3Jvd3RoIDogZ3JhcGhpcXVlIGVuIGJhcnJlcyArIGZsw6hjaGUgYXNjZW5kYW50ZSA9PT09PSAtLT4KICAgIDxnIGlkPSJncm93dGgiPgogICAgICA8cmVjdCB4PSI1NDAiIHk9IjM2OCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjkyIiByeD0iNiIgZmlsbD0idXJsKCNiYXJHcmFkKSIvPgogICAgICA8cmVjdCB4PSI1ODQiIHk9IjMzMCIgd2lkdGg9IjM0IiBoZWlnaHQ9IjEzMCIgcng9IjYiIGZpbGw9InVybCgjYmFyR3JhZCkiLz4KICAgICAgPHJlY3QgeD0iNjI4IiB5PSIyODYiIHdpZHRoPSIzNCIgaGVpZ2h0PSIxNzQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2JhckdyYWQpIi8+CiAgICAgIDxwYXRoIGQ9Ik01NTYsMjcyIEw2NTAsMTc4IE02NTAsMTc4IGgtNDYgTTY1MCwxNzggdjQ2IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkQyMUYiIHN0cm9rZS13aWR0aD0iMTYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogICAgPC9nPgoKICAgIDwhLS0gPT09PT0gZyNtYW5hZ2VtZW50IDogZW5ncmVuYWdlIChnZXN0aW9uKSA9PT09PSAtLT4KICAgIDxnIGlkPSJtYW5hZ2VtZW50IiBmaWx0ZXI9InVybCgjc21hbGxTaGFkb3cpIj4KICAgICAgPGcgZmlsbD0idXJsKCNnZWFyR3JhZCkiPgogICAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoMC4wKSIvPgogICAgICA8cmVjdCB4PSItMTUuMCIgeT0iLTEwOC4wIiB3aWR0aD0iMzAuMCIgaGVpZ2h0PSIzNC4wIiByeD0iNiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTYwIDQ4MCkgcm90YXRlKDM2LjApIi8+CiAgICAgIDxyZWN0IHg9Ii0xNS4wIiB5PSItMTA4LjAiIHdpZHRoPSIzMC4wIiBoZWlnaHQ9IjM0LjAiIHJ4PSI2IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjAgNDgwKSByb3RhdGUoNzIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxMDguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxNDQuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgxODAuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyMTYuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyNTIuMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgyODguMCkiLz4KICAgICAgPHJlY3QgeD0iLTE1LjAiIHk9Ii0xMDguMCIgd2lkdGg9IjMwLjAiIGhlaWdodD0iMzQuMCIgcng9IjYiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDU2MCA0ODApIHJvdGF0ZSgzMjQuMCkiLz4KICAgICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9Ijg4IiAvPgogICAgICA8L2c+CiAgICAgIDxjaXJjbGUgY3g9IjU2MCIgY3k9IjQ4MCIgcj0iODgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGRkZGRiIgc3Ryb2tlLW9wYWNpdHk9IjAuMzUiIHN0cm9rZS13aWR0aD0iNCIvPgogICAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI0ODAiIHI9IjM0IiBmaWxsPSIjMDYxQjQ1Ii8+CiAgICA8L2c+CiAgPC9nPgoKICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=";
+
+// Écran de chargement « squelette » : la forme de la page apparaît tout de
+// suite (en-tête, grande carte, grille de produits) avec un reflet animé,
+// au lieu d'un rond qui tourne sur un écran vide.
+const SK_CSS = `@keyframes gbSk{0%{background-position:120% 0}100%{background-position:-20% 0}}.gb-sk{background:linear-gradient(90deg,rgba(120,110,95,.13) 0%,rgba(120,110,95,.05) 40%,rgba(120,110,95,.13) 80%);background-size:220% 100%;animation:gbSk 1.25s ease-in-out infinite;border-radius:14px}@media (prefers-reduced-motion: reduce){.gb-sk{animation:none}}`;
+function Skel({ w = "100%", h = 14, r, style, className = "" }) {
+  return <div className={`gb-sk ${className}`} style={{ width: w, height: h, borderRadius: r, ...style }} />;
+}
+function SkeletonList({ rows = 4 }) {
+  return (
+    <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card, #fff)", border: "1px solid var(--line, #E6E3DB)" }} aria-hidden="true">
+      <style>{SK_CSS}</style>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-3.5 py-3" style={{ borderTop: i ? "1px solid var(--line, #EFEDE7)" : "none" }}>
+          <Skel w={48} h={48} r={16} />
+          <div className="flex-1 flex flex-col gap-2"><Skel w="55%" h={13} /><Skel w="80%" h={11} /></div>
+          <Skel w={38} h={12} />
+        </div>
+      ))}
+    </div>
+  );
+}
+function AppSkeleton({ kind }) {
+  return (
+    <div className="w-full min-h-screen px-4" style={{ background: "var(--paper, #F4F3EE)", paddingTop: "calc(max(22px, env(safe-area-inset-top)) + 6px)", paddingBottom: "calc(110px + env(safe-area-inset-bottom))" }} role="status" aria-label="Chargement">
+      <style>{SK_CSS}</style>
+      <div className="mx-auto w-full max-w-[600px]">
+        <div className="flex items-center justify-between mb-4"><div className="flex flex-col gap-2"><Skel w={130} h={18} /><Skel w={90} h={11} /></div><div className="flex gap-2"><Skel w={38} h={38} r={19} /><Skel w={38} h={38} r={19} /></div></div>
+        <Skel h={kind ? 150 : 190} r={24} />
+        <div className="flex gap-2 mt-3 overflow-hidden">{[0, 1, 2, 3, 4].map((i) => <Skel key={i} w={72} h={62} r={16} style={{ flexShrink: 0 }} />)}</div>
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="rounded-[18px] overflow-hidden" style={{ background: "var(--card, #fff)", border: "1px solid var(--line, #E6E3DB)" }}>
+              <Skel h={72} r={0} />
+              <div className="p-3 flex flex-col gap-2"><Skel w="75%" h={13} /><Skel w="50%" h={15} /><Skel w="40%" h={10} /></div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="fixed left-3 right-3 mx-auto max-w-[600px]" style={{ bottom: "calc(12px + env(safe-area-inset-bottom))" }}><Skel h={64} r={20} /></div>
+    </div>
+  );
+}
 
 // Suit une requête média (largeur d'écran…) et se met à jour au redimensionnement.
 function useMediaQuery(query) {
@@ -434,7 +485,9 @@ const SHOP_META_SYNC_FIELDS = [
   // Facturation
   "taxId", "rccm", "invoiceAddress", "invoicePhone", "invoiceEmail", "vatRate", "invoiceFooter",
   // Équipe
-  "vendorGoals",
+  "vendorGoals", "dayGoal", "vendorDayGoals",
+  // Rapport automatique du soir
+  "eveningReport",
   // Boutique
   "banners",
   // Actionnaires et partage des bénéfices
@@ -2480,10 +2533,23 @@ function PinPad({ accent, onSubmit }) {
   );
 }
 
+// Bouton « Empreinte / visage » (application Android, si activé dans Sécurité).
+// Le capteur est proposé automatiquement à l'ouverture ; le code reste possible.
+function BioButton({ onBio, auto = true, dark = false, label = "Utiliser mon empreinte" }) {
+  const [busy, setBusy] = useState(false);
+  const run = async () => { if (busy) return; setBusy(true); try { await onBio(); } finally { setBusy(false); } };
+  useEffect(() => { if (auto) { const t = setTimeout(run, 350); return () => clearTimeout(t); } return undefined; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <button onClick={run} disabled={busy} className="gb-focus w-full max-w-[280px] mx-auto mt-5 min-h-[52px] rounded-2xl flex items-center justify-center gap-2.5 text-[15px] font-bold active:scale-[0.98] transition-transform disabled:opacity-60" style={dark ? { background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" } : { background: "#EAF3DE", color: "#2E6B10", border: "1px solid #CFE6B5" }}>
+      <Fingerprint size={22} /> {busy ? "Posez votre doigt…" : label}
+    </button>
+  );
+}
+
 // ---------- Verrouillage automatique ----------
 // Écran plein qui recouvre l'application après une période d'inactivité :
 // seul l'utilisateur connecté peut le lever avec son propre code.
-function LockScreen({ userName, onUnlock, onSwitchUser }) {
+function LockScreen({ userName, onUnlock, onSwitchUser, onBio }) {
   return (
     <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center px-6 no-print" style={{ background: "#1F2A33", paddingTop: "max(40px, env(safe-area-inset-top))", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
       <div className="w-16 h-16 rounded-[22px] flex items-center justify-center mb-4" style={{ background: "rgba(255,255,255,0.1)" }}><Lock size={28} color="#fff" /></div>
@@ -2491,6 +2557,7 @@ function LockScreen({ userName, onUnlock, onSwitchUser }) {
       <p className="text-[14px] text-center mt-1.5 mb-7" style={{ color: "#B7C0C8" }}>Aucune activité depuis un moment.<br />{userName ? `${userName}, entrez votre code pour continuer.` : "Entrez votre code pour continuer."}</p>
       <div className="w-full max-w-[320px]">
         <PinPad accent="#A6E07A" onSubmit={onUnlock} />
+        {onBio && <BioButton onBio={onBio} dark />}
       </div>
       <button onClick={onSwitchUser} className="gb-focus mt-7 px-5 py-3 rounded-2xl text-[14px] font-semibold" style={{ color: "#fff", background: "rgba(255,255,255,0.08)" }}>Changer d'utilisateur</button>
     </div>
@@ -2499,7 +2566,7 @@ function LockScreen({ userName, onUnlock, onSwitchUser }) {
 
 // Demande le code administrateur avant une action sensible (supprimer ou
 // modifier une vente, changer un prix, supprimer un produit).
-function AdminCodeModal({ label, onSubmit, onCancel }) {
+function AdminCodeModal({ label, onSubmit, onCancel, onBio }) {
   return (
     <div className="fixed inset-0 z-[250] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(22,32,42,0.6)" }} onClick={onCancel}>
       <div className="w-full max-w-[420px] rounded-t-[26px] sm:rounded-[26px] px-6 pt-5 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
@@ -2512,6 +2579,7 @@ function AdminCodeModal({ label, onSubmit, onCancel }) {
           <button onClick={onCancel} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Annuler"><X size={18} /></button>
         </div>
         <PinPad accent="var(--glass)" onSubmit={onSubmit} />
+        {onBio && <BioButton onBio={onBio} label="Confirmer avec l'empreinte" />}
       </div>
     </div>
   );
@@ -2585,6 +2653,7 @@ function LoginScreen({ shop, shops, activeShopId, onSwitchShop, vendors, onLogin
         <div className="w-full gb-slide-up">
           <p className="text-white/70 text-sm text-center mb-6">Code {mode === "admin" ? "administrateur" : "vendeur"}</p>
           <PinPad accent="var(--cap)" onSubmit={check} />
+          {mode === "admin" && bioEnabled(shop.id) && <BioButton dark label="Entrer avec l'empreinte" onBio={async () => { if (await bioAuth("Connexion administrateur")) onLogin("admin", shop.adminDisplayName?.trim() || "Administrateur"); }} />}
           <button onClick={() => setMode(null)} className="gb-focus block mx-auto mt-7 text-white/50 text-xs underline">Retour</button>
         </div>
       )}
@@ -4191,17 +4260,24 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
   // Clavier (ordinateur) et lecteur de code-barres USB / Bluetooth.
   const scanRef = useRef(null);
   scanRef.current = (code) => handleCameraDetect(code);
+  const salesRef = useRef(sales);
+  salesRef.current = sales;
   useEffect(() => {
     const onKey = (e) => {
       const k = e.detail;
       if (k === "search") { inputRef.current?.focus(); inputRef.current?.select?.(); }
       if (k === "hold" && count > 0 && onHoldSale) setHoldOpen(true);
+      if (k === "escape") { setReceipt(null); setHoldOpen(false); if (!docked) setShowCart(false); }
+      if (k === "print") {
+        const last = [...(salesRef.current || [])].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+        if (last) setReceipt(last); else pushToast("Aucune vente à réimprimer", "error");
+      }
     };
     const onScan = (e) => { if (e.detail) scanRef.current?.(String(e.detail)); };
     window.addEventListener("gb-key", onKey);
     window.addEventListener("gb-scan", onScan);
     return () => { window.removeEventListener("gb-key", onKey); window.removeEventListener("gb-scan", onScan); };
-  }, [count, onHoldSale]);
+  }, [count, onHoldSale, docked]);
   // Informations en plus sur la vente : opérateur Mobile Money, remise.
   const onCheckoutX = (...args) => {
     const a = [...args];
@@ -4665,8 +4741,8 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           const dotColor = out ? "#C2331F" : low ? "#E09A1A" : "#1E8E50";
           const meta = getCategory(categories, p.category);
           return (
-            <button key={p.id} onClick={() => addToCart(p)} disabled={out} aria-label={`Ajouter ${p.name} au panier`} className="gb-focus min-w-0 text-left rounded-[18px] overflow-hidden flex flex-col active:scale-[0.97] transition-transform disabled:opacity-55" style={{ background: "var(--card)", border: n ? "2px solid #1E8E50" : "1px solid var(--line)" }}>
-              <span className="relative w-full h-[72px] flex items-center justify-center overflow-hidden" style={{ background: catTint(p.category) }}>
+            <button key={p.id} onClick={(e) => { const fly = left > 0 && !hasVariants(p) && !(p.options || []).length && !(p.variants || []).length; const card = e.currentTarget; addToCart(p); if (fly) flyToCart(card); }} disabled={out} aria-label={`Ajouter ${p.name} au panier`} className="gb-focus min-w-0 text-left rounded-[18px] overflow-hidden flex flex-col active:scale-[0.97] transition-transform disabled:opacity-55" style={{ background: "var(--card)", border: n ? "2px solid #1E8E50" : "1px solid var(--line)" }}>
+              <span data-fly-src className="relative w-full h-[72px] flex items-center justify-center overflow-hidden" style={{ background: catTint(p.category) }}>
                 {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <CategoryIcon cat={p.category} categories={categories} size={26} />}
                 <span className="absolute left-2 top-2 h-[22px] px-2 rounded-full text-[11px] font-bold flex items-center" style={{ background: "rgba(255,255,255,0.92)", color: catKey(p.category) }}>{meta.label}</span>
                 {n > 0 && <span className="absolute right-2 top-2 min-w-[26px] h-[26px] px-1.5 rounded-full text-white text-[12.5px] font-bold flex items-center justify-center" style={{ background: "#1E8E50" }}>×{n}</span>}
@@ -4709,7 +4785,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           {count > 0 ? (
             nuit ? (
             <button onClick={() => setShowCart(true)} className="gb-focus w-full min-h-[64px] rounded-[20px] pl-4 pr-2 py-2 flex items-center gap-3 text-white" style={{ background: "var(--glass)", boxShadow: "0 12px 26px rgba(14,34,64,0.4)" }}>
-              <span className="relative shrink-0 flex">
+              <span data-cart-target className="relative shrink-0 flex">
                 <ShoppingCart size={24} color="#fff" />
                 <span className="absolute -top-2 -right-2.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: "var(--cap)", color: "#fff" }}>{count}</span>
               </span>
@@ -4721,7 +4797,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
             </button>
             ) :
             <button onClick={() => setShowCart(true)} className="gb-focus w-full min-h-[64px] rounded-[20px] pl-4 pr-2 py-2 flex items-center gap-3 text-white" style={{ background: "#1E8E50", boxShadow: "0 12px 26px rgba(30,142,80,0.35)" }}>
-              <span className="relative shrink-0 flex">
+              <span data-cart-target className="relative shrink-0 flex">
                 <ShoppingCart size={24} color="#fff" />
                 <span className="absolute -top-2 -right-2.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: "#fff", color: "#1E8E50" }}>{count}</span>
               </span>
@@ -4733,7 +4809,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
             </button>
           ) : isBoutique ? null : (
             <div className="min-h-[52px] px-4 py-2.5 rounded-[18px] flex items-center gap-2.5 text-[13.5px]" style={{ background: "var(--card)", border: "1px dashed var(--line)", color: "var(--ink)" }}>
-              <ShoppingCart size={18} className="opacity-50 shrink-0" />
+              <span data-cart-target className="flex shrink-0"><ShoppingCart size={18} className="opacity-50" /></span>
               <span className="opacity-70">Touchez un produit pour commencer</span>
             </div>
           )}
@@ -10454,7 +10530,239 @@ function DailyReportPreview({ shop, sales, expenses, onClose, pushToast }) {
   );
 }
 
-function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }) {
+// ---------- D14 · Objectifs du jour (entreprise + par vendeur) ----------
+const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+const todayRevenueOf = (sales) => { const t0 = startOfToday().getTime(); return (sales || []).filter((s) => new Date(s.date).getTime() >= t0).reduce((t, s) => t + (Number(s.total) || 0), 0); };
+const GOAL_COLORS = ["#1E8E50", "#E09A1A", "#3B7DD8", "#7B4DDB", "#D9491F", "#0F8C8C"];
+
+function GoalGauge({ pct }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => { const t = setTimeout(() => setShown(Math.min(100, pct)), 60); return () => clearTimeout(t); }, [pct]);
+  const R = 70, C = Math.PI * R;
+  return (
+    <svg viewBox="0 0 180 104" width="190" height="110" aria-hidden="true">
+      <path d="M20 94 A70 70 0 0 1 160 94" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="16" strokeLinecap="round" />
+      <path d="M20 94 A70 70 0 0 1 160 94" fill="none" stroke={pct >= 100 ? "#7BE0A5" : "#F2C14E"} strokeWidth="16" strokeLinecap="round" strokeDasharray={`${C}`} strokeDashoffset={`${C * (1 - shown / 100)}`} style={{ transition: "stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1)" }} />
+    </svg>
+  );
+}
+
+function DayGoalsCard({ shop, sales, vendors = [], saveShopMeta, isAdmin }) {
+  const fmt = useFmt();
+  const [edit, setEdit] = useState(false);
+  const [draft, setDraft] = useState({ day: "", per: {} });
+  const goal = Number(shop?.dayGoal) || 0;
+  const perGoals = shop?.vendorDayGoals || {};
+  const done = todayRevenueOf(sales);
+  const stats = vendorStats(sales || [], startOfToday());
+  const people = [...new Set([...(vendors || []).map((v) => v.name).filter(Boolean), ...stats.map((v) => v.name).filter(Boolean), ...Object.keys(perGoals)])];
+  const pct = goal ? Math.round((done / goal) * 100) : 0;
+  const openEdit = () => { setDraft({ day: goal ? String(goal) : "", per: Object.fromEntries(people.map((n) => [n, perGoals[n] ? String(perGoals[n]) : ""])) }); setEdit(true); };
+  const save = () => {
+    const per = {}; Object.entries(draft.per).forEach(([k, v]) => { const n = Number(String(v).replace(/\D/g, "")); if (n > 0) per[k] = n; });
+    saveShopMeta?.({ ...shop, dayGoal: Number(String(draft.day).replace(/\D/g, "")) || 0, vendorDayGoals: per });
+    setEdit(false);
+  };
+  const rows = people.map((n, i) => ({ name: n, ca: stats.find((v) => v.name === n)?.ca || 0, goal: Number(perGoals[n]) || 0, color: GOAL_COLORS[i % GOAL_COLORS.length] }))
+    .filter((r) => r.goal > 0 || r.ca > 0).sort((a, b) => (b.goal ? b.ca / b.goal : 0) - (a.goal ? a.ca / a.goal : 0) || b.ca - a.ca);
+
+  const sheet = edit && createPortal((
+        <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(10,16,24,0.55)" }} onClick={() => setEdit(false)}>
+          <div className="w-full max-w-[600px] rounded-t-[28px] px-5 pt-3 gb-slide-up max-h-[92vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(26px, calc(env(safe-area-inset-bottom) + 18px))" }} onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+            <div className="flex items-center gap-3 mb-3">
+              <span className="w-12 h-12 rounded-[15px] flex items-center justify-center text-[22px] shrink-0" style={{ background: "#FFF1D6" }}>🎯</span>
+              <div className="flex-1 min-w-0"><p className="font-display font-bold text-[19px] leading-tight">Objectifs du jour</p><p className="text-[12px] opacity-60">Laissez vide pour ne pas fixer d'objectif</p></div>
+              <button onClick={() => setEdit(false)} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+            </div>
+            <label className="block text-[12.5px] font-bold mb-1.5">Toute l'entreprise</label>
+            <input inputMode="numeric" value={draft.day} onChange={(e) => setDraft((d) => ({ ...d, day: e.target.value.replace(/\D/g, "") }))} placeholder="Ex. 50000" className="gb-focus w-full rounded-[14px] px-3.5 py-3 text-[16px] font-bold" style={{ background: "var(--card)", border: "1.5px solid var(--line)" }} />
+            {people.length > 0 && <p className="text-[12.5px] font-bold mt-4 mb-1.5">Par vendeur</p>}
+            <div className="flex flex-col gap-2">
+              {people.map((n) => (
+                <div key={n} className="flex items-center gap-2.5 rounded-[14px] px-3 py-2" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                  <ClientAvatar name={n} size={32} />
+                  <span className="flex-1 min-w-0 text-[14px] font-bold break-words">{n}</span>
+                  <input inputMode="numeric" value={draft.per[n] || ""} onChange={(e) => setDraft((d) => ({ ...d, per: { ...d.per, [n]: e.target.value.replace(/\D/g, "") } }))} placeholder="0" className="gb-focus w-[120px] rounded-[10px] px-2.5 py-2 text-[15px] font-bold text-right" style={{ background: "var(--paper-dim)" }} />
+                </div>
+              ))}
+            </div>
+            <button onClick={save} className="gb-focus w-full mt-4 min-h-[52px] rounded-[16px] text-[15px] font-bold text-white" style={{ background: "linear-gradient(180deg,#5A3816,#3E260F)" }}>Enregistrer les objectifs</button>
+          </div>
+        </div>
+      ), document.querySelector(".gb-root") || document.body);
+  if (!goal && !rows.some((r) => r.goal)) {
+    if (!isAdmin) return null;
+    return (<>
+      <button onClick={openEdit} className="gb-focus w-full mb-3 rounded-[20px] p-4 flex items-center gap-3 text-left" style={{ background: "var(--card)", border: "1.5px dashed var(--line)" }}>
+        <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0 text-[20px]" style={{ background: "#FFF1D6" }}>🎯</span>
+        <span className="flex-1 min-w-0"><span className="block text-[15px] font-bold">Fixer un objectif du jour</span><span className="block text-[12px] opacity-60">Pour l'entreprise et pour chaque vendeur · confettis quand c'est atteint</span></span>
+        <ChevronRight size={18} className="opacity-50 shrink-0" />
+      </button>
+      {sheet}</>
+    );
+  }
+  return (
+    <div className="mb-3">
+      <div className="rounded-[24px] p-4 text-white text-center relative overflow-hidden" style={{ background: "radial-gradient(120% 90% at 100% 0%, rgba(242,193,78,0.4), transparent 55%), linear-gradient(150deg, #4A2E12, #6B451E)", boxShadow: "0 14px 30px -16px rgba(74,46,18,0.8)" }}>
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] opacity-80">🎯 Objectif du jour</p>
+          {isAdmin && <button onClick={openEdit} className="gb-focus h-8 px-3 rounded-full text-[12px] font-bold flex items-center gap-1" style={{ background: "rgba(255,255,255,0.16)" }}><Pencil size={12} /> Modifier</button>}
+        </div>
+        {goal > 0 ? (
+          <>
+            <div className="relative mx-auto mt-1" style={{ width: 190, height: 110 }}>
+              <GoalGauge pct={pct} />
+              <span className="absolute left-0 right-0 font-display font-bold text-[30px] leading-none" style={{ bottom: 14 }}>{pct} %</span>
+            </div>
+            <p className="text-[14px] font-bold" data-no-count>{fmt(done)} / {fmt(goal)}</p>
+            <p className="text-[12.5px] mt-0.5 opacity-80">{done >= goal ? "🎉 Objectif atteint, bravo à toute l'équipe !" : `Plus que ${fmt(goal - done)} pour atteindre l'objectif`}</p>
+          </>
+        ) : <p className="text-[13px] mt-2 opacity-85">Aucun objectif global · objectifs par vendeur ci-dessous</p>}
+      </div>
+      {rows.length > 0 && (
+        <div className="rounded-[20px] p-3.5 mt-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <p className="text-[14px] font-bold mb-2">Par vendeur</p>
+          <div className="flex flex-col gap-3">
+            {rows.map((r) => {
+              const p = r.goal ? Math.round((r.ca / r.goal) * 100) : null;
+              return (
+                <div key={r.name} className="flex items-center gap-3">
+                  <ClientAvatar name={r.name} size={36} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-2"><span className="text-[13.5px] font-bold break-words min-w-0">{r.name}</span><span className="text-[12.5px] font-bold whitespace-nowrap" data-no-count>{fmt(r.ca)}{r.goal ? <span className="opacity-50"> / {fmt(r.goal)}</span> : null}</span></div>
+                    <div className="h-2 rounded-full mt-1.5 overflow-hidden" style={{ background: "var(--paper-dim)" }}>
+                      <div className="h-full rounded-full" style={{ width: `${p == null ? 0 : Math.min(100, p)}%`, background: p >= 100 ? "#1E8E50" : r.color, transition: "width 1s cubic-bezier(.2,.8,.2,1)" }} />
+                    </div>
+                  </div>
+                  <span className="w-12 text-right text-[13px] font-extrabold shrink-0" style={{ color: p >= 100 ? "#1E8E50" : r.color }}>{p == null ? "—" : `${p}%`}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[11.5px] mt-3 px-2.5 py-2 rounded-[12px]" style={{ background: "#FBF6EE", color: "#6B451E" }}>🔊 À 100 % : « Bravo, objectif atteint ! » annoncé à voix haute, avec des confettis.</p>
+        </div>
+      )}
+      {sheet}
+    </div>
+  );
+}
+
+// Confettis + message de félicitations (objectif atteint).
+function GoalCelebration({ data, onClose }) {
+  useEffect(() => { const t = setTimeout(onClose, 4800); return () => clearTimeout(t); }, [data?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pieces = useMemo(() => Array.from({ length: 70 }, (_, i) => ({
+    left: Math.random() * 100, delay: Math.random() * 0.6, dur: 2.2 + Math.random() * 1.6, size: 7 + Math.random() * 7,
+    color: ["#F2C14E", "#E4572E", "#1E8E50", "#3B7DD8", "#7B4DDB", "#FF7AB6"][i % 6], rot: Math.random() * 360, drift: (Math.random() - 0.5) * 120,
+  })), [data?.at]);
+  if (!data) return null;
+  return (
+    <div className="fixed inset-0 z-[110] pointer-events-none no-print overflow-hidden" aria-live="polite">
+      <style>{`@keyframes gbConf{0%{transform:translate3d(0,-20px,0) rotate(0)}100%{transform:translate3d(var(--dx),110vh,0) rotate(720deg)}}@keyframes gbCel{0%{opacity:0;transform:scale(.7)}12%{opacity:1;transform:scale(1.05)}18%{transform:scale(1)}88%{opacity:1}100%{opacity:0}}`}</style>
+      {pieces.map((p, i) => <span key={i} className="absolute top-0" style={{ left: `${p.left}%`, width: p.size, height: p.size * 0.45, background: p.color, borderRadius: 2, transform: `rotate(${p.rot}deg)`, "--dx": `${p.drift}px`, animation: `gbConf ${p.dur}s cubic-bezier(.3,.6,.6,1) ${p.delay}s both` }} />)}
+      <div className="absolute inset-0 flex items-center justify-center px-6">
+        <div className="pointer-events-auto rounded-[26px] px-6 py-5 text-center max-w-[320px]" onClick={onClose} style={{ background: "#fff", boxShadow: "0 30px 60px -20px rgba(0,0,0,0.45)", animation: "gbCel 4.8s ease both" }}>
+          <p className="text-[40px] leading-none">🎉</p>
+          <p className="font-display font-bold text-[19px] mt-2 leading-tight" style={{ color: "#16202A" }}>{data.title}</p>
+          <p className="text-[13.5px] mt-1" style={{ color: "#5B6470" }}>{data.sub}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- D17 · Rapport automatique du soir ----------
+// À l'heure choisie (22 h par défaut), une notification résume la journée et
+// le texte est prêt à être envoyé sur WhatsApp au propriétaire. Si
+// l'application était fermée à cette heure-là, le rapport part à la
+// prochaine ouverture du même jour.
+function eveningReportData(shop, sales, expenses, products) {
+  const t0 = startOfToday().getTime();
+  const y0 = t0 - 864e5;
+  const today = (sales || []).filter((s) => new Date(s.date).getTime() >= t0);
+  const yest = (sales || []).filter((s) => { const x = new Date(s.date).getTime(); return x >= y0 && x < t0; });
+  const sum = (arr, f) => arr.reduce((t, s) => t + (Number(f(s)) || 0), 0);
+  const total = sum(today, (s) => s.total);
+  const credit = sum(today.filter((s) => s.paymentMethod === "credit"), (s) => s.total);
+  const exp = sum((expenses || []).filter((e) => new Date(e.date).getTime() >= t0), (e) => e.amount);
+  const best = vendorStats(sales || [], startOfToday())[0] || null;
+  const out = (products || []).filter((p) => !p.stockFrom && Number(p.stock) <= 0).map((p) => p.name);
+  const yTotal = sum(yest, (s) => s.total);
+  return {
+    tickets: today.length, total, cash: sum(today, cashPartOf), mobile: sum(today, mobilePartOf), credit,
+    caisse: Math.max(0, total - credit), expenses: exp, best, out,
+    delta: yTotal > 0 ? Math.round(((total - yTotal) / yTotal) * 100) : null,
+  };
+}
+function eveningReportText(shop, d) {
+  const m = (n) => formatMoney(Number(n) || 0, shop?.currency);
+  const day = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "2-digit" });
+  return [
+    `📊 ${shop?.name || "GestiOne"} — Rapport du ${day}`,
+    "",
+    `💰 Ventes : ${m(d.total)} (${d.tickets} ticket${d.tickets > 1 ? "s" : ""})`,
+    `💵 Espèces : ${m(d.cash)}`,
+    `📱 Mobile Money : ${m(d.mobile)}`,
+    `🧾 Crédits accordés : ${m(d.credit)}`,
+    `✅ Caisse du jour : ${m(d.caisse)}`,
+    `💸 Dépenses : ${m(d.expenses)}`,
+    "",
+    d.best ? `🏆 Meilleur vendeur : ${d.best.name} (${m(d.best.ca)})` : null,
+    d.out.length ? `⚠️ Rupture : ${d.out.slice(0, 6).join(", ")}${d.out.length > 6 ? ` et ${d.out.length - 6} autre(s)` : ""}` : "✔️ Aucun produit en rupture",
+    d.delta != null ? `${d.delta >= 0 ? "📈" : "📉"} ${d.delta >= 0 ? "+" : ""}${d.delta} % par rapport à hier` : null,
+    "",
+    "Envoyé automatiquement par GestiOne",
+  ].filter((l) => l !== null).join("\n");
+}
+function sendEveningReport(shop, text) {
+  const phone = shop?.eveningReport?.phone;
+  if (phone) return openWhatsAppChat(phone, text).catch(() => shareText("Rapport du soir", text).catch(() => {}));
+  return shareText(`Rapport du soir — ${shop?.name || ""}`, text).catch(() => {});
+}
+
+function EveningReportCard({ shop, sales, expenses, products, saveShopMeta, pushToast }) {
+  const fmt = useFmt();
+  const cfg = shop?.eveningReport || {};
+  const [phone, setPhone] = useState(cfg.phone || "");
+  const [open, setOpen] = useState(false);
+  useEffect(() => { setPhone(cfg.phone || ""); }, [cfg.phone]);
+  const d = eveningReportData(shop, sales, expenses, products);
+  const text = eveningReportText(shop, d);
+  const save = (patch) => saveShopMeta?.({ ...shop, eveningReport: { hour: 22, ...cfg, ...patch } });
+  const hour = Number(cfg.hour ?? 22);
+  return (
+    <div className="rounded-[20px] p-4 mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+      <div className="flex items-center gap-3">
+        <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0 text-[20px]" style={{ background: "#E3F4EA" }}>📊</span>
+        <div className="flex-1 min-w-0"><p className="text-[15px] font-bold leading-tight">Rapport automatique du soir</p><p className="text-[12px] opacity-60">Notification + résumé prêt pour WhatsApp</p></div>
+        <button onClick={() => save({ enabled: !cfg.enabled })} role="switch" aria-checked={!!cfg.enabled} className="gb-focus shrink-0 w-[52px] h-[30px] rounded-full relative transition-colors" style={{ background: cfg.enabled ? "#1E8E50" : "#C9CED6" }} aria-label="Activer le rapport du soir">
+          <span className="absolute top-[3px] w-6 h-6 rounded-full bg-white transition-all" style={{ left: cfg.enabled ? 25 : 3, boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+        </button>
+      </div>
+      {cfg.enabled && (
+        <div className="mt-3 flex flex-col gap-2.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-semibold flex-1 whitespace-nowrap">Heure d'envoi</span>
+            <div className="flex gap-1 overflow-x-auto gb-scroll" style={{ scrollbarWidth: "none" }}>
+              {[19, 20, 21, 22, 23].map((h) => <button key={h} onClick={() => save({ hour: h })} className="gb-focus shrink-0 h-9 px-3 rounded-full text-[13px] font-bold" style={hour === h ? { background: "#4A2E12", color: "#fff" } : { background: "var(--paper-dim)" }}>{h} h</button>)}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} onBlur={() => { if ((phone || "") !== (cfg.phone || "")) save({ phone: phone.trim() }); }} inputMode="tel" placeholder="Numéro WhatsApp du propriétaire" className="gb-focus flex-1 min-w-0 rounded-[12px] px-3 py-2.5 text-[14px]" style={{ background: "var(--paper-dim)" }} />
+          </div>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <button onClick={() => setOpen((v) => !v)} className="gb-focus min-h-[44px] rounded-[13px] text-[13px] font-bold" style={{ background: "var(--paper-dim)" }}>{open ? "Masquer" : "Voir le rapport"}</button>
+        <button onClick={() => { sendEveningReport(shop, text); pushToast?.("Rapport prêt à envoyer", "ok"); }} className="gb-focus min-h-[44px] rounded-[13px] text-[13px] font-bold text-white flex items-center justify-center gap-1.5" style={{ background: "#128C4A" }}><MessageCircle size={15} /> WhatsApp</button>
+      </div>
+      {open && <pre className="mt-3 rounded-[14px] p-3 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words gb-slide-up" data-no-count style={{ background: "#E7F8DC", color: "#16202A", fontFamily: "inherit" }}>{text}</pre>}
+      {!cfg.enabled && <p className="text-[11.5px] mt-2 opacity-60">Activez pour recevoir chaque soir {fmt(d.total) ? "le résumé de la journée" : ""} à l'heure choisie.</p>}
+    </div>
+  );
+}
+
+function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate, saveShopMeta, vendors }) {
   const fmt = useFmt();
   const [period, setPeriod] = useState("semaine");
   const [showDailyReport, setShowDailyReport] = useState(false);
@@ -10568,6 +10876,8 @@ function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }
         <button onClick={() => setShowDailyReport(true)} className="gb-focus shrink-0 min-h-[40px] flex items-center gap-1.5 text-[12.5px] font-bold px-3.5 rounded-[12px]" style={{ background: K.card, border: `1px solid ${K.line}` }}><Printer size={15} /> Rapport du jour</button>
       </div>
 
+      <DayGoalsCard shop={shop} sales={sales} vendors={vendors} saveShopMeta={saveShopMeta} isAdmin />
+      <EveningReportCard shop={shop} sales={sales} expenses={expenses} products={products} saveShopMeta={saveShopMeta} pushToast={pushToast} />
       {/* Recette du jour */}
       <div className="rounded-[24px] p-4 mb-3 relative overflow-hidden" style={{ background: "var(--glass)", color: "#fff", boxShadow: "0 14px 30px -14px rgba(0,0,0,0.5)" }}>
         <div className="absolute -right-12 -top-14 w-44 h-44 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }} />
@@ -10641,7 +10951,7 @@ function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }
               <YAxis width={34} tick={{ fontSize: 10, fill: "#8A939C" }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000000 ? `${Math.round(v / 100000) / 10}M` : v >= 1000 ? `${Math.round(v / 1000)}k` : v} />
               <Tooltip cursor={{ fill: "rgba(0,0,0,0.04)" }} formatter={(v) => [fmt(v), "Ventes"]} contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--line)" }} />
               {seriesAvg > 0 && <ReferenceLine y={seriesAvg} stroke="var(--cap)" strokeDasharray="4 4" />}
-              <Bar dataKey="total" radius={[7, 7, 0, 0]} maxBarSize={34}>
+              <Bar dataKey="total" radius={[7, 7, 0, 0]} maxBarSize={34} isAnimationActive={false}>
                 {series.map((x, i) => <Cell key={i} fill={i === series.length - 1 ? "var(--cap)" : "url(#gbBar)"} />)}
               </Bar>
             </BarChart>
@@ -10719,7 +11029,7 @@ function StatsSection({ shop, products, sales, expenses, pushToast, onNavigate }
               <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#66707A" }} axisLine={false} tickLine={false} interval={2} />
               <YAxis hide />
               <Tooltip cursor={{ fill: "rgba(0,0,0,0.04)" }} formatter={(v) => [`${v} vente${v > 1 ? "s" : ""}`, ""]} contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--line)" }} />
-              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="count" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                 {hourlySeries.map((x, i) => <Cell key={i} fill={peak && x.hour === peak.hour ? "var(--cap)" : "var(--soda)"} />)}
               </Bar>
             </BarChart>
@@ -16739,6 +17049,54 @@ function VendorPerformanceSection({ shop, sales, vendors, saveShopMeta }) {
   );
 }
 
+// Empreinte digitale / visage pour l'administrateur (application Android).
+// Activation : code administrateur une fois, puis test du capteur.
+function BiometricCard({ shop, pushToast }) {
+  const native = bioIsNative();
+  const [on, setOn] = useState(() => bioEnabled(shop.id));
+  const [st, setSt] = useState(null);
+  const [askPin, setAskPin] = useState(false);
+  useEffect(() => { let off = false; bioStatus().then((s) => { if (!off) setSt(s); }); return () => { off = true; }; }, []);
+  const checkPin = (pin) => (shop.backendLinked ? api.verifyPin(pin, shop.adminPinHash) : pin === (shop.adminPin || DEFAULT_ADMIN_PIN));
+  const activate = async (pin) => {
+    if (!checkPin(pin)) { pushToast("Code administrateur incorrect", "error"); return false; }
+    setAskPin(false);
+    const ok = await bioAuth("Activer le déverrouillage par empreinte");
+    if (!ok) { pushToast("Empreinte non reconnue — activation annulée", "error"); return true; }
+    setBioEnabled(shop.id, true); setOn(true);
+    pushToast("Empreinte activée pour l'administrateur", "ok");
+    return true;
+  };
+  const toggle = () => {
+    if (on) { setBioEnabled(shop.id, false); setOn(false); pushToast("Empreinte désactivée", "ok"); return; }
+    if (!st?.available) { pushToast(st?.hardware === false ? "Ce téléphone n'a pas de capteur d'empreinte" : "Enregistrez d'abord une empreinte dans les réglages du téléphone", "error"); return; }
+    setAskPin(true);
+  };
+  const sub = !native ? "Disponible dans l'application Android GestiOne."
+    : st && !st.hardware ? "Ce téléphone n'a pas de capteur d'empreinte ou de visage."
+    : st && !st.enrolled ? "Enregistrez d'abord une empreinte dans les réglages du téléphone."
+    : "Déverrouiller la session, entrer comme administrateur et confirmer les actions sensibles, sans taper le code. Le code reste toujours utilisable.";
+  return (
+    <div className="rounded-2xl border p-4 mb-4" style={{ borderColor: on ? "#BFE0A0" : "var(--line)", background: on ? "#F4FAEE" : "var(--card)" }}>
+      <button type="button" onClick={native ? toggle : undefined} disabled={!native} className="gb-focus w-full flex items-center gap-3 text-left disabled:opacity-70">
+        <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: on ? "#DDF0C9" : "var(--paper-dim)", color: on ? "#2E6B10" : "var(--ink)" }}><Fingerprint size={22} /></span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[14.5px] font-bold">Empreinte digitale / visage</span>
+          <span className="block text-[12.5px] opacity-65 mt-0.5">{sub}</span>
+        </span>
+        {native && <span className="w-12 h-7 rounded-full relative shrink-0" style={{ background: on ? "#1E8E50" : "#C9C6BC" }}><span className="absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all" style={{ left: on ? 22 : 2 }} /></span>}
+      </button>
+      {askPin && (
+        <div className="mt-4 pt-4 gb-slide-up" style={{ borderTop: "1px solid var(--line)" }}>
+          <p className="text-[13px] font-bold text-center mb-3">Entrez le code administrateur pour activer</p>
+          <PinPad accent="var(--glass)" onSubmit={(pin) => { activate(pin); return checkPin(pin); }} />
+          <button onClick={() => setAskPin(false)} className="gb-focus w-full mt-3 min-h-[44px] rounded-xl text-[13.5px] font-bold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SecuritySection({ shop, saveShopMeta, pushToast }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -16785,6 +17143,7 @@ function SecuritySection({ shop, saveShopMeta, pushToast }) {
           <span className="absolute top-0.5 w-6 h-6 rounded-full bg-white shadow" style={{ left: protect ? 22 : 2 }} />
         </span>
       </button>
+      <BiometricCard shop={shop} pushToast={pushToast} />
       <div className="rounded-2xl p-3.5 mb-4 flex items-start gap-2.5" style={{ background: "#FCEBEB" }}>
         <AlertTriangle size={16} color="#A32D2D" className="shrink-0 mt-0.5" />
         <p className="text-xs" style={{ color: "#A32D2D" }}>Change régulièrement le code administrateur, surtout s'il est encore sur la valeur par défaut (1234).</p>
@@ -16811,9 +17170,144 @@ const ADMIN_GROUP_COLORS = {
   "Données": { fg: "#16808F", bg: "#E0F3F5" },
   "Assistance": { fg: "#3B5B7A", bg: "#EDF2F7" },
 };
+// ---------- Mises à jour automatiques (sans recréer l'APK) ----------
+const OTA = { a: "#0F5F57", b: "#14806F", soft: "#E3F2EF", line: "#BFE0D8", ink: "#0B4A43" };
+const otaDate = (d) => { if (!d) return null; const x = new Date(d); return `${x.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} à ${x.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`; };
+
+// Pastille discrète « Mise à jour 62 % » dans l'en-tête pendant le téléchargement.
+function OtaPill() {
+  const s = useOta();
+  if (s.status !== "downloading") return null;
+  const p = s.percent || 0;
+  return (
+    <span className="inline-flex items-center gap-1 pl-0.5 pr-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap" style={{ background: "#E3EEFB", color: "#1D5FA8" }} aria-label={`Mise à jour en cours : ${p} %`}>
+      <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: `conic-gradient(#2F7BD6 ${p}%, #C8DAF2 0)` }} />Mise à jour {p} %
+    </span>
+  );
+}
+
+// Fenêtre « Nouvelle version prête » : redémarrer maintenant ou plus tard.
+function OtaReadySheet({ cartCount = 0 }) {
+  const s = useOta();
+  const [restarting, setRestarting] = useState(false);
+  if (s.status !== "ready" || s.sheetDismissed || !s.bundle) return null;
+  const notes = (s.remote?.notes || []).length ? s.remote.notes : ["Corrections et améliorations"];
+  const selling = cartCount > 0;
+  const go = () => { if (selling) return; setRestarting(true); setTimeout(() => otaApplyNow(), 700); };
+  return createPortal(
+    <div className="fixed inset-0 z-[140] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(8,20,18,0.6)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)" }} onClick={() => !restarting && otaLater()}>
+      <div className="w-full sm:max-w-[460px] rounded-t-[28px] sm:rounded-[28px] overflow-hidden gb-slide-up" style={{ background: "var(--paper, #F6F4EF)", color: "var(--ink, #16202A)", maxHeight: "calc(100dvh - max(16px, env(safe-area-inset-top)) - 8px)", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 pt-3 pb-4 text-white" style={{ background: `radial-gradient(120% 120% at 100% 0%, rgba(255,255,255,0.16), transparent 55%), linear-gradient(150deg, ${OTA.a}, ${OTA.b})` }}>
+          <div className="w-10 h-1 rounded-full mx-auto mb-3 sm:hidden" style={{ background: "rgba(255,255,255,0.35)" }} />
+          <div className="flex items-center gap-3">
+            <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.22)" }}><Sparkles size={22} /></span>
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-bold text-[19px] leading-tight">Nouvelle version prête</p>
+              {s.remote?.date && <p className="text-[12.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.8)" }}>Version du {otaDate(s.remote.date)}</p>}
+            </div>
+          </div>
+        </div>
+        <div className="px-5 pt-4">
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mb-1.5" style={{ color: "#66707A" }}>Nouveautés</p>
+          {notes.map((n) => <div key={n} className="flex items-start gap-2 py-1 text-[14px]"><Check size={16} strokeWidth={3} className="shrink-0 mt-0.5" style={{ color: OTA.b }} /><span className="min-w-0 break-words">{n}</span></div>)}
+          <p className="text-[12px] mt-2" style={{ color: "#66707A" }}>Vos ventes, réglages et votre session restent sur le téléphone.</p>
+        </div>
+        <div className="px-5 pt-4 flex flex-col gap-2" style={{ paddingBottom: "max(20px, calc(env(safe-area-inset-bottom) + 14px))" }}>
+          <button onClick={go} disabled={selling || restarting} className="gb-focus w-full min-h-[52px] rounded-[16px] text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-60 active:scale-[0.98] transition-transform" style={{ background: `linear-gradient(180deg, ${OTA.b}, ${OTA.a})`, boxShadow: "0 12px 24px -12px rgba(15,95,87,0.9)" }}>
+            <RefreshCw size={18} className={restarting ? "animate-spin" : ""} />
+            {restarting ? "Redémarrage…" : selling ? "Terminez d'abord la vente en cours" : "Redémarrer maintenant"}
+          </button>
+          <button onClick={otaLater} disabled={restarting} className="gb-focus w-full min-h-[48px] rounded-[16px] text-[14px] font-bold" style={{ background: "var(--paper-dim, #ECEAE4)" }}>Au prochain démarrage</button>
+        </div>
+      </div>
+    </div>,
+    document.querySelector(".gb-root") || document.body,
+  );
+}
+
+// Admin → Mises à jour.
+function OtaSection({ pushToast }) {
+  const s = useOta();
+  const native = otaIsNative();
+  const [bundles, setBundles] = useState([]);
+  useEffect(() => { if (native) otaListBundles().then(setBundles); }, [native, s.status]);
+  const cur = s.current;
+  const statusChip = s.status === "downloading" ? `Téléchargement ${s.percent || 0} %`
+    : s.status === "ready" ? "Nouvelle version prête"
+    : s.status === "checking" ? "Vérification…"
+    : s.status === "needApk" ? "Nouvel APK nécessaire"
+    : s.status === "available" ? "Mise à jour disponible"
+    : s.status === "error" ? "Hors connexion"
+    : "À jour";
+  const curId = currentCodeId();
+  const older = bundles.filter((b) => b.version !== curId);
+  return (
+    <div>
+      <div className="rounded-[20px] p-4 mb-3 text-white relative overflow-hidden" style={{ background: `radial-gradient(120% 120% at 100% 0%, rgba(255,255,255,0.16), transparent 55%), linear-gradient(150deg, ${OTA.a}, ${OTA.b})` }}>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] opacity-75">Version installée</p>
+        <p className="font-display font-bold text-[22px] leading-tight mt-1 break-words" data-no-count>v{APP_VERSION}{cur?.date ? ` · ${otaDate(cur.date)}` : ""}</p>
+        <div className="flex flex-wrap gap-1.5 mt-2.5">
+          <span className="px-2.5 py-1 rounded-full text-[11.5px] font-bold" style={{ background: "rgba(255,255,255,0.18)" }}>{native ? statusChip : "Version web : toujours à jour"}</span>
+          {native && s.lastCheck && <span className="px-2.5 py-1 rounded-full text-[11.5px] font-bold" style={{ background: "rgba(255,255,255,0.18)" }}>Vérifié {supportAgo(s.lastCheck)}</span>}
+        </div>
+        {s.status === "downloading" && <div className="h-2 rounded-full mt-3 overflow-hidden" style={{ background: "rgba(255,255,255,0.2)" }}><div className="h-full rounded-full transition-all" style={{ width: `${s.percent || 0}%`, background: "#fff" }} /></div>}
+      </div>
+
+      {!native && (
+        <div className="rounded-2xl p-4 mb-3 text-[13px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          Dans le navigateur, GestiOne se met à jour à chaque ouverture. Les mises à jour automatiques ci-dessous concernent l'application Android.
+        </div>
+      )}
+      {native && !s.supported && (
+        <div className="rounded-2xl p-4 mb-3 text-[13px]" style={{ background: "#FFF6DD", border: "1px solid #F1D99A", color: "#7A5208" }}>
+          Cette version de l'application ne contient pas encore le module de mise à jour. Installez le nouvel APK une fois : ensuite, les mises à jour arriveront toutes seules.
+        </div>
+      )}
+      {native && s.status === "needApk" && (
+        <div className="rounded-2xl p-4 mb-3 text-[13px]" style={{ background: "#FCEBEB", border: "1px solid #F4C7C7", color: "#8A2A2A" }}>
+          La dernière version a besoin d'un nouvel APK (nouvel accès au téléphone). Installez-le depuis le lien fourni par l'équipe GestiOne.
+        </div>
+      )}
+
+      {native && s.supported && (<>
+        <button type="button" onClick={() => otaSetAuto(!s.auto)} className="gb-focus w-full rounded-2xl border p-4 mb-3 flex items-center gap-3 text-left" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[14.5px] font-bold">Installer automatiquement</span>
+            <span className="block text-[12.5px] opacity-65 mt-0.5">Télécharge les nouvelles versions en arrière-plan, puis propose de redémarrer.</span>
+          </span>
+          <span className="w-12 h-7 rounded-full relative shrink-0" style={{ background: s.auto ? "#1E8E50" : "#C9C6BC" }}><span className="absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all" style={{ left: s.auto ? 22 : 2 }} /></span>
+        </button>
+        <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: s.status === "ready" ? "1fr 1fr" : "1fr" }}>
+          <button onClick={() => { otaCheck({ force: true }); pushToast?.("Recherche d'une nouvelle version…", "ok"); }} disabled={s.status === "checking" || s.status === "downloading"} className="gb-focus min-h-[50px] rounded-[15px] text-[14px] font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: OTA.soft, color: OTA.ink, border: `1px solid ${OTA.line}` }}>
+            <RefreshCw size={16} className={s.status === "checking" ? "animate-spin" : ""} /> Vérifier maintenant
+          </button>
+          {s.status === "ready" && <button onClick={otaApplyNow} className="gb-focus min-h-[50px] rounded-[15px] text-[14px] font-bold text-white flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, ${OTA.b}, ${OTA.a})` }}><Sparkles size={16} /> Redémarrer</button>}
+        </div>
+        <div className="rounded-2xl border mb-3 overflow-hidden" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+          <p className="px-4 pt-3 pb-1.5 text-[11px] font-extrabold uppercase tracking-[0.1em]" style={{ color: "#66707A" }}>Historique</p>
+          {(s.history || []).length === 0 && <p className="px-4 pb-3 text-[13px] opacity-60">Aucune mise à jour installée pour l'instant.</p>}
+          {(s.history || []).map((h, k) => {
+            const isCur = h.id === curId;
+            const b = older.find((x) => x.version === h.id);
+            return (
+              <div key={h.id} className="px-4 py-2.5 flex items-center justify-between gap-3 text-[13px]" style={{ borderTop: k ? "1px solid var(--line)" : "none" }}>
+                <span className="min-w-0"><span className="font-semibold">{h.date ? otaDate(h.date) : "Version d'origine"}</span><span className="block text-[11.5px] opacity-55">installée le {otaDate(h.installedAt)}</span></span>
+                {isCur ? <span className="font-bold shrink-0" style={{ color: "#14684A" }}>Installée</span>
+                  : b ? <button onClick={() => otaUseBundle(b.id)} className="gb-focus shrink-0 px-3 py-1.5 rounded-full text-[12.5px] font-bold" style={{ background: "#E3EEFB", color: "#1D5FA8" }}>Revenir</button> : null}
+              </div>
+            );
+          })}
+        </div>
+        <button onClick={otaResetToBuiltin} className="gb-focus w-full min-h-[46px] rounded-[14px] text-[13px] font-bold" style={{ background: "var(--paper-dim)" }}>Revenir à la version d'origine de l'APK</button>
+      </>)}
+    </div>
+  );
+}
+
 const ADMIN_SECTIONS = [
   { id: "stats", desc: "Recette, alertes, graphiques", label: "Vue d'ensemble", Icon: TrendingUp, group: null },
   { id: "etablissement", desc: "Nom, coordonnées, facturation, thème", label: "Établissement", Icon: Store, group: "Établissement" },
+  { id: "multi", desc: "Total de toutes vos entreprises", label: "Toutes mes entreprises", Icon: BarChart3, group: null, multi: true },
   { id: "boutiques", desc: "Changer ou créer une entreprise", label: "Entreprises", Icon: Layers, group: "Établissement" },
   { id: "securite", desc: "Codes PIN, verrouillage auto", label: "Sécurité", Icon: ShieldCheck, group: "Établissement" },
   { id: "journal", desc: "Qui a fait quoi, et quand", label: "Journal d'activité", Icon: ClipboardCheck, group: "Établissement" },
@@ -16833,6 +17327,7 @@ const ADMIN_SECTIONS = [
   { id: "abonnement", desc: "Espace propriétaire", label: "Abonnement", Icon: CreditCard, group: "Abonnement" },
   { id: "licence", desc: "Validité et activation", label: "Licence", Icon: Star, group: "Abonnement" },
   { id: "donnees", desc: "Sauvegardes et restauration", label: "Données", Icon: Download, group: "Données" },
+  { id: "majapp", desc: "Version installée, nouveautés", label: "Mises à jour", Icon: RefreshCw, group: "Données" },
   { id: "assistance", desc: "Écrire à l'équipe GestiOne", label: "Assistance", Icon: MessageCircle, group: "Assistance" },
 ];
 
@@ -16854,18 +17349,42 @@ function supportAgo(d) {
 const SUPPORT_READ_KEY = "supportReadAt";
 const readSupportSeen = () => { try { return JSON.parse(localStorage.getItem(SUPPORT_READ_KEY)) || {}; } catch { return {}; } };
 
-// Fenêtre de discussion avec UN administrateur. Plusieurs fenêtres peuvent
-// être ouvertes en même temps : chacune charge ses messages, a sa propre
-// zone de réponse et se met à jour toute seule.
-const SUPPORT_QUICK_REPLIES = ["Bonjour 👋 Je regarde ça tout de suite.", "C'est noté, je reviens vers vous très vite.", "Est-ce réglé de votre côté ?", "Merci, bonne journée !"];
-function SupportChatWindow({ conv, ownerAccess, pushToast, minimized, onToggleMin, onClose, onRead, onRemoved, pane, hidden }) {
+// Discussion avec UN administrateur (plein écran). Plusieurs discussions
+// peuvent être ouvertes en même temps (un onglet par personne) : chacune
+// charge ses messages, a sa propre zone de réponse et se met à jour seule.
+// Réponses rapides : libellé court sur le bouton, phrase complète envoyée.
+const SUPPORT_QUICK_REPLIES = [
+  ["Bonjour 👋", "Bonjour 👋 Je regarde ça tout de suite."],
+  ["C'est noté", "C'est noté, je reviens vers vous très vite."],
+  ["C'est réglé ?", "Est-ce réglé de votre côté ?"],
+  ["Corrigé 👍", "C'est corrigé, réessayez 👍"],
+  ["Paiement Wave", "Vous pouvez payer par Wave ou Mobile Money, puis m'envoyer la capture ici."],
+  ["Merci 🙏", "Merci, bonne journée !"],
+];
+const SC = { brown: "#4A2E12", brown2: "#6B451E", gold: "#F2C14E", chat: "#F1EEE7", mine: "#4A2E12" };
+const supportDayLabel = (d) => {
+  const x = new Date(d); const t = new Date(); const y = new Date(); y.setDate(t.getDate() - 1);
+  if (x.toDateString() === t.toDateString()) return "Aujourd'hui";
+  if (x.toDateString() === y.toDateString()) return "Hier";
+  const s = x.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+const supportListTime = (d) => {
+  if (!d) return "";
+  const x = new Date(d); const t = new Date(); const y = new Date(); y.setDate(t.getDate() - 1);
+  if (x.toDateString() === t.toDateString()) return x.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  if (x.toDateString() === y.toDateString()) return "hier";
+  return x.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+};
+function SupportConversation({ conv, ownerAccess, pushToast, hidden, onRead, recipientNote }) {
+  // Écran très bas (téléphone couché) : on garde la place pour les messages.
+  const shortScreen = useMediaQuery("(max-height: 520px)");
   const [thread, setThread] = useState([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
-  const [fresh, setFresh] = useState(0);
   const busy = useRef(false);
   const endRef = useRef(null);
-  const lastUserCount = useRef(null);
+  const taRef = useRef(null);
   const id = conv.device_id;
   const merge = (serverMsgs) => setThread((cur) => {
     const local = cur.filter((m) => m.pending || m.failed);
@@ -16876,16 +17395,12 @@ function SupportChatWindow({ conv, ownerAccess, pushToast, minimized, onToggleMi
     busy.current = true;
     try {
       const data = await api.ownerSupportMessages({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: id });
-      const msgs = data.messages || [];
-      const n = msgs.filter((m) => m.sender === "user").length;
-      if (lastUserCount.current != null && n > lastUserCount.current && minimized) setFresh((f) => f + (n - lastUserCount.current));
-      lastUserCount.current = n;
-      merge(msgs);
+      merge(data.messages || []);
     } catch (e) { if (!silent) pushToast?.(api.networkErrorText(e, "ouvrir la conversation") || e?.message || "Erreur", "error"); }
     finally { busy.current = false; setLoading(false); }
   };
   useEffect(() => { load(); const t = setInterval(() => { if (document.visibilityState !== "hidden" && !hidden) load(true); }, 2500); return () => clearInterval(t); }, [id, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!minimized && !hidden) { setFresh(0); onRead?.(id); endRef.current?.scrollIntoView({ block: "nearest" }); } }, [thread.length, minimized, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!hidden) { onRead?.(id); endRef.current?.scrollIntoView({ block: "end" }); } }, [thread.length, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
   const deliver = async (tmp) => {
     try {
       const res = await api.ownerSupportReply({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: id, message: tmp.body });
@@ -16901,64 +17416,50 @@ function SupportChatWindow({ conv, ownerAccess, pushToast, minimized, onToggleMi
     if (!body) return;
     const tmp = { id: `tmp-${Date.now()}-${Math.random()}`, sender: "owner", body, created_at: new Date().toISOString(), pending: true };
     setThread((cur) => [...cur, tmp]);
-    if (text === undefined) setDraft("");
+    if (text === undefined) { setDraft(""); if (taRef.current) taRef.current.style.height = ""; }
     deliver(tmp);
   };
   const retry = (m) => { if (!m.failed) return; setThread((cur) => cur.map((x) => (x.id === m.id ? { ...x, failed: false, pending: true } : x))); deliver(m); };
-  const remove = async () => {
-    if (!window.confirm(`Supprimer définitivement la conversation avec ${conv.name || "cet administrateur"} ?`)) return;
-    try { await api.ownerSupportDelete({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: id }); pushToast?.("Conversation supprimée", "ok"); onRemoved?.(id); }
-    catch (e) { pushToast?.(api.networkErrorText(e, "supprimer la conversation") || e?.message || "Erreur", "error"); }
-  };
-  const [bg, fg] = clientTint(conv.name || "Anonyme");
-  const waiting = thread.length > 0 && thread[thread.length - 1].sender === "user";
+  const first = (conv.name || "l'administrateur").split(/\s+/)[0];
+  let lastDay = "";
   return (
-    <div className={`rounded-[18px] overflow-hidden flex-col ${hidden ? "hidden" : "flex"} ${pane ? "h-full" : "gb-slide-up"}`} style={{ background: "#EFEDE7", border: `1.5px solid ${waiting ? "#9ED9B6" : "var(--line)"}`, boxShadow: "0 10px 24px -14px rgba(16,37,31,0.45)" }}>
-      <div className="px-2.5 py-2 flex items-center gap-2" style={{ background: "linear-gradient(150deg, #10251F, #1C4A3A)" }}>
-        <button onClick={onToggleMin} className="gb-focus flex items-center gap-2 flex-1 min-w-0 text-left" aria-label={minimized ? `Ouvrir la fenêtre de ${conv.name}` : `Réduire la fenêtre de ${conv.name}`}>
-          <span className="relative shrink-0">
-            <span className="w-9 h-9 rounded-full flex items-center justify-center font-display font-bold text-[12.5px]" style={{ background: bg, color: fg }}>{clientInitials(conv.name || "Anonyme")}</span>
-            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full" style={{ background: conv.online ? "#5DCAA5" : "#F07272", border: "2px solid #163A2E" }} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-1.5"><span className="text-[13.5px] font-bold text-white truncate">{conv.name || "Anonyme"}</span>{fresh > 0 && <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center" style={{ background: "#22A35A" }}>{fresh}</span>}</span>
-            <span className="block text-[11px] truncate" style={{ color: "rgba(255,255,255,0.65)" }}>{conv.online ? "En ligne" : "Hors ligne"}{conv.shop_name ? ` · ${conv.shop_name}` : ""}</span>
-          </span>
-        </button>
-        {conv.phone && !minimized && <button onClick={() => waClient(conv.phone)} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(93,202,165,0.18)" }} aria-label="WhatsApp"><MessageCircle size={14} color="#7FE0BE" /></button>}
-        {!minimized && <button onClick={remove} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(240,149,149,0.15)" }} aria-label="Supprimer la conversation"><Trash2 size={14} color="#F09595" /></button>}
-        {!pane && <button onClick={onToggleMin} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label={minimized ? "Agrandir" : "Réduire"}>{minimized ? <Maximize2 size={14} color="#fff" /> : <Minimize2 size={14} color="#fff" />}</button>}
-        {!pane && <button onClick={onClose} className="gb-focus w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Fermer la fenêtre"><X size={15} color="#fff" /></button>}
-      </div>
-      {!minimized && (
-        <>
-          <div className={`flex flex-col gap-1.5 px-2.5 py-2.5 overflow-y-auto gb-scroll ${pane ? "flex-1 min-h-0" : ""}`} style={pane ? undefined : { height: 250 }}>
-            {loading && thread.length === 0 && <p className="text-[12.5px] opacity-55 text-center py-6">Chargement…</p>}
-            {thread.map((m) => {
-              const mine = m.sender === "owner";
-              return (
-                <div key={m.id} onClick={() => retry(m)} className={`flex ${mine ? "justify-end pl-8" : "justify-start pr-8"}`}>
-                  <div className={`max-w-full px-2.5 pt-1.5 pb-1 ${mine ? "rounded-2xl rounded-br-[5px]" : "rounded-2xl rounded-bl-[5px]"}`} style={mine ? { background: m.failed ? "#5A2530" : "#163A2E", color: "#fff", opacity: m.pending ? 0.75 : 1, cursor: m.failed ? "pointer" : "default" } : { background: "#fff", border: "1px solid #E3E1DA" }}>
-                    <p className={`${pane ? "text-[12px]" : "text-[13px]"} leading-snug whitespace-pre-line break-words`}>{m.body}</p>
-                    <p className="text-[10px] text-right mt-0.5 flex items-center justify-end gap-1" style={{ color: mine ? "rgba(255,255,255,0.6)" : "#8A9099" }}>
-                      {m.failed ? "Non envoyé · toucher pour réessayer" : m.pending ? "Envoi…" : new Date(m.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                      {mine && !m.pending && !m.failed && <Check size={10} color="#7FE0BE" />}
-                    </p>
-                  </div>
+    <div className={`flex-1 min-h-0 flex-col ${hidden ? "hidden" : "flex"}`}>
+      <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-3.5 pt-3 pb-2 flex flex-col gap-2" style={{ background: SC.chat, overscrollBehavior: "contain" }}>
+        {loading && thread.length === 0 && <div className="flex flex-col gap-2.5 pt-2" aria-hidden="true"><style>{SK_CSS}</style><Skel w="62%" h={52} r={18} /><Skel w="48%" h={40} r={18} style={{ alignSelf: "flex-end" }} /><Skel w="70%" h={60} r={18} /></div>}
+        {!loading && thread.length === 0 && <p className="text-[13px] opacity-55 text-center py-10">Aucun message pour l'instant.</p>}
+        {thread.map((m, k) => {
+          const mine = m.sender === "owner";
+          const day = supportDayLabel(m.created_at);
+          const sep = day !== lastDay; lastDay = day;
+          return (
+            <Fragment key={m.id}>
+              {sep && <div className="flex justify-center my-1"><span className="px-3 py-1 rounded-full text-[11.5px] font-bold" style={{ background: "#fff", color: "#5B6470", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>{day}</span></div>}
+              <div onClick={() => retry(m)} className={`flex ${mine ? "justify-end pl-10" : "justify-start pr-10"}`} style={{ animation: k >= thread.length - 3 ? "sbUp .3s ease both" : undefined }}>
+                <div className={`max-w-full px-3.5 pt-2 pb-1.5 rounded-[20px] ${mine ? "rounded-br-[6px]" : "rounded-bl-[6px]"}`} style={mine ? { background: m.failed ? "#7A2A2A" : SC.mine, color: "#fff", opacity: m.pending ? 0.75 : 1, cursor: m.failed ? "pointer" : "default" } : { background: "#fff", color: "var(--ink)", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
+                  <p className="text-[15px] leading-snug whitespace-pre-line break-words">{m.body}</p>
+                  <p className="text-[11px] text-right mt-1 flex items-center justify-end gap-1" style={{ color: mine ? "rgba(255,255,255,0.65)" : "#8A9099" }}>
+                    {m.failed ? "Non envoyé · toucher pour réessayer" : m.pending ? "Envoi…" : new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                    {mine && !m.pending && !m.failed && <span className="flex" style={{ color: "#F2C14E" }}><Check size={12} strokeWidth={3} /><Check size={12} strokeWidth={3} style={{ marginLeft: -7 }} /></span>}
+                  </p>
                 </div>
-              );
-            })}
-            <div ref={endRef} />
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto gb-scroll px-2.5 pb-1.5" style={{ scrollbarWidth: "none" }}>
-            {SUPPORT_QUICK_REPLIES.map((q) => <button key={q} onClick={() => send(q)} className={`gb-focus shrink-0 ${pane ? "h-6 px-2 text-[10.5px]" : "h-7 px-2.5 text-[11.5px]"} rounded-full font-bold whitespace-nowrap`} style={{ background: "#fff", border: "1px solid #C6D9D2", color: "#1F4F43" }}>{q}</button>)}
-          </div>
-          <div className="flex items-end gap-1.5 p-2" style={{ background: "#fff", borderTop: "1px solid #E3E1DA" }}>
-            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} rows={1} placeholder={`Répondre à ${conv.name || "l'administrateur"}…`} aria-label={`Réponse à ${conv.name}`} className="gb-focus flex-1 min-w-0 rounded-[14px] px-3 py-2 text-[13.5px] resize-none" style={{ background: "#F4F3EF", border: "1px solid #E3E1DA", maxHeight: 100 }} />
-            <button onClick={() => send()} disabled={!draft.trim()} className="gb-focus shrink-0 w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-40" style={{ background: "#163A2E" }} aria-label={`Envoyer à ${conv.name}`}><Send size={16} color="#fff" /></button>
-          </div>
-        </>
+              </div>
+            </Fragment>
+          );
+        })}
+        <div ref={endRef} />
+      </div>
+      {recipientNote && !shortScreen && (
+        <div className="mx-3 mb-1.5 mt-1 rounded-[12px] px-3 py-1.5 flex items-center gap-2 text-[11.5px] font-semibold" style={{ background: "#FFF6DD", color: "#7A5208", border: "1px solid #F1D99A" }}>
+          <Lock size={13} className="shrink-0" /><span className="min-w-0 break-words">Ce message ira uniquement à <b>{conv.name || "cet administrateur"}</b>{conv.shop_name ? ` · ${conv.shop_name}` : ""}</span>
+        </div>
       )}
+      {!shortScreen && <div className="flex flex-wrap gap-1.5 px-3 pb-2 pt-1.5" style={{ background: SC.chat }}>
+        {SUPPORT_QUICK_REPLIES.map(([l, q]) => <button key={l} onClick={() => send(q)} title={q} className="gb-focus h-9 px-3.5 rounded-full text-[13px] font-bold whitespace-nowrap active:scale-95 transition-transform" style={{ background: "#fff", border: "1px solid #E4DCCB", color: SC.brown }}>{l}</button>)}
+      </div>}
+      <div className="flex items-end gap-2 px-3 pt-2.5" style={{ background: "#fff", borderTop: "1px solid #E6E1D6", paddingBottom: "max(12px, calc(env(safe-area-inset-bottom) + 8px))" }}>
+        <textarea ref={taRef} value={draft} onChange={(e) => { setDraft(e.target.value); e.target.style.height = "auto"; e.target.style.height = `${Math.min(120, e.target.scrollHeight)}px`; }} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} rows={1} placeholder={`Répondre à ${first}…`} aria-label={`Réponse à ${conv.name || "l'administrateur"}`} className="gb-focus flex-1 min-w-0 rounded-[22px] px-4 py-3 text-[15px] leading-snug outline-none" style={{ background: "#F4F2ED", border: "1px solid #E6E1D6", resize: "none", maxHeight: 120 }} />
+        <button onClick={() => send()} disabled={!draft.trim()} className="gb-focus shrink-0 w-12 h-12 rounded-full flex items-center justify-center disabled:opacity-45 active:scale-90 transition-transform" style={{ background: "linear-gradient(180deg,#F6CD62,#E9AE2E)", boxShadow: "0 8px 16px -8px rgba(233,174,46,0.9)" }} aria-label={`Envoyer à ${conv.name || "l'administrateur"}`}><Send size={19} color={SC.brown} /></button>
+      </div>
     </div>
   );
 }
@@ -17004,49 +17505,96 @@ function SupportBroadcastSheet({ targets = [], initialMode, ownerAccess, pushToa
     ["online", "Seulement les connectés", counts?.online == null ? "En ligne maintenant" : `${counts.online} en ligne maintenant`, Activity],
     ...(targets.length ? [["devices", "Ma sélection", `${targets.length} administrateur${targets.length > 1 ? "s" : ""} choisi${targets.length > 1 ? "s" : ""}`, CheckSquare]] : []),
   ];
-  return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center no-print" style={{ background: "rgba(10,16,24,0.55)" }} onClick={() => !busy && onClose()}>
-      <div className="w-full max-w-[600px] rounded-t-[28px] px-5 pt-3 gb-slide-up max-h-[94vh] overflow-y-auto gb-scroll" style={{ background: "var(--paper)", paddingBottom: "max(28px, calc(env(safe-area-inset-bottom) + 18px))" }} onClick={(e) => e.stopPropagation()}>
-        <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "var(--line)" }} />
+  const T = { a: "#0F5F57", b: "#14806F", soft: "#E3F2EF", line: "#BFE0D8", ink: "#0B4A43" };
+  const BG = "var(--paper, #F6F4EF)";
+  const CARD = "var(--card, #FFFFFF)";
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(8,20,18,0.62)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", animation: "bcFade .2s ease both" }} onClick={() => !busy && onClose()}>
+      <style>{`@keyframes bcFade{from{opacity:0}to{opacity:1}}@keyframes bcUp{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}@keyframes bcPop{0%{transform:scale(.5);opacity:0}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}`}</style>
+      <div className="w-full sm:max-w-[560px] flex flex-col rounded-t-[28px] sm:rounded-[28px] overflow-hidden" style={{ background: BG, color: "var(--ink, #16202A)", maxHeight: "calc(100dvh - max(16px, env(safe-area-inset-top)) - 8px)", boxShadow: "0 -20px 50px -20px rgba(0,0,0,0.5)", animation: "bcUp .32s cubic-bezier(.2,.8,.2,1) both" }} onClick={(e) => e.stopPropagation()}>
+        {/* En-tête */}
+        <div className="shrink-0 px-5 pt-3 pb-4 text-white relative overflow-hidden" style={{ background: `radial-gradient(120% 120% at 100% 0%, rgba(255,255,255,0.16), transparent 55%), linear-gradient(150deg, ${T.a}, ${T.b})` }}>
+          <div className="w-10 h-1 rounded-full mx-auto mb-3 sm:hidden" style={{ background: "rgba(255,255,255,0.35)" }} />
+          <div className="flex items-center gap-3">
+            <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 text-[22px]" style={{ background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.22)" }}>📣</span>
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-bold text-[19px] leading-tight">Message groupé</p>
+              <p className="text-[12.5px] leading-snug mt-0.5" style={{ color: "rgba(255,255,255,0.8)" }}>Chaque propriétaire le reçoit dans sa propre conversation</p>
+            </div>
+            <button onClick={onClose} disabled={busy} className="gb-focus w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.16)" }} aria-label="Fermer"><X size={19} color="#fff" /></button>
+          </div>
+        </div>
+
         {sent != null ? (
-          <div className="flex flex-col items-center text-center py-6">
-            <span className="rounded-full flex items-center justify-center gb-pop" style={{ width: 84, height: 84, background: "#1E9E6A", boxShadow: "0 14px 30px -12px rgba(30,158,106,0.8)" }}><Send size={36} color="#fff" /></span>
-            <p className="font-display font-bold text-[20px] mt-4">Message envoyé à {sent} propriétaire{sent > 1 ? "s" : ""}</p>
-            <p className="text-[13px] opacity-65 mt-1 px-4">Chacun le retrouve dans sa conversation avec l'Assistance GestiOne. Il est prévenu par une notification et une annonce vocale à sa connexion.</p>
+          <div className="flex flex-col items-center text-center px-6 py-10" style={{ paddingBottom: "max(36px, calc(env(safe-area-inset-bottom) + 24px))" }}>
+            <span className="rounded-full flex items-center justify-center" style={{ width: 88, height: 88, background: `linear-gradient(150deg, ${T.a}, ${T.b})`, boxShadow: "0 16px 32px -14px rgba(15,95,87,0.85)", animation: "bcPop .5s cubic-bezier(.2,.8,.2,1) both" }}><Check size={42} color="#fff" strokeWidth={3} /></span>
+            <p className="font-display font-bold text-[21px] mt-5">Envoyé à {sent} propriétaire{sent > 1 ? "s" : ""}</p>
+            <p className="text-[13.5px] opacity-70 mt-1.5 max-w-[380px]">Chacun le retrouve dans sa conversation avec l'Assistance GestiOne, avec une notification et une annonce vocale à sa connexion.</p>
           </div>
         ) : (<>
-          <div className="flex items-center gap-3 mb-3">
-            <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0 text-[22px]" style={{ background: "#FFF1D6" }}>📣</span>
-            <div className="flex-1 min-w-0"><p className="font-display font-bold text-[19px] leading-tight">Message groupé</p><p className="text-[12px] opacity-60">Chaque propriétaire le reçoit dans sa propre conversation</p></div>
-            <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
-          </div>
-          <div className="flex flex-col gap-2">
-            {OPTS.map(([id, l, sub, Ic], i) => {
-              const on = mode === id;
-              return (
-                <button key={id} onClick={() => setMode(id)} aria-pressed={on} className="gb-focus w-full rounded-[16px] px-3 py-3 flex items-center gap-3 text-left" style={{ background: on ? "#FBF6EE" : "var(--card)", border: `1.5px solid ${on ? "#4A2E12" : "var(--line)"}`, animation: `gbcUp .35s ease ${i * 50}ms both` }}>
-                  <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ border: `2px solid ${on ? "#4A2E12" : "#C9CED6"}` }}>{on && <span className="w-3 h-3 rounded-full" style={{ background: "#4A2E12" }} />}</span>
-                  <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">{l}</span><span className="block text-[11.5px] opacity-60">{sub}</span></span>
-                  <Ic size={17} className="shrink-0 opacity-50" />
-                </button>
-              );
-            })}
-          </div>
-          {preview.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {preview.map((c) => <span key={c.device_id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full text-[11.5px] font-bold max-w-full" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><ClientAvatar name={c.name || "Administrateur"} size={20} /><span className="min-w-0">{c.name || "Administrateur"}{c.shop_name ? ` · ${c.shop_name}` : ""}</span><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c.online ? "#22A35A" : "#C9CED6" }} /></span>)}
-              {(n || 0) > preview.length && <span className="px-2.5 py-1 rounded-full text-[11.5px] font-bold" style={{ background: "var(--paper-dim)" }}>+{n - preview.length}</span>}
+          <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-4 pt-4 pb-3" style={{ overscrollBehavior: "contain" }}>
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mb-2 px-1" style={{ color: "#66707A" }}>Destinataires</p>
+            <div className="flex flex-col gap-2">
+              {OPTS.map(([id, l, sub, Ic]) => {
+                const on = mode === id;
+                return (
+                  <button key={id} onClick={() => setMode(id)} aria-pressed={on} className="gb-focus w-full rounded-[18px] px-3.5 py-3 flex items-center gap-3 text-left transition-colors" style={{ background: on ? T.soft : CARD, border: `1.5px solid ${on ? T.b : "var(--line, #E3E0D8)"}`, boxShadow: on ? "0 8px 18px -12px rgba(15,95,87,0.6)" : "none" }}>
+                    <span className="w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0" style={{ background: on ? T.b : "var(--paper-dim, #EEEBE4)", color: on ? "#fff" : "#4A535D" }}><Ic size={18} /></span>
+                    <span className="flex-1 min-w-0"><span className="block text-[14.5px] font-bold" style={{ color: on ? T.ink : "inherit" }}>{l}</span><span className="block text-[12px] mt-0.5" style={{ color: "#66707A" }}>{sub}</span></span>
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ border: `2px solid ${on ? T.b : "#C9CED6"}`, background: on ? T.b : "transparent" }}>{on && <Check size={13} color="#fff" strokeWidth={3} />}</span>
+                  </button>
+                );
+              })}
             </div>
-          )}
-          <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 1000))} rows={4} placeholder="Écrivez votre message…" className="gb-focus w-full mt-3 rounded-[16px] p-3 text-[14.5px] leading-snug" style={{ background: "var(--card)", border: "1.5px solid var(--line)", resize: "none", minHeight: 110 }} />
-          <div className="flex justify-between items-center mt-1 px-0.5"><span className="text-[11px] opacity-50">Le message commence par 📣 chez le destinataire</span><span className="text-[11px] opacity-50">{text.length} / 1000</span></div>
-          <div className="flex gap-1.5 mt-2 overflow-x-auto gb-scroll pb-1">
-            {BROADCAST_TEMPLATES.map(([l, t]) => <button key={l} onClick={() => setText(t)} className="gb-focus shrink-0 h-8 px-3 rounded-full text-[12px] font-bold" style={{ background: "#F4F1EA", color: "#4A2E12" }}>{l}</button>)}
+            {preview.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-3 px-0.5">
+                {preview.map((c) => (
+                  <span key={c.device_id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full text-[12px] font-semibold max-w-full" style={{ background: CARD, border: "1px solid var(--line, #E3E0D8)" }}>
+                    <ClientAvatar name={c.name || "Administrateur"} size={20} />
+                    <span className="min-w-0 break-words">{c.name || "Administrateur"}{c.shop_name ? <span style={{ color: "#66707A" }}> · {c.shop_name}</span> : null}</span>
+                    {c.online && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "#22A35A" }} />}
+                  </span>
+                ))}
+                {(n || 0) > preview.length && <span className="px-2.5 py-1 rounded-full text-[12px] font-bold" style={{ background: T.soft, color: T.ink }}>+{n - preview.length}</span>}
+              </div>
+            )}
+
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mt-5 mb-2 px-1" style={{ color: "#66707A" }}>Votre message</p>
+            <div className="rounded-[18px] p-3" style={{ background: CARD, border: `1.5px solid ${text.trim() ? T.line : "var(--line, #E3E0D8)"}` }}>
+              <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 1000))} rows={4} placeholder="Écrivez votre message…" className="gb-focus w-full bg-transparent outline-none text-[15px] leading-snug" style={{ resize: "none", minHeight: 96 }} />
+              <div className="flex justify-between items-center gap-2 pt-2 mt-1" style={{ borderTop: "1px dashed var(--line, #E3E0D8)" }}>
+                <span className="text-[11.5px]" style={{ color: "#66707A" }}>Commence par 📣 chez le destinataire</span>
+                <span className="text-[11.5px] font-bold" style={{ color: text.length > 900 ? "#B3261E" : "#66707A" }}>{text.length} / 1000</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-2.5">
+              {BROADCAST_TEMPLATES.map(([l, tx]) => <button key={l} onClick={() => setText(tx)} className="gb-focus h-9 px-3 rounded-full text-[12.5px] font-bold whitespace-nowrap active:scale-95 transition-transform" style={{ background: text === tx ? T.b : CARD, color: text === tx ? "#fff" : T.ink, border: `1px solid ${text === tx ? T.b : T.line}` }}>{l}</button>)}
+            </div>
+
+            {text.trim() && (
+              <div className="mt-4">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mb-2 px-1" style={{ color: "#66707A" }}>Aperçu chez le destinataire</p>
+                <div className="rounded-[18px] p-3" style={{ background: "#F1EEE7" }}>
+                  <div className="max-w-[88%] rounded-[18px] rounded-bl-[6px] px-3.5 pt-2 pb-1.5" style={{ background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
+                    <p className="text-[10.5px] font-extrabold uppercase tracking-[0.08em]" style={{ color: T.b }}>Assistance GestiOne</p>
+                    <p className="text-[14px] leading-snug whitespace-pre-line break-words mt-0.5" style={{ color: "#16202A" }}>📣 {text.trim()}</p>
+                    <p className="text-[10.5px] text-right mt-1" style={{ color: "#8A9099" }}>maintenant</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-          <button onClick={send} disabled={busy || !text.trim() || !n} className="gb-focus w-full mt-3 min-h-[54px] rounded-[18px] text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(180deg,#5A3816,#3E260F)", boxShadow: "0 10px 20px -10px rgba(74,46,18,0.9)" }}>{busy ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />} {n ? `Envoyer à ${n} propriétaire${n > 1 ? "s" : ""}` : "Aucun destinataire"}</button>
+          {/* Pied fixe : bouton d'envoi toujours visible */}
+          <div className="shrink-0 px-4 pt-3" style={{ background: BG, borderTop: "1px solid var(--line, #E3E0D8)", paddingBottom: "max(16px, calc(env(safe-area-inset-bottom) + 10px))" }}>
+            <button onClick={send} disabled={busy || !text.trim() || !n} className="gb-focus w-full min-h-[54px] rounded-[18px] text-[15.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45 active:scale-[0.98] transition-transform" style={{ background: `linear-gradient(180deg, ${T.b}, ${T.a})`, boxShadow: "0 12px 24px -12px rgba(15,95,87,0.9)" }}>
+              {busy ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
+              {busy ? "Envoi en cours…" : n ? `Envoyer à ${n} propriétaire${n > 1 ? "s" : ""}` : "Aucun destinataire"}
+            </button>
+          </div>
         </>)}
       </div>
-    </div>
+    </div>,
+    document.querySelector(".gb-root") || document.body,
   );
 }
 
@@ -17078,66 +17626,31 @@ function SupportAlertBanner({ alert, onOpen, onClose }) {
   );
 }
 
-// Fiche de la boutique de l'administrateur sélectionné (au-dessus de la
-// discussion) : repliée par défaut, dépliée d'un toucher.
-function SupportShopInfo({ conv, shop: s }) {
-  const [open, setOpen] = useState(false);
+// Fiche de la boutique d'un administrateur (licence, contact, type…).
+function supportShopFacts(conv, s) {
   const sub = s?.subscription || {};
   const st = s?.stats || {};
   const money = (n) => formatMoney(Number(n) || 0, s?.currency || "XOF");
   const isPaid = sub.status === "active", isTrial = sub.status === "trial";
   const lifetime = isPaid && (sub.plan === "lifetime" || !sub.expiresAt);
-  const tone = !s ? { bg: "#EDEFF2", fg: "#3D4A57" } : isPaid ? { bg: "#EAF3DE", fg: "#2E6B10" } : isTrial ? { bg: "#FDF0DA", fg: "#8A5208" } : { bg: "#FCEBEB", fg: "#A32D2D" };
-  const label = !s ? "Boutique introuvable" : isPaid ? (lifetime ? "Licence à vie" : "Licence active") : isTrial ? "Essai" : sub.status === "expired" ? "Expirée" : "Jamais activée";
-  const planLabel = sub.plan === "trial" ? "Essai gratuit" : sub.plan ? (ACTIVATION_PLANS.find((p) => p.id === sub.plan)?.label || sub.plan) : "Aucun abonnement";
   const daysTo = sub.expiresAt ? Math.ceil((new Date(sub.expiresAt) - Date.now()) / 864e5) : null;
-  const d = (x) => (x ? new Date(x).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "—");
+  const tone = !s ? { bg: "#EDEFF2", fg: "#3D4A57", lt: "#C9D0D8" } : isPaid ? { bg: "#E3F4EA", fg: "#14684A", lt: "#8FE3B5" } : isTrial ? { bg: "#FDF0DA", fg: "#8A5208", lt: "#F6C873" } : { bg: "#FCEBEB", fg: "#A32D2D", lt: "#F4A3A3" };
+  const status = !s ? "Inconnue" : isPaid ? "Active" : isTrial ? "Essai" : sub.status === "expired" ? "Expirée" : "Jamais activée";
+  const rest = lifetime ? "à vie" : daysTo == null ? "" : daysTo > 0 ? `${daysTo} j restant${daysTo > 1 ? "s" : ""}` : `expirée depuis ${-daysTo} j`;
+  const chip = !s ? null : lifetime ? "Licence · à vie" : daysTo != null && daysTo > 0 ? `${isTrial ? "Essai" : "Licence"} · ${daysTo} j` : status;
+  const d = (x) => (x ? new Date(x).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : null);
   const typeLabel = s ? ESTABLISHMENT_TYPES.find((t) => t.id === s.type)?.label || s.type : null;
-  const rows = s ? [
-    ["Boutique", s.name], ["Type", typeLabel], ["Administrateur", st.adminName || conv.name || "Non renseigné"],
-    ["Contact", st.phone || conv.phone || "Non renseigné"], ["E-mail", conv.email || null],
-    ["Licence", planLabel], ["Période", sub.activatedAt ? `${d(sub.activatedAt)} → ${lifetime ? "sans fin" : d(sub.expiresAt)}` : "—"],
-    ["Reste", lifetime ? "Sans expiration" : daysTo == null ? "—" : daysTo > 0 ? `${daysTo} jour${daysTo > 1 ? "s" : ""}` : `Expirée depuis ${-daysTo} j`],
+  const planLabel = sub.plan === "trial" ? "Essai gratuit" : sub.plan ? (ACTIVATION_PLANS.find((p) => p.id === sub.plan)?.label || sub.plan) : null;
+  const phone = st.phone || conv.phone || null;
+  const more = s ? [
+    ["Administrateur", st.adminName || conv.name], ["E-mail", conv.email], ["Formule", planLabel],
+    ["Période", sub.activatedAt ? `${d(sub.activatedAt)} → ${lifetime ? "sans fin" : d(sub.expiresAt) || "—"}` : null],
     ["Code d'activation", sub.code ? `${sub.code.slice(0, 4)}-••••-${sub.code.slice(-4)}` : null],
     ["Créée le", d(s.created_at)], ["Vendeurs", String((s.vendors || []).length)],
     ["Produits", st.products != null ? String(st.products) : null], ["Ventes 30 j", st.sales30d != null ? money(st.sales30d) : null],
     ["Dernière activité", st.lastActivity ? supportAgo(st.lastActivity) : null],
   ].filter(([, v]) => v) : [];
-  return (
-    <div className="rounded-[16px] mb-2 shrink-0 overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="gb-focus w-full flex items-center gap-2 px-2.5 py-2 text-left">
-        <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: tone.bg, color: tone.fg }}><Store size={15} /></span>
-        <span className="flex-1 min-w-0">
-          <span className="block text-[12.5px] font-bold truncate">{s?.name || conv.shop_name || "Boutique"}</span>
-          <span className="flex items-center gap-1.5 mt-0.5 min-w-0">
-            <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: tone.bg, color: tone.fg }}>{label}</span>
-            {s && <span className="text-[10.5px] opacity-60 truncate">{lifetime ? "sans expiration" : daysTo == null ? "" : daysTo > 0 ? `${daysTo} j restants` : "expirée"}</span>}
-          </span>
-        </span>
-        <span className="shrink-0 text-[10.5px] font-bold flex items-center gap-0.5 opacity-70">{open ? "Replier" : "Infos"}<ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} /></span>
-      </button>
-      {open && (
-        <div className="px-2.5 pb-2.5 gb-slide-up max-h-[26vh] overflow-y-auto gb-scroll">
-          {!s && <p className="text-[12px] opacity-60 py-2">Aucune boutique enregistrée sous ce nom. Vérifiez l'onglet Entreprises.</p>}
-          {rows.length > 0 && (
-            <div className="rounded-[12px] overflow-hidden" style={{ background: "var(--paper-dim)" }}>
-              {rows.map(([l, v], k) => (
-                <div key={l} className="flex justify-between gap-2 px-2.5 py-1.5 text-[11.5px]" style={{ borderTop: k ? "1px solid var(--line)" : "none" }}>
-                  <span className="opacity-60 shrink-0">{l}</span><span className="font-bold text-right break-words min-w-0">{v}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {(st.phone || conv.phone) && (
-            <div className="flex gap-1.5 mt-2">
-              <button onClick={() => waClient(st.phone || conv.phone)} className="gb-focus flex-1 h-8 rounded-[10px] text-[11.5px] font-bold flex items-center justify-center gap-1" style={{ background: "#DDF5E6", color: "#128C4A" }}><MessageCircle size={13} /> WhatsApp</button>
-              <button onClick={() => callClient(st.phone || conv.phone)} className="gb-focus flex-1 h-8 rounded-[10px] text-[11.5px] font-bold flex items-center justify-center gap-1" style={{ background: "#E6EEFA", color: "#1D4F91" }}><Phone size={13} /> Appeler</button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  return { tone, status, rest, chip, typeLabel, phone, more, shopName: s?.name || conv.shop_name || null };
 }
 
 function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast, onStats, shops = [] }) {
@@ -17145,17 +17658,21 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
   const [conversations, setConversations] = useState(null);
   const [netIssue, setNetIssue] = useState(false);
   const [query, setQuery] = useState("");
-  const [convFilter, setConvFilter] = useState("all");
+  const [convFilter, setConvFilter] = useState("all"); // all | online | offline | new
   const [seen, setSeen] = useState(readSupportSeen);
-  const [openWins, setOpenWins] = useState([]); // [{ id, min }]
+  const [tabs, setTabs] = useState([]); // conversations ouvertes (un onglet par personne)
   const [activeId, setActiveId] = useState(null);
-  const [visited, setVisited] = useState([]);
+  const [chatOpen, setChatOpen] = useState(false); // plein écran affiché, sinon bulles
+  const [infoOpen, setInfoOpen] = useState(() => (typeof window === "undefined" ? true : window.innerHeight >= 640));
+  const [infoMore, setInfoMore] = useState(false);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState(() => new Set());
   const [broadcast, setBroadcast] = useState(false); // false | "all" | "devices"
+  const [confirmDel, setConfirmDel] = useState(null);
+  const sideChat = useMediaQuery("(min-width: 1024px)");
   const listBusy = useRef(false);
   const markRead = (deviceId) => setSeen((cur) => { const n = { ...cur, [deviceId]: new Date().toISOString() }; try { localStorage.setItem(SUPPORT_READ_KEY, JSON.stringify(n)); } catch { /* stockage indisponible */ } return n; });
-  const isUnread = (c) => !!c.last_message_at && new Date(c.last_message_at).getTime() > new Date(seen[c.device_id] || 0).getTime() + 1000;
+  const isUnread = (c) => !!c.last_message_at && c.last_sender !== "owner" && new Date(c.last_message_at).getTime() > new Date(seen[c.device_id] || 0).getTime() + 1000;
 
   const fetchList = async (em, sc, { silent = false } = {}) => {
     if (listBusy.current) return false;
@@ -17186,13 +17703,20 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
     const act = conversations.filter((c) => c.last_message);
     onStats?.({ total: act.length, unread: act.filter(isUnread).length });
   }, [conversations, seen]); // eslint-disable-line react-hooks/exhaustive-deps
-  const selectConv = (id) => { markRead(id); setActiveId(id); setVisited((v) => (v.includes(id) ? v : [id, ...v].slice(0, 8))); };
-  // À l'ouverture : la conversation la plus récente s'affiche à droite.
+  // Bouton « retour » du téléphone : referme la discussion (bulles) au lieu de quitter la page.
   useEffect(() => {
-    if (activeId || !conversations) return;
-    const first = conversations.filter((c) => c.last_message).sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at))[0];
-    if (first) selectConv(first.device_id);
-  }, [conversations]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!chatOpen) return;
+    const onPop = () => setChatOpen(false);
+    try { window.history.pushState({ gbChat: 1 }, ""); } catch { /* ignore */ }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [chatOpen]);
+  // Plein écran : la page derrière ne défile plus.
+  useEffect(() => {
+    if (!chatOpen || sideChat) return;
+    const prev = document.body.style.overflow; document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [chatOpen, sideChat]);
 
   if (!ownerAccess) {
     return (
@@ -17203,142 +17727,252 @@ function SupportInboxSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
   }
 
   const byId = new Map((conversations || []).map((c) => [c.device_id, c]));
-  const openWin = (id) => {
+  const shopOf = (c) => { const nn = normName(c?.shop_name); return nn ? shops.find((x) => normName(x.name) === nn) || null : null; };
+  const openChat = (id) => {
     markRead(id);
-    setOpenWins((cur) => (cur.some((w) => w.id === id) ? cur.map((w) => (w.id === id ? { ...w, min: false } : w)) : [{ id, min: false }, ...cur].slice(0, 6)));
-    setTimeout(() => document.getElementById("gb-open-windows")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setTabs((cur) => (cur.includes(id) ? cur : [...cur, id].slice(-6)));
+    setActiveId(id);
+    setInfoMore(false);
+    setChatOpen(true);
   };
-  const closeWin = (id) => setOpenWins((cur) => cur.filter((w) => w.id !== id));
-  const toggleMin = (id) => setOpenWins((cur) => cur.map((w) => (w.id === id ? { ...w, min: !w.min } : w)));
+  const closeTab = (id) => {
+    const n = tabs.filter((x) => x !== id);
+    setTabs(n);
+    if (id === activeId) { setActiveId(n[n.length - 1] || null); if (!n.length) closeChat(); }
+  };
+  const closeChat = () => {
+    setChatOpen(false);
+    try { if (window.history.state?.gbChat) window.history.back(); } catch { /* ignore */ }
+  };
   const activeConversations = (conversations || []).filter((c) => c.last_message).sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
   const qq = query.trim().toLowerCase();
-  const shown = activeConversations.filter((c) => !qq || `${c.name || ""} ${c.shop_name || ""} ${c.phone || ""}`.toLowerCase().includes(qq)).filter((c) => convFilter === "all" || (convFilter === "new" && isUnread(c)) || (convFilter === "online" && c.online));
+  const searched = activeConversations.filter((c) => !qq || `${c.name || ""} ${c.shop_name || ""} ${c.phone || ""}`.toLowerCase().includes(qq));
+  const shown = searched.filter((c) => convFilter === "all" || (convFilter === "new" && isUnread(c)) || (convFilter === "online" && c.online) || (convFilter === "offline" && !c.online));
   const nUnread = activeConversations.filter(isUnread).length;
   const nOnline = activeConversations.filter((c) => c.online).length;
   const togglePick = (id) => setPicked((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  // Ouvre toutes les conversations non lues : la plus récente déployée, les
-  // autres réduites (un toucher suffit pour les déployer).
-  const openAllUnread = () => {
-    const list = activeConversations.filter(isUnread).slice(0, 6);
-    if (!list.length) return;
-    setOpenWins((cur) => {
-      const rest = cur.filter((w) => !list.some((c) => c.device_id === w.id));
-      return [...list.map((c, k) => ({ id: c.device_id, min: k > 0 && !cur.some((w) => w.id === c.device_id && !w.min) })), ...rest].slice(0, 6);
-    });
-    setTimeout(() => document.getElementById("gb-open-windows")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  const openTabs = tabs.filter((id) => byId.has(id));
+  const active = activeId && byId.has(activeId) ? byId.get(activeId) : null;
+  const removeConv = async (c) => {
+    try {
+      await api.ownerSupportDelete({ email: ownerAccess.email, secret: ownerAccess.secret, deviceId: c.device_id });
+      pushToast?.("Conversation supprimée", "ok");
+      setConfirmDel(null); closeTab(c.device_id); fetchList(ownerAccess.email, ownerAccess.secret);
+    } catch (e) { pushToast?.(api.networkErrorText(e, "supprimer la conversation") || e?.message || "Erreur", "error"); }
   };
-  const wins = openWins.filter((w) => byId.has(w.id));
+
+  const avatar = (c, size = 48, ring = "#fff", radius = 16) => {
+    const [bg, fg] = clientTint(c.name || "Anonyme");
+    return (
+      <span className="relative shrink-0 block" style={{ width: size, height: size }}>
+        <span className="w-full h-full flex items-center justify-center font-display font-bold" style={{ background: bg, color: fg, borderRadius: radius, fontSize: Math.round(size * 0.34) }}>{clientInitials(c.name || "Anonyme")}</span>
+        <span className={`absolute rounded-full ${c.online ? "gb-pulse" : ""}`} style={{ right: -3, bottom: -3, width: Math.max(11, size * 0.28), height: Math.max(11, size * 0.28), background: c.online ? "#22A35A" : "#B8BEC6", border: `2.5px solid ${ring}` }} />
+      </span>
+    );
+  };
+
+  const renderRow = (c, i) => {
+    const unread = isUnread(c);
+    const sel = picked.has(c.device_id);
+    const f = supportShopFacts(c, shopOf(c));
+    const isOpenTab = openTabs.includes(c.device_id);
+    return (
+      <button onClick={() => (picking ? togglePick(c.device_id) : openChat(c.device_id))} aria-pressed={picking ? sel : undefined} className="gb-focus w-full flex items-center gap-3 px-3.5 py-3 text-left active:scale-[0.99] transition-transform" style={{ borderTop: i ? "1px solid #EFEDE7" : "none", background: sel ? "#EEF3FC" : unread ? "#FBF7EF" : "transparent", animation: `sbUp .4s cubic-bezier(.2,.8,.2,1) ${Math.min(i, 8) * 45}ms both` }}>
+        <span className="relative shrink-0 block">
+          {avatar(c, 48, sel ? "#EEF3FC" : unread ? "#FBF7EF" : "#fff", 16)}
+          {picking && <span className="absolute -top-1.5 -left-1.5 w-6 h-6 rounded-[8px] flex items-center justify-center" style={sel ? { background: "#1D4F91" } : { background: "#fff", border: "2px solid #C9CED6" }}>{sel && <Check size={14} color="#fff" strokeWidth={3} />}</span>}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="flex items-baseline justify-between gap-2">
+            <span className={`text-[15.5px] leading-tight break-words min-w-0 ${unread ? "font-extrabold" : "font-bold"}`}>{c.name || "Anonyme"}</span>
+            <span className="text-[11.5px] font-bold whitespace-nowrap shrink-0" style={{ color: unread ? "#C2410C" : "#66707A" }}>{supportListTime(c.last_message_at)}</span>
+          </span>
+          {(f.shopName || f.typeLabel) && <span className="block text-[12px] leading-tight mt-0.5 break-words" style={{ color: "#66707A" }}>{[f.shopName, f.typeLabel].filter(Boolean).join(" · ")}</span>}
+          <span className="flex items-center justify-between gap-2 mt-1">
+            <span className="text-[13px] leading-snug min-w-0 break-words" style={{ color: unread ? "var(--ink)" : "#4A535D", fontWeight: unread ? 700 : 500, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{c.last_sender === "owner" ? "Vous : " : ""}{c.last_message}</span>
+            <span className="flex items-center gap-1.5 shrink-0">
+              {isOpenTab && !picking && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: "#F4EADB", color: SC.brown }}>Ouverte</span>}
+              {unread ? <span className="min-w-[22px] h-[22px] px-1.5 rounded-full text-[11px] font-extrabold text-white flex items-center justify-center" style={{ background: "#E4572E" }}>{Math.max(1, Number(c.waiting_count) || 1)}</span>
+                : c.last_sender === "owner" ? <span className="flex" style={{ color: "#1D6FB8" }}><Check size={14} strokeWidth={3} /><Check size={14} strokeWidth={3} style={{ marginLeft: -8 }} /></span> : null}
+            </span>
+          </span>
+          {f.chip && <span className="inline-block mt-1.5 text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: f.tone.bg, color: f.tone.fg }}>{f.chip}</span>}
+        </span>
+      </button>
+    );
+  };
+
+  const groups = [["on", "En ligne", "#22A35A", shown.filter((c) => c.online)], ["off", "Hors ligne", "#D93B30", shown.filter((c) => !c.online)]];
+  const af = active ? supportShopFacts(active, shopOf(active)) : null;
 
   return (
     <div>
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        {[["all", "Conversations", activeConversations.length, MessageCircle, "#1D4F91", "#E6EEFA"], ["new", "Non lues", nUnread, Bell, "#B3261E", "#FDECEA"], ["online", "En ligne", nOnline, Activity, "#14684A", "#E3F1EA"]].map(([fid, l, n, Ic, fg, bg]) => {
-          const on = convFilter === fid;
-          return (
-            <button key={fid} onClick={() => setConvFilter(on && fid !== "all" ? "all" : fid)} aria-pressed={on} className="gb-focus rounded-[16px] p-2.5 text-left" style={{ background: on ? bg : "var(--card)", border: `1.5px solid ${on ? fg : "var(--line)"}` }}>
-              <span className="w-7 h-7 rounded-[9px] flex items-center justify-center mb-1.5" style={{ background: bg, color: fg }}><Ic size={14} /></span>
-              <span className="block font-display font-bold text-[20px] leading-none" style={{ color: fg }}>{n}</span>
-              <span className="block text-[11px] font-bold mt-1 opacity-75">{l}</span>
+      <style>{`@keyframes sbUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}@keyframes sbIn{from{transform:translateX(100%)}to{transform:none}}@keyframes sbFade{from{opacity:0}to{opacity:1}}@keyframes sbBub{from{opacity:0;transform:translateX(30px) scale(.6)}to{opacity:1;transform:none}}`}</style>
+      {/* Synthèse */}
+      <div className="rounded-[24px] p-4 mb-3 text-white relative overflow-hidden" style={{ background: `radial-gradient(120% 90% at 100% 0%, rgba(242,193,78,0.42), transparent 55%), linear-gradient(150deg, ${SC.brown}, ${SC.brown2})`, boxShadow: "0 16px 30px -18px rgba(74,46,18,0.85)" }}>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] opacity-75">Assistance</p>
+        <p className="text-[14.5px] font-semibold mt-0.5 opacity-95">Toutes les personnes qui vous ont écrit</p>
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          {[["all", "Conversations", activeConversations.length, "#fff", null], ["online", "En ligne", nOnline, "#8FE3B5", "#22A35A"], ["new", "Non lus", nUnread, "#FFD978", null]].map(([fid, l, n, col, dot]) => (
+            <button key={fid} onClick={() => setConvFilter(convFilter === fid && fid !== "all" ? "all" : fid)} aria-pressed={convFilter === fid} className="gb-focus rounded-[16px] px-3 py-2.5 text-left" style={{ background: convFilter === fid ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.12)", border: `1px solid ${convFilter === fid ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.14)"}` }}>
+              <span className="flex items-center gap-1 text-[11px] font-bold opacity-85 whitespace-nowrap">{dot && <span className="w-2 h-2 rounded-full" style={{ background: dot }} />}{l}</span>
+              <span className="block font-display font-bold text-[26px] leading-none mt-1" style={{ color: col }}>{n}</span>
             </button>
-          );
-        })}
+          ))}
+        </div>
       </div>
 
-      <button onClick={() => setBroadcast("all")} className="gb-focus w-full mb-2 min-h-[50px] rounded-[16px] px-4 flex items-center gap-2.5 text-left active:scale-[0.99] transition-transform" style={{ background: "linear-gradient(180deg,#F2C14E,#E0A82E)", color: "#3A2408", boxShadow: "0 10px 20px -12px rgba(224,168,46,0.9)" }}>
-        <span className="text-[20px]">📣</span>
-        <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">Message à tous les propriétaires</span><span className="block text-[11.5px] opacity-75">Ou seulement aux connectés · chacun dans sa conversation</span></span>
-        <Send size={17} className="shrink-0" />
+      <button onClick={() => setBroadcast("all")} className="gb-focus w-full mb-3 min-h-[60px] rounded-[18px] px-3.5 py-2.5 flex items-center gap-3 text-left text-white active:scale-[0.99] transition-transform" style={{ background: "radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,0.16), transparent 55%), linear-gradient(150deg,#0F5F57,#14806F)", boxShadow: "0 12px 22px -12px rgba(15,95,87,0.85)" }}>
+        <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0 text-[21px]" style={{ background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.22)" }}>📣</span>
+        <span className="flex-1 min-w-0"><span className="block text-[15px] font-extrabold">Message à tous</span><span className="block text-[12px]" style={{ color: "rgba(255,255,255,0.8)" }}>Tous les propriétaires, les connectés ou une sélection</span></span>
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "#fff" }}><Send size={16} color="#0F5F57" /></span>
       </button>
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        <button onClick={() => { const nxt = activeConversations.find((c) => isUnread(c) && c.device_id !== activeId); if (nxt) { setPicking(false); selectConv(nxt.device_id); } }} disabled={!activeConversations.some((c) => isUnread(c) && c.device_id !== activeId)} className="gb-focus min-h-[44px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-45" style={{ background: "#E3F4EA", color: "#14684A", border: "1px solid #BFE6CF" }}><MessageCircle size={15} /> Prochaine non lue{nUnread ? ` (${nUnread})` : ""}</button>
-        <button onClick={() => { setPicking((v) => !v); setPicked(new Set()); }} className="gb-focus min-h-[44px] rounded-[14px] text-[13px] font-bold flex items-center justify-center gap-1.5" style={picking ? { background: "#1D4F91", color: "#fff" } : { background: "#E6EEFA", color: "#1D4F91", border: "1px solid #C9D9F2" }}><Users size={15} /> {picking ? "Annuler la sélection" : "Message groupé"}</button>
-      </div>
 
       <div className="flex gap-2 mb-2.5">
-        <label className="flex-1 flex items-center gap-2.5 min-h-[44px] px-3.5 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
-          <Search size={16} className="opacity-50" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom, boutique ou numéro" className="flex-1 min-w-0 bg-transparent outline-none text-[14px]" />
+        <label className="flex-1 flex items-center gap-2.5 min-h-[48px] px-3.5 rounded-[16px]" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <Search size={17} className="opacity-50" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom, boutique ou numéro" className="flex-1 min-w-0 bg-transparent outline-none text-[15px]" />
+          {query && <button onClick={() => setQuery("")} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "var(--paper-dim)" }} aria-label="Effacer"><X size={14} /></button>}
         </label>
-        <button onClick={() => fetchList(ownerAccess.email, ownerAccess.secret)} disabled={loading} className="gb-focus shrink-0 w-[44px] h-[44px] rounded-2xl flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Actualiser"><RefreshCw size={16} className={loading ? "animate-spin" : ""} /></button>
+        <button onClick={() => fetchList(ownerAccess.email, ownerAccess.secret)} disabled={loading} className="gb-focus shrink-0 w-12 h-12 rounded-[16px] flex items-center justify-center" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Actualiser"><RefreshCw size={17} className={loading ? "animate-spin" : ""} /></button>
       </div>
-      {netIssue && <p className="text-[11.5px] rounded-xl px-3 py-2 mb-2.5" style={{ background: "#FFF4E0", color: "#8A5A00" }}>Connexion lente — la liste sera actualisée automatiquement.</p>}
-      {picking && <p className="text-[12.5px] font-semibold mb-2 px-0.5" style={{ color: "#1D4F91" }}>Cochez à gauche les administrateurs qui doivent recevoir le message.</p>}
 
-      {shown.length > 0 && (
-        <div className="flex gap-2" style={{ height: "max(520px, calc(100dvh - 340px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))" }}>
-          {/* Liste des administrateurs (à gauche) */}
-          <div className="w-[112px] sm:w-[220px] shrink-0 overflow-y-auto gb-scroll rounded-[18px] py-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)", overscrollBehavior: "contain" }} aria-label="Administrateurs : en ligne en tête, hors ligne en bas">
-            {[["on", "En ligne", "#22A35A", shown.filter((c) => c.online)], ["off", "Hors ligne", "#D93B30", shown.filter((c) => !c.online)]].map(([gid, gl, gc, list]) => list.length > 0 && (
-              <div key={gid} className="mb-1">
-                <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wide flex items-center gap-1" style={{ color: gc }}><span className="w-2 h-2 rounded-full" style={{ background: gc }} />{gl} · {list.length}</p>
-                {list.map((c) => {
-                  const unread = isUnread(c);
-                  const on = !picking && activeId === c.device_id;
-                  const sel = picked.has(c.device_id);
-                  const [bg, fg] = clientTint(c.name || "Anonyme");
-                  return (
-                    <button key={c.device_id} onClick={() => (picking ? togglePick(c.device_id) : selectConv(c.device_id))} aria-pressed={on || sel} className="gb-focus relative w-full flex flex-col sm:flex-row items-center sm:items-start gap-1 sm:gap-2 px-1.5 sm:px-2.5 py-2 text-center sm:text-left" style={{ background: on ? "#163A2E" : sel ? "#EEF3FC" : unread ? "#F2FAF5" : "transparent" }}>
-                      {on && <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full" style={{ background: "#5DCAA5" }} />}
-                      <span className="relative shrink-0">
-                        <span className="w-10 h-10 rounded-full flex items-center justify-center font-display font-bold text-[13px]" style={{ background: bg, color: fg }}>{clientInitials(c.name || "Anonyme")}</span>
-                        <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ${c.online ? "gb-pulse" : ""}`} style={{ background: c.online ? "#22A35A" : "#D93B30", border: `2px solid ${on ? "#163A2E" : "var(--card)"}` }} />
-                        {picking && <span className="absolute -top-1 -left-1 w-5 h-5 rounded-[6px] flex items-center justify-center" style={sel ? { background: "#1D4F91" } : { background: "var(--card)", border: "2px solid var(--line)" }}>{sel && <Check size={12} color="#fff" strokeWidth={3} />}</span>}
-                        {!picking && unread && !on && <span className="absolute -top-1 -right-1.5 h-[18px] px-1 rounded-full text-[9px] font-bold text-white flex items-center" style={{ background: "#1D4F91", border: "2px solid var(--card)" }}>Nouv.</span>}
-                      </span>
-                      <span className="min-w-0 w-full">
-                        <span className={`block text-[11.5px] leading-tight truncate ${unread ? "font-bold" : "font-semibold"}`} style={{ color: on ? "#fff" : "var(--ink)" }}>{c.name || "Anonyme"}</span>
-                        <span className="block text-[9.5px] leading-tight truncate mt-0.5" style={{ color: on ? "rgba(255,255,255,0.65)" : "var(--ink)", opacity: on ? 1 : 0.5 }}>{c.shop_name || (c.last_message_at ? supportAgo(c.last_message_at) : "")}</span>
-                        <span className="hidden sm:block text-[11px] truncate mt-0.5" style={{ color: on ? "rgba(255,255,255,0.75)" : "var(--ink)", opacity: on ? 1 : 0.6 }}>{c.last_message}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-          {/* Discussion de l'administrateur choisi (à droite) */}
-          <div className="flex-1 min-w-0 h-full flex flex-col">
-            {activeId && byId.has(activeId) && !picking && (() => {
-              const cv = byId.get(activeId);
-              const nn = normName(cv.shop_name);
-              const shopRow = nn ? shops.find((x) => normName(x.name) === nn) : null;
-              return <SupportShopInfo key={activeId} conv={cv} shop={shopRow} />;
-            })()}
-            <div className="flex-1 min-h-0">
-            {visited.filter((id) => byId.has(id)).map((id) => (
-              <SupportChatWindow key={id} pane hidden={id !== activeId} conv={byId.get(id)} ownerAccess={ownerAccess} pushToast={pushToast} minimized={false}
-                onRead={markRead} onRemoved={(rid) => { setVisited((v) => v.filter((x) => x !== rid)); setActiveId(null); fetchList(ownerAccess.email, ownerAccess.secret); }} />
-            ))}
-            {(!activeId || !byId.has(activeId)) && (
-              <div className="h-full rounded-[18px] flex flex-col items-center justify-center text-center px-4 gap-2" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
-                <span className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "#E3F1EA", color: "#14684A" }}><MessageCircle size={22} /></span>
-                <p className="text-[14px] font-bold">Choisissez un administrateur</p>
-                <p className="text-[12px] opacity-60">Touchez un nom à gauche : sa discussion s'ouvre ici.</p>
-              </div>
-            )}
-            </div>
+      <div className="flex flex-wrap gap-1.5 pb-1 mb-2">
+        {[["all", "Tous", searched.length], ["online", "En ligne", searched.filter((c) => c.online).length], ["offline", "Hors ligne", searched.filter((c) => !c.online).length], ["new", "Non lus", searched.filter(isUnread).length]].map(([fid, l, n]) => {
+          const on = convFilter === fid;
+          return <button key={fid} onClick={() => setConvFilter(fid)} aria-pressed={on} className="gb-focus shrink-0 h-9 px-3.5 rounded-full text-[13px] font-bold whitespace-nowrap transition-colors" style={on ? { background: SC.brown, color: "#fff" } : { background: "var(--paper-dim)", color: "var(--ink)" }}>{l} {n}</button>;
+        })}
+        <button onClick={() => { setPicking((v) => !v); setPicked(new Set()); }} className="gb-focus shrink-0 h-9 px-3.5 rounded-full text-[13px] font-bold whitespace-nowrap flex items-center gap-1.5" style={picking ? { background: "#1D4F91", color: "#fff" } : { background: "#E6EEFA", color: "#1D4F91" }}><Users size={14} /> {picking ? "Annuler" : "Choisir"}</button>
+      </div>
+      {netIssue && <p className="text-[12px] rounded-xl px-3 py-2 mb-2.5" style={{ background: "#FFF4E0", color: "#8A5A00" }}>Connexion lente — la liste sera actualisée automatiquement.</p>}
+      {picking && <p className="text-[12.5px] font-semibold mb-2 px-0.5" style={{ color: "#1D4F91" }}>Touchez les personnes qui doivent recevoir le message, puis « Écrire le message ».</p>}
+
+      {groups.map(([gid, gl, gc, list]) => list.length > 0 && (
+        <div key={gid} className="mb-3">
+          <p className="px-1 pb-1.5 text-[11px] font-extrabold uppercase tracking-[0.1em] flex items-center gap-1.5" style={{ color: "#66707A" }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: gc }} />{gl} · {list.length}
+            {gid === "on" && openTabs.length > 0 && <span className="ml-auto normal-case tracking-normal text-[11.5px] font-bold" style={{ color: SC.brown }}>{openTabs.length} ouverte{openTabs.length > 1 ? "s" : ""}</span>}
+          </p>
+          <div className="rounded-[20px] overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 6px 18px -12px rgba(22,32,42,0.18)" }}>
+            {list.map((c, i) => <Fragment key={c.device_id}>{renderRow(c, i)}</Fragment>)}
           </div>
         </div>
-      )}
+      ))}
       {conversations && shown.length === 0 && (
-        <div className="rounded-[18px] p-7 text-center flex flex-col items-center gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
+        <div className="rounded-[20px] p-7 text-center flex flex-col items-center gap-1.5" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>
           <MessageCircle size={26} className="opacity-40" />
           <span className="text-[15px] font-bold">{activeConversations.length ? "Aucune conversation ici" : "Aucun message pour l'instant"}</span>
           <span className="text-[13px] opacity-60">Les messages envoyés par les boutiques depuis « Assistance » arrivent ici.</span>
         </div>
       )}
+      {!conversations && <SkeletonList rows={4} />}
 
       {picking && picked.size > 0 && (
-        <div className="sticky bottom-[110px] z-10 mt-2 flex items-center gap-2 rounded-[18px] p-2 pl-3.5" style={{ background: "#1D4F91", boxShadow: "0 12px 24px -10px rgba(29,79,145,0.6)" }}>
-          <span className="flex-1 text-[13.5px] font-bold text-white">{picked.size} sélectionné{picked.size > 1 ? "s" : ""}</span>
-          <button onClick={() => setBroadcast("devices")} className="gb-focus min-h-[42px] px-4 rounded-[14px] text-[13.5px] font-bold flex items-center gap-1.5" style={{ background: "#fff", color: "#1D4F91" }}><Send size={15} /> Écrire le message</button>
+        <div className="sticky z-10 mt-2 flex items-center gap-2 rounded-[18px] p-2 pl-3.5" style={{ bottom: "calc(env(safe-area-inset-bottom) + 104px)", background: "#1D4F91", boxShadow: "0 12px 24px -10px rgba(29,79,145,0.6)" }}>
+          <span className="flex-1 text-[14px] font-bold text-white">{picked.size} sélectionné{picked.size > 1 ? "s" : ""}</span>
+          <button onClick={() => setBroadcast("devices")} className="gb-focus min-h-[44px] px-4 rounded-[14px] text-[14px] font-bold flex items-center gap-1.5" style={{ background: "#fff", color: "#1D4F91" }}><Send size={15} /> Écrire le message</button>
         </div>
       )}
+
+      {/* Fenêtres flottantes rendues à la racine de la page : jamais coupées par
+          l'en-tête, le menu du bas ou l'animation de changement d'onglet. */}
+      {createPortal(<>
+      {/* Conversations réduites en bulles */}
+      {!chatOpen && openTabs.length > 0 && (
+        <div className="fixed z-[60] flex flex-col gap-2.5 no-print" style={{ right: 12, bottom: "calc(env(safe-area-inset-bottom) + 176px)" }}>
+          {openTabs.map((id, k) => {
+            const c = byId.get(id);
+            const unread = isUnread(c);
+            return (
+              <button key={id} onClick={() => openChat(id)} className="gb-focus relative rounded-[18px] p-[3px] active:scale-90 transition-transform" style={{ background: "#fff", boxShadow: "0 10px 22px -10px rgba(22,32,42,0.55)", animation: `sbBub .35s cubic-bezier(.2,.8,.2,1) ${k * 60}ms both` }} aria-label={`Rouvrir la conversation avec ${c.name || "l'administrateur"}`}>
+                {avatar(c, 50, "#fff", 15)}
+                {unread && <span className="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1 rounded-full text-[11px] font-extrabold text-white flex items-center justify-center" style={{ background: "#E4572E", border: "2px solid #fff" }}>{Math.max(1, Number(c.waiting_count) || 1)}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Discussion en plein écran (glisse depuis la droite) */}
+      {chatOpen && active && (
+        <div className="fixed inset-0 z-[85] flex justify-end no-print" style={{ background: sideChat ? "rgba(10,16,24,0.45)" : "transparent", animation: "sbFade .2s ease both" }} onClick={sideChat ? closeChat : undefined}>
+          <div className="h-full flex flex-col w-full" style={{ maxWidth: sideChat ? 620 : "none", background: SC.chat, paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)", boxShadow: sideChat ? "-20px 0 40px -20px rgba(0,0,0,0.5)" : "none", animation: "sbIn .32s cubic-bezier(.2,.8,.2,1) both" }} onClick={(e) => e.stopPropagation()}>
+            <div className="text-white shrink-0 overflow-y-auto gb-scroll" style={{ background: `linear-gradient(160deg, ${SC.brown}, ${SC.brown2})`, paddingTop: "max(14px, env(safe-area-inset-top))", maxHeight: "58dvh" }}>
+              <div className="flex items-center gap-2.5 px-3 pb-2.5">
+                <button onClick={closeChat} className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.14)" }} aria-label="Retour à la liste"><ChevronLeft size={22} /></button>
+                {avatar(active, 46, SC.brown, 15)}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[17px] font-extrabold leading-tight break-words">{active.name || "Anonyme"}</p>
+                  <p className="text-[12.5px] mt-0.5 flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.78)" }}><span className="w-2 h-2 rounded-full shrink-0" style={{ background: active.online ? "#5DE3A0" : "#B8BEC6" }} />{active.online ? "En ligne" : `Hors ligne${active.last_seen_at ? ` · vu ${supportAgo(active.last_seen_at).replace(/ /g, "\u00A0")}` : ""}`}</p>
+                </div>
+                {af.phone && <button onClick={() => waClient(af.phone)} className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "#25D366" }} aria-label="WhatsApp"><MessageCircle size={20} color="#fff" /></button>}
+                <button onClick={() => setInfoOpen((v) => !v)} aria-pressed={infoOpen} className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: infoOpen ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.14)" }} aria-label="Informations de la boutique"><Info size={20} /></button>
+              </div>
+              {infoOpen && (
+                <div className="mx-3 mb-3 rounded-[18px] p-3" style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.16)", animation: "sbUp .3s ease both" }}>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+                    {[["Boutique", af.shopName || "Non renseignée", "#fff"], ["Licence", `${af.status}${af.rest ? ` · ${af.rest}` : ""}`, af.tone.lt], ["Contact", af.phone || "Non renseigné", "#fff"], ["Type", af.typeLabel || "—", "#fff"]].map(([l, v, col]) => (
+                      <div key={l} className="min-w-0"><p className="text-[10.5px] font-extrabold uppercase tracking-[0.1em] opacity-65">{l}</p><p className="text-[13.5px] font-bold leading-tight break-words mt-0.5" style={{ color: col }}>{v}</p></div>
+                    ))}
+                  </div>
+                  {infoMore && af.more.length > 0 && (
+                    <div className="mt-2.5 pt-2 max-h-[22vh] overflow-y-auto gb-scroll" style={{ borderTop: "1px solid rgba(255,255,255,0.16)" }}>
+                      {af.more.map(([l, v]) => <div key={l} className="flex justify-between gap-3 py-1 text-[12.5px]"><span className="opacity-65 shrink-0">{l}</span><span className="font-bold text-right break-words min-w-0">{v}</span></div>)}
+                    </div>
+                  )}
+                  <div className="flex gap-1.5 mt-2.5">
+                    {af.more.length > 0 && <button onClick={() => setInfoMore((v) => !v)} className="gb-focus flex-1 h-9 rounded-[11px] text-[12px] font-bold flex items-center justify-center gap-1" style={{ background: "rgba(255,255,255,0.14)" }}>{infoMore ? "Moins" : "Plus d'infos"}<ChevronDown size={14} style={{ transform: infoMore ? "rotate(180deg)" : "none" }} /></button>}
+                    {af.phone && <button onClick={() => callClient(af.phone)} className="gb-focus flex-1 h-9 rounded-[11px] text-[12px] font-bold flex items-center justify-center gap-1" style={{ background: "rgba(255,255,255,0.14)" }}><Phone size={13} /> Appeler</button>}
+                    <button onClick={() => setConfirmDel(active)} className="gb-focus flex-1 h-9 rounded-[11px] text-[12px] font-bold flex items-center justify-center gap-1" style={{ background: "rgba(240,120,120,0.22)", color: "#FFC9C9" }}><Trash2 size={13} /> Supprimer</button>
+                  </div>
+                </div>
+              )}
+              {openTabs.length > 1 && (
+                <div className="flex gap-1.5 overflow-x-auto gb-scroll px-3 pb-0 pt-0.5" style={{ scrollbarWidth: "none" }}>
+                  {openTabs.map((id) => {
+                    const c = byId.get(id); const on = id === activeId; const unread = !on && isUnread(c);
+                    return (
+                      <div key={id} className="shrink-0 flex items-center gap-1.5 pl-1.5 pr-1 h-10 rounded-t-[14px]" style={{ background: on ? SC.chat : "rgba(255,255,255,0.12)", color: on ? SC.brown : "#fff" }}>
+                        <button onClick={() => { markRead(id); setActiveId(id); setInfoMore(false); }} className="gb-focus flex items-center gap-1.5 h-full">
+                          {avatar(c, 26, on ? SC.chat : SC.brown, 8)}
+                          <span className="text-[13px] font-bold whitespace-nowrap">{(c.name || "Anonyme").split(/\s+/)[0]}</span>
+                          {unread && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-extrabold text-white flex items-center justify-center" style={{ background: "#E4572E" }}>{Math.max(1, Number(c.waiting_count) || 1)}</span>}
+                        </button>
+                        <button onClick={() => closeTab(id)} className="gb-focus w-7 h-7 rounded-full flex items-center justify-center" style={{ opacity: 0.7 }} aria-label={`Fermer l'onglet ${c.name || ""}`}><X size={14} /></button>
+                      </div>
+                    );
+                  })}
+                  <button onClick={closeChat} className="gb-focus shrink-0 w-10 h-10 rounded-t-[14px] flex items-center justify-center" style={{ background: "rgba(255,255,255,0.12)" }} aria-label="Ouvrir une autre conversation"><Plus size={16} /></button>
+                </div>
+              )}
+            </div>
+            {openTabs.map((id) => (
+              <SupportConversation key={id} hidden={id !== activeId} conv={byId.get(id)} ownerAccess={ownerAccess} pushToast={pushToast} onRead={markRead} recipientNote={openTabs.length > 1} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {confirmDel && (
+        <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center no-print px-0 sm:px-4" style={{ background: "rgba(10,16,24,0.55)" }} onClick={() => setConfirmDel(null)}>
+          <div className="w-full max-w-[440px] rounded-t-[26px] sm:rounded-[26px] p-5 gb-slide-up" style={{ background: "var(--paper)", paddingBottom: "max(22px, calc(env(safe-area-inset-bottom) + 16px))" }} onClick={(e) => e.stopPropagation()}>
+            <span className="w-12 h-12 rounded-[15px] flex items-center justify-center" style={{ background: "#FCEBEB", color: "#B3261E" }}><Trash2 size={22} /></span>
+            <p className="font-display font-bold text-[18px] mt-3">Supprimer la conversation ?</p>
+            <p className="text-[13.5px] opacity-70 mt-1">Tous les messages échangés avec <b>{confirmDel.name || "cet administrateur"}</b> seront effacés définitivement.</p>
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button onClick={() => setConfirmDel(null)} className="gb-focus min-h-[48px] rounded-[14px] text-[14px] font-bold" style={{ background: "var(--paper-dim)" }}>Annuler</button>
+              <button onClick={() => removeConv(confirmDel)} className="gb-focus min-h-[48px] rounded-[14px] text-[14px] font-bold text-white" style={{ background: "#B3261E" }}>Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {broadcast && (
         <SupportBroadcastSheet initialMode={broadcast === "devices" ? "devices" : "all"} targets={broadcast === "devices" ? activeConversations.filter((c) => picked.has(c.device_id)) : []} ownerAccess={ownerAccess} pushToast={pushToast}
           onClose={() => setBroadcast(false)}
           onDone={(ids) => { setBroadcast(false); setPicking(false); setPicked(new Set()); ids.forEach(markRead); fetchList(ownerAccess.email, ownerAccess.secret, { silent: true }); }} />
       )}
+      </>, document.querySelector(".gb-root") || document.body)}
     </div>
   );
 }
@@ -17911,6 +18545,546 @@ function EditorAccessCard({ ownerAccess, pushToast, onEditorLogout }) {
   );
 }
 
+// ---------- Espace propriétaire : licences ----------
+// Stock des codes non utilisés, génération sans doublon (vérifiée par le
+// serveur sur toute la base + codes supprimés), vérification d'un code,
+// codes expirés et suppression (code PIN propriétaire).
+const LK = { a: "#3B2A7A", b: "#5B45B5", soft: "#EEEBFB", line: "#D6CEF5" };
+const LK_PLANS = [
+  { id: "1m", code: "01", name: "Essentiel", dur: "1 mois", file: "mois1.txt", c: "#F6B94D", bg: "#FFF1D6", fg: "#9A5B00" },
+  { id: "3m", code: "03", name: "Avancé", dur: "3 mois", file: "mois3.txt", c: "#2FAE84", bg: "#E3F4EC", fg: "#14684A" },
+  { id: "6m", code: "06", name: "Professionnel", dur: "6 mois", file: "mois6.txt", c: "#4A90E2", bg: "#E8F0FB", fg: "#1D5FA8" },
+  { id: "12m", code: "12", name: "Entreprise", dur: "12 mois", file: "mois12.txt", c: "#A47BE0", bg: "#F1E9FC", fg: "#6B3FB5" },
+  { id: "lifetime", code: "99", name: "Permanent", dur: "À vie", file: "avie.txt", c: "#E0A82E", bg: "#FFF6DD", fg: "#7A5208" },
+];
+const LK_LOW = 20;
+const lkPlan = (id) => LK_PLANS.find((p) => p.id === id) || { id, code: "??", name: id, dur: "", file: `${id}.txt`, c: "#9AA1A8", bg: "#EEEBE4", fg: "#4A535D" };
+const lkFmt = (c) => (String(c || "").replace(/\D/g, "").match(/.{1,4}/g) || []).join("-");
+const lkDT = (d) => (d ? `${new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })} à ${new Date(d).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "—");
+const lkErr = (e, what) => e?.data?.error || (/OFFLINE/.test(String(e?.message)) ? "Pas de connexion internet." : /SERVER_DOWN/.test(String(e?.message)) ? "Serveur indisponible, réessayez." : e?.message || `Impossible de ${what}`);
+const LK_CSS = `@keyframes lkUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}@keyframes lkPop{0%{transform:scale(.5);opacity:0}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}@keyframes lkBar{from{transform:scaleX(0)}to{transform:scaleX(1)}}`;
+
+// Partage / export d'une liste de codes.
+function LicExportBar({ codes, plan, pushToast }) {
+  const p = lkPlan(plan);
+  const text = codes.map(lkFmt).join("\n");
+  const copy = () => navigator.clipboard?.writeText(text).then(() => pushToast?.(`${codes.length} code${codes.length > 1 ? "s" : ""} copié${codes.length > 1 ? "s" : ""}`, "ok")).catch(() => pushToast?.("Copie impossible", "error"));
+  const wa = () => shareText(`Licences ${p.name}`, `Licences GestiOne — ${p.name} (${p.dur})\n\n${text}`).catch(() => {});
+  const xls = async () => {
+    try {
+      const { buildXlsx } = await import("./xlsx.js");
+      const bytes = buildXlsx([{ name: `${p.name} ${p.dur}`, widths: [20, 18, 12, 22], rows: [["Code", "Pack", "Durée", "Créé le"], ...codes.map((c) => [lkFmt(c), p.name, p.dur, lkDT(new Date())])] }]);
+      await exportBinaryFile(p.file.replace(/\.txt$/, ".xlsx"), bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    } catch { pushToast?.("Impossible de créer le fichier Excel", "error"); }
+  };
+  const txt = async () => {
+    try { await exportTextFile(p.file, `${text}\n`); pushToast?.(`${p.file} téléchargé · ${codes.length} code${codes.length > 1 ? "s" : ""}`, "ok"); }
+    catch { pushToast?.("Impossible de créer le fichier texte", "error"); }
+  };
+  const B = [["Copier", Copy, copy, { background: "var(--card)", border: "1px solid var(--line)" }], ["WhatsApp", MessageCircle, wa, { background: "#DDF5E6", color: "#128C4A" }], ["Excel", FileText, xls, { background: "#E8F0FB", color: "#1D5FA8" }], [".txt", Download, txt, { background: LK.a, color: "#fff" }]];
+  return (
+    <div className="grid grid-cols-4 gap-1.5">
+      {B.map(([l, Ic, fn, st]) => <button key={l} onClick={fn} className="gb-focus min-h-[56px] rounded-[13px] flex flex-col items-center justify-center gap-1 text-[12px] font-bold active:scale-95 transition-transform" style={st}><Ic size={17} />{l}</button>)}
+    </div>
+  );
+}
+
+// Fenêtre de génération.
+function LicGenerateSheet({ ownerAccess, stats, initialPlan = "1m", pushToast, onDone, onClose }) {
+  const [plan, setPlan] = useState(initialPlan);
+  const [qty, setQty] = useState(50);
+  const [custom, setCustom] = useState("");
+  const [step, setStep] = useState("form"); // form | confirm | run | done | error
+  const [prog, setProg] = useState(0);
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState("");
+  const p = lkPlan(plan);
+  const unused = stats?.[plan]?.unused ?? 0;
+  const total = LK_PLANS.reduce((t, x) => t + (stats?.[x.id] ? stats[x.id].unused + stats[x.id].active + stats[x.id].expired : 0), 0);
+  const n = qty === "custom" ? Math.max(0, Math.min(500, Number(custom) || 0)) : qty;
+  const run = async () => {
+    setStep("run"); setProg(1); setErr("");
+    const timers = [setTimeout(() => setProg(2), 500), setTimeout(() => setProg(3), 1100)];
+    try {
+      const r = await api.ownerLicenseGenerate({ email: ownerAccess.email, secret: ownerAccess.secret, plan, count: n });
+      timers.forEach(clearTimeout);
+      setProg(3); setTimeout(() => setProg(4), 250); setTimeout(() => { setProg(5); setRes(r); setStep("done"); onDone?.(r); }, 650);
+    } catch (e) { timers.forEach(clearTimeout); setErr(lkErr(e, "générer les codes")); setStep("error"); }
+  };
+  const go = () => { if (!n) return; if (unused >= LK_LOW) setStep("confirm"); else run(); };
+  const steps = [
+    [`Stock non utilisé vérifié : ${unused} code${unused > 1 ? "s" : ""}`],
+    [`${n} code${n > 1 ? "s" : ""} créé${n > 1 ? "s" : ""} (${p.code} + 10 chiffres)`],
+    [`Anti-doublons : comparaison avec ${res ? res.checked : total} codes${res?.duplicatesAvoided ? ` · ${res.duplicatesAvoided} remplacé${res.duplicatesAvoided > 1 ? "s" : ""}` : ""}`],
+    ["Enregistrement dans la base"],
+  ];
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(15,10,35,0.6)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)" }} onClick={() => step !== "run" && onClose()}>
+      <style>{LK_CSS}</style>
+      <div className="w-full sm:max-w-[520px] flex flex-col rounded-t-[28px] sm:rounded-[28px] overflow-hidden gb-slide-up" style={{ background: "var(--paper, #F6F4EF)", color: "var(--ink, #16202A)", maxHeight: "calc(100dvh - max(16px, env(safe-area-inset-top)) - 8px)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="shrink-0 px-5 pt-3 pb-4 text-white" style={{ background: `radial-gradient(120% 120% at 100% 0%, rgba(255,255,255,0.16), transparent 55%), linear-gradient(150deg, ${LK.a}, ${LK.b})` }}>
+          <div className="w-10 h-1 rounded-full mx-auto mb-3 sm:hidden" style={{ background: "rgba(255,255,255,0.35)" }} />
+          <div className="flex items-center gap-3">
+            <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.16)", border: "1px solid rgba(255,255,255,0.22)" }}><KeyRound size={22} /></span>
+            <div className="flex-1 min-w-0"><p className="font-display font-bold text-[19px] leading-tight">Générer des licences</p><p className="text-[12.5px] mt-0.5" style={{ color: "rgba(255,255,255,0.8)" }}>Codes uniques, jamais en double</p></div>
+            <button onClick={onClose} disabled={step === "run"} className="gb-focus w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0 disabled:opacity-40" style={{ background: "rgba(255,255,255,0.16)" }} aria-label="Fermer"><X size={19} color="#fff" /></button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-4 pt-4" style={{ paddingBottom: "max(20px, calc(env(safe-area-inset-bottom) + 14px))" }}>
+          {step === "done" && res ? (
+            <div style={{ animation: "lkUp .35s ease both" }}>
+              <div className="rounded-[18px] p-3.5 flex items-center gap-3 text-white mb-3" style={{ background: "linear-gradient(150deg,#14684A,#1E8E6A)" }}>
+                <span className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.2)", animation: "lkPop .5s ease both" }}><Check size={22} strokeWidth={3} /></span>
+                <span className="min-w-0"><span className="block text-[15px] font-bold">{res.codes.length} code{res.codes.length > 1 ? "s" : ""} « {p.name} » créé{res.codes.length > 1 ? "s" : ""}</span><span className="block text-[12px] opacity-90">0 doublon · stock {p.dur} : {res.unusedBefore} → {res.stats?.[plan]?.unused ?? res.unusedBefore + res.codes.length}</span></span>
+              </div>
+              <LicExportBar codes={res.codes} plan={plan} pushToast={pushToast} />
+              <div className="mt-3 flex flex-col gap-1.5">
+                {res.codes.map((c, i) => (
+                  <div key={c} className="flex items-center justify-between gap-2 rounded-[12px] px-3 py-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)", animation: `lkUp .3s ease ${Math.min(i, 12) * 30}ms both` }}>
+                    <span className="font-mono text-[14px] font-bold tracking-wide">{lkFmt(c)}</span>
+                    <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: LK.soft, color: LK.a }}>Nouveau</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : step === "run" || step === "error" ? (
+            <div style={{ animation: "lkUp .3s ease both" }}>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mb-2" style={{ color: "#66707A" }}>Contrôles avant enregistrement</p>
+              {steps.map(([l], i) => {
+                const k = i + 1; const done = prog > k; const cur = prog === k && step === "run";
+                return (
+                  <div key={i} className="flex items-center gap-3 py-2.5 text-[14px]" style={{ opacity: done || cur ? 1 : 0.45, borderTop: i ? "1px solid var(--line)" : "none" }}>
+                    <span className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={done ? { background: "#E3F4EC", color: "#14684A" } : cur ? { background: LK.soft, color: LK.a } : { background: "var(--paper-dim)" }}>{done ? <Check size={15} strokeWidth={3} /> : cur ? <RefreshCw size={14} className="animate-spin" /> : <span className="text-[12px] font-bold">{k}</span>}</span>
+                    <span className="min-w-0 break-words">{l}</span>
+                  </div>
+                );
+              })}
+              {step === "error" && (
+                <div className="mt-3 rounded-[14px] p-3 text-[13px]" style={{ background: "#FCEBEB", color: "#8A2A2A", border: "1px solid #F4C7C7" }}>
+                  <b>Aucun code enregistré.</b> {err}
+                  <button onClick={() => setStep("form")} className="gb-focus w-full mt-2.5 min-h-[44px] rounded-[12px] text-[13.5px] font-bold" style={{ background: "#fff" }}>Revenir</button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mb-2" style={{ color: "#66707A" }}>Pack</p>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                {LK_PLANS.map((x) => {
+                  const on = plan === x.id;
+                  return (
+                    <button key={x.id} onClick={() => setPlan(x.id)} aria-pressed={on} className="gb-focus rounded-[13px] px-1.5 py-2 text-center" style={{ background: on ? LK.soft : "var(--card)", border: `1.5px solid ${on ? LK.b : "var(--line)"}`, color: on ? LK.a : "inherit" }}>
+                      <span className="block text-[13px] font-bold">{x.name}</span>
+                      <span className="block text-[11px] font-semibold opacity-70">{x.dur} · {stats?.[x.id]?.unused ?? "…"} dispo</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mt-4 mb-2" style={{ color: "#66707A" }}>Quantité</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[10, 50, 100, "custom"].map((q) => {
+                  const on = qty === q;
+                  return <button key={q} onClick={() => setQty(q)} aria-pressed={on} className="gb-focus min-h-[46px] rounded-[13px] text-[14px] font-bold" style={{ background: on ? LK.soft : "var(--card)", border: `1.5px solid ${on ? LK.b : "var(--line)"}`, color: on ? LK.a : "inherit" }}>{q === "custom" ? "Autre" : q}</button>;
+                })}
+              </div>
+              {qty === "custom" && <input inputMode="numeric" value={custom} onChange={(e) => setCustom(e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="Nombre de codes (1 à 500)" className="gb-focus w-full mt-2 min-h-[48px] px-3.5 rounded-[13px] outline-none text-[15px]" style={{ background: "var(--card)", border: `1.5px solid ${LK.line}` }} />}
+              <div className="mt-3 rounded-[14px] p-3 text-[12.5px] leading-snug" style={{ background: "#FFF6DD", border: "1px solid #F1D99A", color: "#7A5208" }}>
+                Il reste déjà <b>{unused} code{unused > 1 ? "s" : ""} « {p.name} » non utilisé{unused > 1 ? "s" : ""}</b> en base. Les nouveaux codes seront différents de <b>tous</b> les codes existants (utilisés ou non, tous packs confondus) et des codes supprimés.
+              </div>
+              {step === "confirm" ? (
+                <div className="mt-3 rounded-[16px] p-3.5" style={{ background: "var(--card)", border: `1.5px solid ${LK.b}`, animation: "lkUp .3s ease both" }}>
+                  <p className="text-[14px] font-bold">Il reste {unused} codes « {p.name} ». Voulez-vous vraiment en créer {n} de plus ?</p>
+                  <div className="grid grid-cols-2 gap-2 mt-3">
+                    <button onClick={() => setStep("form")} className="gb-focus min-h-[48px] rounded-[13px] text-[14px] font-bold" style={{ background: "var(--paper-dim)" }}>Non, annuler</button>
+                    <button onClick={run} className="gb-focus min-h-[48px] rounded-[13px] text-[14px] font-bold text-white" style={{ background: `linear-gradient(180deg, ${LK.b}, ${LK.a})` }}>Oui, créer</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={go} disabled={!n} className="gb-focus w-full mt-3 min-h-[54px] rounded-[16px] text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45 active:scale-[0.98] transition-transform" style={{ background: `linear-gradient(180deg, ${LK.b}, ${LK.a})`, boxShadow: "0 12px 24px -12px rgba(59,42,122,0.9)" }}>
+                  <Sparkles size={18} /> Générer {n || ""} code{n > 1 ? "s" : ""} « {p.name} »
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.querySelector(".gb-root") || document.body,
+  );
+}
+
+// Fenêtre de suppression (code PIN propriétaire ; mot SUPPRIMER si un code est en cours d'utilisation).
+function LicDeleteSheet({ ownerAccess, items, pushToast, onDone, onClose }) {
+  const [pin, setPin] = useState("");
+  const [word, setWord] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [shake, setShake] = useState(0);
+  const inUse = items.filter((x) => x.inUse);
+  const needWord = inUse.length > 0;
+  const plans = [...new Set(items.map((x) => lkPlan(x.plan).name))].join(", ");
+  const send = async (code) => {
+    if (needWord && word.trim().toUpperCase() !== "SUPPRIMER") { setErr("Tapez le mot SUPPRIMER pour confirmer."); setPin(""); setShake((s) => s + 1); return; }
+    setBusy(true); setErr("");
+    try {
+      const r = await api.ownerLicenseDelete({ email: ownerAccess.email, secret: ownerAccess.secret, codes: items.map((x) => x.code), pin: code, confirm: needWord ? "SUPPRIMER" : undefined });
+      pushToast?.(`${r.deleted} code${r.deleted > 1 ? "s" : ""} supprimé${r.deleted > 1 ? "s" : ""}`, "ok");
+      onDone?.(r);
+    } catch (e) {
+      const d = e?.data || {};
+      setErr(d.error === "PIN_SETUP_REQUIRED" ? "Créez d'abord votre code PIN dans l'onglet Sécurité." : d.error === "Code PIN incorrect" && Number.isFinite(d.attempts_left) ? `Code PIN incorrect · ${d.attempts_left} essai${d.attempts_left > 1 ? "s" : ""} restant${d.attempts_left > 1 ? "s" : ""}` : lkErr(e, "supprimer"));
+      setPin(""); setShake((s) => s + 1);
+    } finally { setBusy(false); }
+  };
+  const press = (d) => {
+    if (busy) return; setErr("");
+    if (d === "back") { setPin((p) => p.slice(0, -1)); return; }
+    setPin((p) => { if (p.length >= 4) return p; const n = p + d; if (n.length === 4) setTimeout(() => send(n), 120); return n; });
+  };
+  return createPortal(
+    <div className="fixed inset-0 z-[92] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(10,16,24,0.6)" }} onClick={() => !busy && onClose()}>
+      <style>{DEL_CSS}</style>
+      <div className="w-full sm:max-w-[460px] rounded-t-[28px] sm:rounded-[28px] overflow-y-auto gb-scroll gb-slide-up" style={{ background: "var(--paper, #F6F4EF)", color: "var(--ink, #16202A)", maxHeight: "calc(100dvh - max(16px, env(safe-area-inset-top)) - 8px)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="h-1.5" style={{ background: "linear-gradient(90deg,#8A2420,#E0573F,#F4A3A3)" }} />
+        <div className="px-5 pt-3" style={{ paddingBottom: "max(22px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+          <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "#E6E3DB" }} />
+          <div className="flex items-center gap-3">
+            <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: "#FCEBEB", color: "#B3261E" }}><Trash2 size={22} /></span>
+            <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px] leading-tight">Supprimer {items.length === 1 ? <>le code <span className="font-mono whitespace-nowrap">{lkFmt(items[0].code)}</span></> : `${items.length} codes`} ?</p><p className="text-[12.5px] opacity-65 break-words">{plans}</p></div>
+            <button onClick={onClose} disabled={busy} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+          </div>
+          {needWord ? (
+            <div className="mt-3 rounded-[13px] p-3 text-[12.5px]" style={{ background: "#FCEBEB", border: "1px solid #F4C7C7", color: "#8A2A2A" }}>
+              <b>⚠️ {inUse.length === 1 ? `Code en cours d'utilisation${inUse[0].shop ? ` par ${inUse[0].shop}` : ""}` : `${inUse.length} codes en cours d'utilisation`}.</b> La suppression retire le code de la base ; la licence en cours de l'entreprise continue jusqu'à sa date de fin. Pour l'arrêter, utilisez l'onglet Entreprises.
+              <input value={word} onChange={(e) => setWord(e.target.value)} placeholder="Tapez SUPPRIMER" autoCapitalize="characters" className="gb-focus w-full mt-2.5 min-h-[44px] px-3 rounded-[11px] outline-none text-[14px] font-bold tracking-wide" style={{ background: "#fff", border: "1.5px solid #F4C7C7", color: "#16202A" }} />
+            </div>
+          ) : (
+            <div className="mt-3 rounded-[13px] p-3 text-[12.5px]" style={{ background: "#FFF6DD", border: "1px solid #F1D99A", color: "#7A5208" }}>
+              {items.some((x) => x.expired) ? "Ces licences sont déjà terminées : les entreprises ne perdent rien de plus. " : "Ce code n'a jamais été utilisé. "}Les codes supprimés ne pourront plus être vérifiés.
+            </div>
+          )}
+          <div className="mt-2 rounded-[13px] p-3 text-[12px]" style={{ background: "#E3F2EF", border: "1px solid #BFE0D8", color: "#0B4A43" }}>🛡️ Ils restent mémorisés (empreinte secrète) pour ne <b>jamais</b> être régénérés : aucun doublon possible.</div>
+          <p className="text-center text-[13px] font-bold mt-4">Code PIN propriétaire</p>
+          <div key={shake} className="flex justify-center gap-3.5 mt-2.5" style={{ animation: shake ? "delShake .45s ease" : "none" }}>
+            {[0, 1, 2, 3].map((i) => <span key={i} className="w-[16px] h-[16px] rounded-full" style={{ background: i < pin.length ? "#B3261E" : "transparent", border: "2px solid #B3261E" }} />)}
+          </div>
+          <p className="text-center text-[12.5px] mt-2 min-h-[34px] font-semibold px-2" style={{ color: err ? "#B3261E" : "#66707A" }} role="alert">{busy ? "Suppression…" : err || "4 chiffres"}</p>
+          <div className="grid grid-cols-3 gap-2 max-w-[300px] w-full mx-auto">
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"].map((d, i) => d === "" ? <span key={i} /> : (
+              <button key={i} onClick={() => press(d)} disabled={busy} className="gb-focus h-[54px] rounded-[16px] text-[21px] font-bold flex items-center justify-center active:scale-[0.94] transition-transform disabled:opacity-50" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label={d === "back" ? "Effacer" : d}>{d === "back" ? <ArrowLeft size={20} /> : d}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.querySelector(".gb-root") || document.body,
+  );
+}
+
+function OwnerLicensesSection({ ownerAccess, pushToast, onOpenShop }) {
+  const [view, setView] = useState("stock"); // stock | verify | expired
+  const [stats, setStats] = useState(null);
+  const [checkedAt, setCheckedAt] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [gen, setGen] = useState(null); // plan initial de la fenêtre
+  const [lastBatch, setLastBatch] = useState(null);
+  const [q, setQ] = useState("");
+  const [look, setLook] = useState(null); // résultat de recherche
+  const [looking, setLooking] = useState(false);
+  const [recent, setRecent] = useState(() => { try { return JSON.parse(localStorage.getItem("gestione:licLookups")) || []; } catch { return []; } });
+  const [expired, setExpired] = useState(null);
+  const [sel, setSel] = useState(() => new Set());
+  const [del, setDel] = useState(null); // éléments à supprimer
+  const creds = { email: ownerAccess.email, secret: ownerAccess.secret };
+  const loadStats = async () => {
+    setLoading(true);
+    try { const r = await api.ownerLicenseStats(creds); setStats(r.stats); setCheckedAt(r.checkedAt); }
+    catch (e) { pushToast?.(lkErr(e, "charger le stock"), "error"); }
+    setLoading(false);
+  };
+  const loadExpired = async () => {
+    try { const r = await api.ownerLicenseExpired(creds); setExpired(r.expired || []); setSel(new Set((r.expired || []).map((x) => x.code))); }
+    catch (e) { pushToast?.(lkErr(e, "charger les codes expirés"), "error"); setExpired([]); }
+  };
+  useEffect(() => { loadStats(); loadExpired(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const totals = LK_PLANS.reduce((t, p) => { const s = stats?.[p.id] || { unused: 0, active: 0, expired: 0 }; return { unused: t.unused + s.unused, active: t.active + s.active, expired: t.expired + s.expired }; }, { unused: 0, active: 0, expired: 0 });
+  const remember = (code, state) => { const next = [{ code, state }, ...recent.filter((r) => r.code !== code)].slice(0, 6); setRecent(next); try { localStorage.setItem("gestione:licLookups", JSON.stringify(next)); } catch { /* ignore */ } };
+  const lookup = async (raw) => {
+    const code = String(raw ?? q).replace(/\D/g, "");
+    if (code.length !== 12) { pushToast?.("Le code doit contenir 12 chiffres", "error"); return; }
+    setLooking(true); setLook(null);
+    try {
+      const r = await api.ownerLicenseLookup({ ...creds, code });
+      setLook({ code, ...r });
+      setTimeout(() => document.getElementById("lk-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+      remember(code, !r.found ? (r.deleted ? "deleted" : "missing") : r.license.status === "unused" ? "free" : r.license.expired ? "expired" : "used");
+    } catch (e) { pushToast?.(lkErr(e, "vérifier le code"), "error"); }
+    setLooking(false);
+  };
+  const paste = async () => { try { const t = await navigator.clipboard.readText(); const d = String(t || "").replace(/\D/g, "").slice(0, 12); setQ(lkFmt(d)); if (d.length === 12) lookup(d); } catch { pushToast?.("Collage impossible : saisissez le code", "error"); } };
+  const afterDelete = (r) => {
+    setDel(null);
+    if (r?.stats) setStats(r.stats);
+    loadExpired();
+    if (look?.found && del?.some((x) => x.code === look.code)) { setLook({ code: look.code, found: false, deleted: true }); remember(look.code, "deleted"); }
+  };
+  const L = look?.license; const LP = L ? lkPlan(L.plan) : null;
+  const lookState = !look ? null : !look.found ? (look.deleted ? "deleted" : "missing") : L.status === "unused" ? "free" : L.expired ? "expired" : "used";
+  const daysLeft = L?.expires_at ? Math.ceil((new Date(L.expires_at) - Date.now()) / 864e5) : null;
+  const Row = ({ l, v, col }) => <div className="flex justify-between gap-3 px-3.5 py-2.5 text-[13px]" style={{ borderTop: "1px solid var(--line)" }}><span className="opacity-60 shrink-0">{l}</span><span className="font-bold text-right break-words min-w-0" style={col ? { color: col } : undefined}>{v}</span></div>;
+  const Head = ({ t }) => <div className="px-3.5 py-2 text-[10.5px] font-extrabold uppercase tracking-[0.1em]" style={{ color: "#66707A", background: "var(--paper-dim)", borderTop: "1px solid var(--line)" }}>{t}</div>;
+
+  return (
+    <div>
+      <style>{LK_CSS}</style>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {[["stock", "Stock", null], ["verify", "Vérifier un code", null], ["expired", "Expirés", expired ? expired.length : null]].map(([id, l, n]) => {
+          const on = view === id;
+          return <button key={id} onClick={() => setView(id)} aria-pressed={on} className="gb-focus h-10 px-4 rounded-full text-[13.5px] font-bold flex items-center gap-1.5" style={on ? { background: id === "expired" ? "#B3261E" : LK.a, color: "#fff" } : { background: "var(--paper-dim)" }}>{l}{n != null && <span className="text-[11.5px] px-1.5 rounded-full" style={{ background: on ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.07)" }}>{n}</span>}</button>;
+        })}
+      </div>
+
+      {view === "stock" && (
+        <div style={{ animation: "lkUp .3s ease both" }}>
+          <div className="rounded-[22px] p-4 mb-3 text-white relative overflow-hidden" style={{ background: `radial-gradient(120% 120% at 100% 0%, rgba(255,255,255,0.16), transparent 55%), linear-gradient(150deg, ${LK.a}, ${LK.b})` }}>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] opacity-80">Codes disponibles (non utilisés)</p>
+              <button onClick={loadStats} disabled={loading} className="gb-focus w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.16)" }} aria-label="Actualiser"><RefreshCw size={15} className={loading ? "animate-spin" : ""} /></button>
+            </div>
+            <p className="font-display font-bold text-[36px] leading-none mt-1">{stats ? totals.unused : "…"}</p>
+            <p className="text-[12.5px] mt-1.5 opacity-90">{totals.active} en cours · {totals.expired} expiré{totals.expired > 1 ? "s" : ""} · 0 doublon{checkedAt ? ` · vérifié à ${new Date(checkedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}</p>
+            {stats && totals.unused > 0 && (
+              <>
+                <div className="flex h-2.5 rounded-full overflow-hidden mt-3" style={{ transformOrigin: "left", animation: "lkBar .7s cubic-bezier(.2,.8,.2,1) both" }}>{LK_PLANS.map((p) => <span key={p.id} style={{ flex: stats[p.id]?.unused || 0, background: p.c }} />)}</div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11.5px] font-bold opacity-90">{LK_PLANS.map((p) => <span key={p.id} className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: p.c }} />{p.name}</span>)}</div>
+              </>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            {LK_PLANS.map((p, i) => {
+              const s = stats?.[p.id] || { unused: 0, active: 0, expired: 0 };
+              const low = stats && s.unused < LK_LOW;
+              const max = Math.max(100, ...LK_PLANS.map((x) => stats?.[x.id]?.unused || 0));
+              return (
+                <button key={p.id} onClick={() => setGen(p.id)} className="gb-focus w-full rounded-[18px] p-3 flex items-center gap-3 text-left" style={{ background: "var(--card)", border: `1px solid ${low ? "#F1D99A" : "var(--line)"}`, animation: `lkUp .35s ease ${i * 50}ms both` }}>
+                  <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0 font-display font-bold text-[13px]" style={{ background: p.bg, color: p.fg }}>{p.code}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center gap-1.5 flex-wrap"><span className="text-[14.5px] font-bold">{p.name}</span><span className="text-[12px] opacity-60">{p.dur}</span>{low && <span className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: "#FFF1D6", color: "#9A5B00" }}>Stock bas</span>}</span>
+                    <span className="block text-[11.5px] opacity-60 mt-0.5">{s.active} en cours · {s.expired} expiré{s.expired > 1 ? "s" : ""}</span>
+                    <span className="block h-1.5 rounded-full mt-1.5 overflow-hidden" style={{ background: "var(--paper-dim)" }}><span className="block h-full rounded-full" style={{ width: `${Math.min(100, (s.unused / max) * 100)}%`, background: low ? "#E8720C" : p.c, transformOrigin: "left", animation: "lkBar .8s cubic-bezier(.2,.8,.2,1) both" }} /></span>
+                  </span>
+                  <span className="text-right shrink-0"><span className="block font-display font-bold text-[20px] leading-none" style={{ color: low ? "#9A5B00" : "var(--ink)" }}>{stats ? s.unused : "…"}</span><span className="block text-[10.5px] font-bold opacity-55 mt-1">dispo</span></span>
+                </button>
+              );
+            })}
+          </div>
+          {lastBatch && (
+            <div className="mt-3 rounded-[18px] p-3.5" style={{ background: "var(--card)", border: `1.5px solid ${LK.line}` }}>
+              <p className="text-[13.5px] font-bold mb-2">Dernière génération : {lastBatch.codes.length} codes « {lkPlan(lastBatch.plan).name} »</p>
+              <LicExportBar codes={lastBatch.codes} plan={lastBatch.plan} pushToast={pushToast} />
+            </div>
+          )}
+          <button onClick={() => setGen("1m")} className="gb-focus sticky z-10 w-full mt-3 min-h-[54px] rounded-[16px] text-[15px] font-bold text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ bottom: "calc(env(safe-area-inset-bottom) + 100px)", background: `linear-gradient(180deg, ${LK.b}, ${LK.a})`, boxShadow: "0 12px 24px -12px rgba(59,42,122,0.9)" }}><Sparkles size={18} /> Générer des licences</button>
+        </div>
+      )}
+
+      {view === "verify" && (
+        <div style={{ animation: "lkUp .3s ease both" }}>
+          <div className="rounded-[20px] p-3.5 mb-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mb-2" style={{ color: "#66707A" }}>Vérifier un code</p>
+            <div className="flex gap-2">
+              <input value={q} onChange={(e) => setQ(lkFmt(e.target.value.replace(/\D/g, "").slice(0, 12)))} onKeyDown={(e) => { if (e.key === "Enter") lookup(); }} inputMode="numeric" placeholder="0000-0000-0000" aria-label="Code de licence" className="gb-focus flex-1 min-w-0 min-h-[52px] px-3.5 rounded-[14px] outline-none font-mono text-[18px] font-bold tracking-[0.06em]" style={{ background: "var(--paper)", border: `1.5px solid ${q.replace(/\D/g, "").length === 12 ? LK.b : "var(--line)"}` }} />
+              <button onClick={paste} className="gb-focus w-[52px] h-[52px] rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Coller"><ClipboardList size={18} /></button>
+            </div>
+            <p className="text-[11.5px] opacity-60 mt-1.5">12 chiffres · les tirets sont ajoutés tout seuls</p>
+            <button onClick={() => lookup()} disabled={looking || q.replace(/\D/g, "").length !== 12} className="gb-focus w-full mt-2.5 min-h-[50px] rounded-[14px] text-[14.5px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45" style={{ background: `linear-gradient(180deg, ${LK.b}, ${LK.a})` }}>{looking ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />} Rechercher dans la base</button>
+          </div>
+
+          {look && (
+            <div id="lk-result" style={{ animation: "lkUp .35s ease both", scrollMarginTop: "calc(max(22px, env(safe-area-inset-top)) + 130px)" }}>
+              {(lookState === "missing" || lookState === "deleted") ? (
+                <div className="rounded-[18px] p-4 mb-3" style={{ background: "#FCEBEB", border: "1px solid #F4C7C7", color: "#8A2A2A" }}>
+                  <p className="text-[15px] font-bold flex items-center gap-2"><X size={18} /> {lookState === "deleted" ? "Code supprimé" : "Code introuvable"}</p>
+                  <p className="text-[13px] mt-1"><span className="font-mono font-bold">{lkFmt(look.code)}</span> {lookState === "deleted" ? "a été supprimé de la base. Il ne pourra jamais être recréé." : "n'existe pas dans la base. Vérifiez les chiffres."}</p>
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-[20px] p-4 mb-2.5 text-white" style={{ background: `radial-gradient(120% 120% at 100% 0%, rgba(255,255,255,0.16), transparent 55%), linear-gradient(150deg, ${lookState === "used" ? "#0F5F57, #14806F" : lookState === "expired" ? "#8A2420, #B3261E" : `${LK.a}, ${LK.b}`})` }}>
+                    <div className="flex items-center justify-between gap-2"><span className="text-[11px] font-extrabold uppercase tracking-[0.12em] opacity-80">Code trouvé</span><span className="px-2.5 py-1 rounded-full text-[11.5px] font-bold" style={{ background: "#fff", color: lookState === "used" ? "#14684A" : lookState === "expired" ? "#B3261E" : LK.a }}>{lookState === "used" ? "● Utilisé" : lookState === "expired" ? "● Expiré" : "○ Libre"}</span></div>
+                    <p className="font-mono font-bold text-[23px] tracking-[0.05em] mt-1.5 break-words">{lkFmt(L.code)}</p>
+                    <p className="text-[13px] mt-0.5 opacity-90">Licence <b>{LP.name}</b> · {LP.dur}{lookState === "free" ? " · prêt à vendre" : ""}</p>
+                  </div>
+                  <div className="rounded-[18px] overflow-hidden mb-2.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                    <Head t="Licence" />
+                    <Row l="Type" v={`${LP.name} · ${LP.dur} (${LP.code})`} />
+                    <Row l="Créé le" v={lkDT(L.created_at)} />
+                    {L.price_paid != null && <Row l="Prix payé" v={formatMoney(L.price_paid, "XOF")} />}
+                    <Head t="Utilisation" />
+                    {lookState === "free" ? <Row l="Utilisation" v="Jamais utilisé" /> : (<>
+                      <Row l="Entreprise" v={look.shop?.name ? `${look.shop.name}${look.shop.type ? ` · ${ESTABLISHMENT_TYPES.find((t) => t.id === look.shop.type)?.label || look.shop.type}` : ""}` : "Non renseignée"} />
+                      <Row l="Activé le" v={lkDT(L.activated_at)} />
+                      <Row l="Expire le" v={L.plan === "lifetime" || !L.expires_at ? "Jamais (à vie)" : lkDT(L.expires_at)} />
+                      {L.expires_at && <Row l={daysLeft > 0 ? "Reste" : "Expiré depuis"} v={`${Math.abs(daysLeft)} jour${Math.abs(daysLeft) > 1 ? "s" : ""}`} col={daysLeft > 0 ? "#14684A" : "#B3261E"} />}
+                      {look.device && <Row l="Appareil" v={[look.device.model, look.device.id].filter(Boolean).join(" · ")} />}
+                    </>)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {look.shop?.name && lookState !== "free"
+                      ? <button onClick={() => onOpenShop?.(look.shop.name)} className="gb-focus min-h-[48px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#E8F0FB", color: "#1D5FA8" }}><Store size={16} /> Voir l'entreprise</button>
+                      : <button onClick={() => navigator.clipboard?.writeText(lkFmt(L.code)).then(() => pushToast?.("Code copié", "ok")).catch(() => {})} className="gb-focus min-h-[48px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "var(--card)", border: "1px solid var(--line)" }}><Copy size={16} /> Copier</button>}
+                    <button onClick={() => setDel([{ code: L.code, plan: L.plan, expired: lookState === "expired", inUse: lookState === "used", shop: look.shop?.name }])} className="gb-focus min-h-[48px] rounded-[14px] text-[13.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: "#FCEBEB", color: "#B3261E", border: "1px solid #F4C7C7" }}><Trash2 size={16} /> Supprimer ce code</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {recent.length > 0 && (
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] mb-2 px-1" style={{ color: "#66707A" }}>Dernières recherches</p>
+              <div className="flex flex-col gap-1.5">
+                {recent.map((r) => {
+                  const T = { used: ["Utilisé", "#E3F4EC", "#14684A"], free: ["Libre", LK.soft, LK.a], expired: ["Expiré", "#FCEBEB", "#B3261E"], missing: ["Introuvable", "#FCEBEB", "#B3261E"], deleted: ["Supprimé", "#ECEAE4", "#4A535D"] }[r.state] || ["", "", ""];
+                  return (
+                    <button key={r.code} onClick={() => { setQ(lkFmt(r.code)); lookup(r.code); }} className="gb-focus flex items-center justify-between gap-2 rounded-[12px] px-3 py-2.5 text-left" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+                      <span className="font-mono text-[14px] font-bold tracking-wide">{lkFmt(r.code)}</span>
+                      <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: T[1], color: T[2] }}>{T[0]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === "expired" && (
+        <div style={{ animation: "lkUp .3s ease both" }}>
+          <div className="rounded-[20px] p-4 mb-3 text-white" style={{ background: "linear-gradient(150deg,#8A2420,#B3261E)" }}>
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] opacity-80">Codes expirés</p>
+            <p className="font-display font-bold text-[32px] leading-none mt-1">{expired ? expired.length : "…"}</p>
+            {expired && expired.length > 0 && <p className="text-[12.5px] mt-1.5 opacity-90">Le plus ancien : expiré depuis {Math.max(1, Math.floor((Date.now() - new Date(expired[0].expires_at)) / 864e5))} jour{Math.floor((Date.now() - new Date(expired[0].expires_at)) / 864e5) > 1 ? "s" : ""}</p>}
+          </div>
+          {expired && expired.length === 0 && <div className="rounded-[18px] p-6 text-center text-[14px] font-semibold" style={{ background: "var(--card)", border: "1px dashed var(--line)" }}>Aucun code expiré dans la base.</div>}
+          {expired && expired.length > 0 && (
+            <>
+              <button onClick={() => setSel(sel.size === expired.length ? new Set() : new Set(expired.map((x) => x.code)))} className="gb-focus flex items-center gap-2 mb-2 px-1 text-[13px] font-bold">
+                <span className="w-6 h-6 rounded-[7px] flex items-center justify-center" style={sel.size === expired.length ? { background: "#B3261E" } : { border: "2px solid #C9CED6" }}>{sel.size === expired.length && <Check size={14} color="#fff" strokeWidth={3} />}</span>
+                Tout sélectionner ({expired.length})
+              </button>
+              <div className="flex flex-col gap-1.5">
+                {expired.map((x, i) => {
+                  const on = sel.has(x.code);
+                  const ago = Math.max(0, Math.floor((Date.now() - new Date(x.expires_at)) / 864e5));
+                  return (
+                    <button key={x.code} onClick={() => setSel((s) => { const n = new Set(s); if (n.has(x.code)) n.delete(x.code); else n.add(x.code); return n; })} aria-pressed={on} className="gb-focus flex items-center gap-3 rounded-[14px] px-3 py-2.5 text-left" style={{ background: on ? "#FFF5F4" : "var(--card)", border: `1px solid ${on ? "#F4C7C7" : "var(--line)"}`, animation: `lkUp .3s ease ${Math.min(i, 12) * 30}ms both` }}>
+                      <span className="w-6 h-6 rounded-[7px] flex items-center justify-center shrink-0" style={on ? { background: "#B3261E" } : { border: "2px solid #C9CED6" }}>{on && <Check size={14} color="#fff" strokeWidth={3} />}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-mono text-[14px] font-bold tracking-wide">{lkFmt(x.code)}</span>
+                        <span className="block text-[12px] opacity-65 break-words">{lkPlan(x.plan).name} · {x.shop || "Entreprise inconnue"} · expiré le {new Date(x.expires_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
+                      </span>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: "#FCEBEB", color: "#B3261E" }}>{ago} j</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button onClick={() => setDel(expired.filter((x) => sel.has(x.code)).map((x) => ({ code: x.code, plan: x.plan, expired: true, inUse: false, shop: x.shop })))} disabled={!sel.size} className="gb-focus sticky z-10 w-full mt-3 min-h-[54px] rounded-[16px] text-[15px] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45 active:scale-[0.98] transition-transform" style={{ bottom: "calc(env(safe-area-inset-bottom) + 100px)", background: "#B3261E", boxShadow: "0 12px 22px -12px rgba(179,38,30,0.9)" }}>
+                <Trash2 size={18} /> Supprimer {sel.size} code{sel.size > 1 ? "s" : ""} sélectionné{sel.size > 1 ? "s" : ""}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {gen && <LicGenerateSheet ownerAccess={ownerAccess} stats={stats} initialPlan={gen} pushToast={pushToast} onClose={() => setGen(null)} onDone={(r) => { if (r?.stats) setStats(r.stats); setCheckedAt(new Date().toISOString()); setLastBatch({ plan: r.plan, codes: r.codes }); }} />}
+      {del && <LicDeleteSheet ownerAccess={ownerAccess} items={del} pushToast={pushToast} onClose={() => setDel(null)} onDone={afterDelete} />}
+    </div>
+  );
+}
+
+// ---------- Espace propriétaire : sécurité ----------
+function OwnerChangePinSheet({ ownerAccess, pushToast, onClose }) {
+  const [has, setHas] = useState(null);
+  const [step, setStep] = useState("cur"); // cur | new | confirm
+  const [vals, setVals] = useState({ cur: "", new: "" });
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [shake, setShake] = useState(0);
+  useEffect(() => { api.ownerPinStatus({ email: ownerAccess.email, secret: ownerAccess.secret }).then((r) => { setHas(!!r?.hasPin); if (!r?.hasPin) setStep("new"); }).catch(() => setHas(true)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const fail = (m) => { setErr(m); setPin(""); setShake((s) => s + 1); };
+  const submit = async (code) => {
+    if (step === "cur") { setVals((v) => ({ ...v, cur: code })); setPin(""); setStep("new"); return; }
+    if (step === "new") { setVals((v) => ({ ...v, new: code })); setPin(""); setStep("confirm"); return; }
+    if (code !== vals.new) { setStep("new"); fail("Les deux codes ne correspondent pas. Recommencez."); return; }
+    setBusy(true);
+    try { await api.ownerSetPin({ email: ownerAccess.email, secret: ownerAccess.secret, pin: vals.cur, newPin: code }); pushToast?.(has ? "Code PIN modifié" : "Code PIN créé", "ok"); onClose(); }
+    catch (e) { const d = e?.data || {}; setStep(has ? "cur" : "new"); fail(d.error === "Code PIN incorrect" ? `Code PIN actuel incorrect${Number.isFinite(d.attempts_left) ? ` · ${d.attempts_left} essai${d.attempts_left > 1 ? "s" : ""} restant${d.attempts_left > 1 ? "s" : ""}` : ""}` : lkErr(e, "changer le code PIN")); }
+    finally { setBusy(false); }
+  };
+  const press = (d) => {
+    if (busy || has === null) return; setErr("");
+    if (d === "back") { setPin((p) => p.slice(0, -1)); return; }
+    setPin((p) => { if (p.length >= 4) return p; const n = p + d; if (n.length === 4) setTimeout(() => submit(n), 120); return n; });
+  };
+  const title = step === "cur" ? "Code PIN actuel" : step === "new" ? (has ? "Nouveau code PIN" : "Créez votre code PIN") : "Confirmez le code PIN";
+  return createPortal(
+    <div className="fixed inset-0 z-[92] flex items-end sm:items-center justify-center no-print" style={{ background: "rgba(10,16,24,0.6)" }} onClick={() => !busy && onClose()}>
+      <style>{DEL_CSS}</style>
+      <div className="w-full sm:max-w-[440px] rounded-t-[28px] sm:rounded-[28px] gb-slide-up overflow-y-auto gb-scroll" style={{ background: "var(--paper, #F6F4EF)", color: "var(--ink, #16202A)", maxHeight: "calc(100dvh - max(16px, env(safe-area-inset-top)) - 8px)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 pt-3" style={{ paddingBottom: "max(22px, calc(env(safe-area-inset-bottom) + 16px))" }}>
+          <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: "#E6E3DB" }} />
+          <div className="flex items-center gap-3">
+            <span className="w-12 h-12 rounded-[15px] flex items-center justify-center shrink-0" style={{ background: LK.soft, color: LK.a }}><Lock size={22} /></span>
+            <div className="flex-1 min-w-0"><p className="font-display font-bold text-[18px] leading-tight">{title}</p><p className="text-[12.5px] opacity-65">Jours bonus, suppression de licences</p></div>
+            <button onClick={onClose} className="gb-focus w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }} aria-label="Fermer"><X size={18} /></button>
+          </div>
+          <div key={shake} className="flex justify-center gap-3.5 mt-6" style={{ animation: shake ? "delShake .45s ease" : "none" }}>
+            {[0, 1, 2, 3].map((i) => <span key={i} className="w-[16px] h-[16px] rounded-full" style={{ background: i < pin.length ? LK.a : "transparent", border: `2px solid ${err ? "#B3261E" : LK.a}` }} />)}
+          </div>
+          <p className="text-center text-[12.5px] mt-3 min-h-[34px] font-semibold px-2" style={{ color: err ? "#B3261E" : "#66707A" }} role="alert">{busy ? "Enregistrement…" : err || "4 chiffres"}</p>
+          <div className="grid grid-cols-3 gap-2 max-w-[300px] w-full mx-auto">
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"].map((d, i) => d === "" ? <span key={i} /> : (
+              <button key={i} onClick={() => press(d)} disabled={busy} className="gb-focus h-[54px] rounded-[16px] text-[21px] font-bold flex items-center justify-center active:scale-[0.94] transition-transform" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label={d === "back" ? "Effacer" : d}>{d === "back" ? <ArrowLeft size={20} /> : d}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.querySelector(".gb-root") || document.body,
+  );
+}
+
+function OwnerSecuritySection({ ownerAccess, pushToast, onLock, onEditorLogout }) {
+  const [pinOpen, setPinOpen] = useState(false);
+  const items = [
+    { Ic: Lock, bg: LK.soft, fg: LK.a, t: "Code PIN propriétaire", s: "Demandé pour les jours bonus et la suppression de licences", a: "Changer", fn: () => setPinOpen(true) },
+    { Ic: Clock, bg: "#E3F4EC", fg: "#14684A", t: "Verrouillage automatique", s: "Après 5 minutes sans activité, ou dès que l'application passe en arrière-plan", a: null },
+    { Ic: ShieldCheck, bg: "#E8F0FB", fg: "#1D5FA8", t: "Identifiants jamais enregistrés", s: "E-mail, réponse secrète et mot de passe restent en mémoire le temps de la visite", a: null },
+  ];
+  return (
+    <div style={{ animation: "lkUp .3s ease both" }}>
+      <style>{LK_CSS}</style>
+      <div className="rounded-[20px] p-4 mb-3 text-white" style={{ background: "linear-gradient(150deg,#1F2A33,#34495A)" }}>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] opacity-70">Session propriétaire</p>
+        <p className="text-[16px] font-bold mt-1">Ouverte sur ce téléphone</p>
+        <button onClick={() => onLock?.("Page verrouillée")} className="gb-focus mt-3 min-h-[42px] px-4 rounded-[12px] text-[13.5px] font-bold flex items-center gap-1.5" style={{ background: "#F6B94D", color: "#3A2408" }}><Lock size={15} /> Verrouiller maintenant</button>
+      </div>
+      <EditorAccessCard ownerAccess={ownerAccess} pushToast={pushToast} onEditorLogout={onEditorLogout} />
+      <div className="flex flex-col gap-2">
+        {items.map(({ Ic, bg, fg, t, s, a, fn }, i) => (
+          <div key={t} className="rounded-[18px] p-3.5 flex items-center gap-3" style={{ background: "var(--card)", border: "1px solid var(--line)", animation: `lkUp .35s ease ${i * 60}ms both` }}>
+            <span className="w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: bg, color: fg }}><Ic size={19} /></span>
+            <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">{t}</span><span className="block text-[12px] opacity-65 mt-0.5">{s}</span></span>
+            {a && <button onClick={fn} className="gb-focus shrink-0 min-h-[40px] px-3.5 rounded-[12px] text-[13px] font-bold" style={{ background: "var(--paper-dim)" }}>{a}</button>}
+          </div>
+        ))}
+      </div>
+      {pinOpen && <OwnerChangePinSheet ownerAccess={ownerAccess} pushToast={pushToast} onClose={() => setPinOpen(false)} />}
+    </div>
+  );
+}
+
 function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReason, pushToast, ownerUnread = 0, onMessagesView, onEditorLogout }) {
   const [email, setEmail] = useState("");
   const [secret, setSecret] = useState("");
@@ -18047,14 +19221,14 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
   return (
     <div>
       <OwnerSessionBar onLock={onLockOwner} />
-      <EditorAccessCard ownerAccess={ownerAccess} pushToast={pushToast} onEditorLogout={onEditorLogout} />
-      <div role="tablist" aria-label="Espace propriétaire" className="grid grid-cols-2 gap-1 p-1 rounded-[18px] mb-3.5" style={{ background: "var(--paper-dim)" }}>
-        {[["shops", "Entreprises", (allShops || []).length, Store], ["messages", "Messages", msgStats.total, MessageCircle]].map(([id, l, n, Ic]) => {
+      <style>{`@keyframes ownTab{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}`}</style>
+      <div role="tablist" aria-label="Espace propriétaire" className="grid grid-cols-4 gap-1 p-1 rounded-[18px] mb-3.5" style={{ background: "var(--paper-dim)" }}>
+        {[["shops", "Entreprises", (allShops || []).length, Store], ["messages", "Messages", msgStats.total, MessageCircle], ["licences", "Licences", null, KeyRound], ["securite", "Sécurité", null, ShieldCheck]].map(([id, l, n, Ic]) => {
           const on = ownerTab === id;
           return (
-            <button key={id} role="tab" aria-selected={on} onClick={() => setOwnerTab(id)} className="gb-focus relative min-h-[50px] rounded-[14px] flex items-center justify-center gap-2 text-[14px] font-bold" style={on ? { background: "var(--card)", boxShadow: "0 2px 8px rgba(15,27,22,0.12)" } : { opacity: 0.7 }}>
-              <Ic size={17} />{l}
-              <span className="text-[11.5px] px-1.5 py-0.5 rounded-full" style={{ background: on ? "var(--paper-dim)" : "rgba(0,0,0,0.06)" }}>{n}</span>
+            <button key={id} role="tab" aria-selected={on} onClick={() => setOwnerTab(id)} className="gb-focus relative min-h-[62px] rounded-[14px] flex flex-col items-center justify-center gap-1 px-0.5 text-[12px] font-bold transition-all" style={on ? { background: "var(--card)", boxShadow: "0 2px 8px rgba(15,27,22,0.12)" } : { opacity: 0.7 }}>
+              <Ic size={18} /><span className="whitespace-nowrap">{l}</span>
+              {id === "shops" && n > 0 && <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: on ? "var(--paper-dim)" : "rgba(0,0,0,0.08)" }}>{n}</span>}
               {id === "messages" && Math.max(msgStats.unread, ownerUnread) > 0 && <span className="absolute top-1.5 right-2 min-w-[20px] h-5 px-1 rounded-full text-[10.5px] font-bold text-white flex items-center justify-center" style={{ background: "#22A35A", boxShadow: "0 0 0 2px var(--paper-dim)" }}>{Math.max(msgStats.unread, ownerUnread)}</span>}
             </button>
           );
@@ -18063,6 +19237,8 @@ function SubscriptionSection({ ownerAccess, onVerifyOwner, onLockOwner, lockReas
       <div className={ownerTab === "messages" ? "" : "hidden"}>
         <SupportInboxSection ownerAccess={ownerAccess} pushToast={pushToast} onStats={setMsgStats} shops={allShops || []} />
       </div>
+      {ownerTab === "licences" && <div style={{ animation: "ownTab .3s ease both" }}><OwnerLicensesSection ownerAccess={ownerAccess} pushToast={pushToast} onOpenShop={(name) => { setOwnerTab("shops"); setSearch(name); setStatusFilter("all"); }} /></div>}
+      {ownerTab === "securite" && <OwnerSecuritySection ownerAccess={ownerAccess} pushToast={pushToast} onLock={onLockOwner} onEditorLogout={onEditorLogout} />}
       <div className={ownerTab === "shops" ? "" : "hidden"}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-display font-bold text-base flex items-center gap-2"><CreditCard size={16} color="#185FA5" /> Parc d'entreprises</h3>
@@ -18322,6 +19498,7 @@ function notifMeta(n, fmtM) {
       if (lv <= 2) return T(AlertTriangle, "#B3261E", "#FCEBEA", "stock", `Stock critique : ${n.productName}`, `Il ne reste que ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""}. Rechargez le stock.`);
       return T(AlertTriangle, "#9A5B00", "#FFF1D6", "stock", `Stock bas : ${n.productName}`, `Il reste ${n.stock} ${n.unit}${n.stock > 1 ? "s" : ""}. Pensez à réapprovisionner.`);
     }
+    case "evening_report": return T(BarChart3, "#14684A", "#E3F4EA", "argent", "📊 Rapport du soir", n.text || "");
     case "charge_due": return T(CalendarCheck, n.late ? "#B3261E" : "#9A5B00", n.late ? "#FCEBEA" : "#FFF1D6", "argent", `${n.count > 1 ? `${n.count} dépenses à payer` : `À payer : ${n.first}`}`, `${n.lines || ""} · Admin › Actionnaires › Calcul du mois`);
     case "expiry_alert": return T(CalendarCheck, "#B3261E", "#FCEBEA", "stock", `Péremption : ${n.count} lot${n.count > 1 ? "s" : ""}`, `${n.expired ? `Dont ${n.expired} périmé${n.expired > 1 ? "s" : ""}` : "Expire(nt) sous 3 jours"} — ${n.first}${n.count > 1 ? "…" : ""} · Stock › Péremption`);
     case "stock_movement": return T(ClipboardCheck, "#1D5FA8", "#E8F0FB", "stock", "Comptage validé", `${n.count} écart${n.count > 1 ? "s" : ""} ajusté${n.count > 1 ? "s" : ""}`);
@@ -19308,7 +20485,7 @@ function AccountingSection({ shop, sales, expenses, avoirs, movements, products,
   );
 }
 
-function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, cashOpen = false, supportUnread = 0, ownerUnread = 0, onPick, onLegal, onClose, editorOn = false, onEditorReveal }) {
+function AdminMenu({ shop, shopCount = 1, section, license, licenseStatus, lowStockCount, cashOpen = false, supportUnread = 0, ownerUnread = 0, onPick, onLegal, onClose, editorOn = false, onEditorReveal }) {
   const [q, setQ] = useState("");
   const query = q.trim().toLowerCase();
   // Accès discret de l'éditeur : 7 appuis rapides sur le logo GestiOne.
@@ -19320,7 +20497,7 @@ function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, cashO
     r.at = t;
     if (r.n >= 7) { r.n = 0; onEditorReveal?.(); }
   };
-  const items = ADMIN_SECTIONS.filter((s) => s.id !== "abonnement").filter((s) => !s.profile || s.profile === shopProfile(shop)).filter((s) => !query || s.label.toLowerCase().includes(query) || (s.desc || "").toLowerCase().includes(query) || (s.group || "").toLowerCase().includes(query));
+  const items = ADMIN_SECTIONS.filter((s) => s.id !== "abonnement").filter((s) => !s.multi || shopCount > 1).filter((s) => !s.profile || s.profile === shopProfile(shop)).filter((s) => !query || s.label.toLowerCase().includes(query) || (s.desc || "").toLowerCase().includes(query) || (s.group || "").toLowerCase().includes(query));
   const groups = [];
   items.forEach((s) => { const g = s.group || ""; let last = groups[groups.length - 1]; if (!last || last.name !== g) { last = { name: g, items: [] }; groups.push(last); } last.items.push(s); });
   const daysLeft = license && !license.lifetime && license.expiresAt ? Math.ceil((new Date(license.expiresAt) - Date.now()) / MS_DAY) : null;
@@ -19393,6 +20570,144 @@ function AdminMenu({ shop, section, license, licenseStatus, lowStockCount, cashO
   );
 }
 
+// ---------- D18 · Toutes mes entreprises (tableau consolidé) ----------
+// Lit les ventes de chaque entreprise enregistrées sur ce téléphone (celles
+// reliées au serveur sont tenues à jour par la synchronisation).
+const MULTI_COLORS = ["#8A5A1E", "#1E8E50", "#2B63B8", "#7B4DDB", "#D9491F", "#0F8C8C"];
+function MultiShopSection({ shops = [], activeShopId, activeSales, onSwitchShop }) {
+  const fmt = useFmt();
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let off = false;
+    (async () => {
+      const out = {};
+      for (const s of shops) {
+        if (s.id === activeShopId) { out[s.id] = activeSales || []; continue; }
+        try { const r = await window.storage.get(`sales:${s.id}`); out[s.id] = JSON.parse(r.value) || []; } catch { out[s.id] = []; }
+      }
+      if (!off) setData(out);
+    })();
+    return () => { off = true; };
+  }, [shops.length, activeShopId, activeSales]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!data) return <SkeletonList rows={Math.max(2, shops.length)} />;
+  const t0 = startOfToday().getTime(); const y0 = t0 - 864e5;
+  const rows = shops.map((s, i) => {
+    const list = data[s.id] || [];
+    const today = list.filter((x) => new Date(x.date).getTime() >= t0);
+    const yest = list.filter((x) => { const d = new Date(x.date).getTime(); return d >= y0 && d < t0; });
+    const total = today.reduce((t, x) => t + (Number(x.total) || 0), 0);
+    const yTotal = yest.reduce((t, x) => t + (Number(x.total) || 0), 0);
+    const credit = today.filter((x) => x.paymentMethod === "credit" && !x.paid).reduce((t, x) => t + (Number(x.total) || 0), 0);
+    const days = Array.from({ length: 7 }, (_, k) => { const a = t0 - (6 - k) * 864e5; return list.filter((x) => { const d = new Date(x.date).getTime(); return d >= a && d < a + 864e5; }).reduce((t, x) => t + (Number(x.total) || 0), 0); });
+    return { s, color: MULTI_COLORS[i % MULTI_COLORS.length], total, count: today.length, credit, delta: yTotal > 0 ? Math.round(((total - yTotal) / yTotal) * 100) : null, days, synced: s.backendLinked };
+  });
+  const grand = rows.reduce((t, r) => t + r.total, 0);
+  const credits = rows.reduce((t, r) => t + r.credit, 0);
+  const tickets = rows.reduce((t, r) => t + r.count, 0);
+  const dayTotals = Array.from({ length: 7 }, (_, k) => rows.reduce((t, r) => t + r.days[k], 0));
+  const maxDay = Math.max(1, ...dayTotals);
+  const dayLetters = Array.from({ length: 7 }, (_, k) => new Date(t0 - (6 - k) * 864e5).toLocaleDateString("fr-FR", { weekday: "short" }).slice(0, 3));
+  const typeLabel = (t) => ESTABLISHMENT_TYPES.find((x) => x.id === t)?.label || t;
+  return (
+    <div style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
+      <div className="mb-3">
+        <h3 className="font-display font-bold text-[20px] leading-tight">Toutes mes entreprises</h3>
+        <p className="text-[12.5px] opacity-60">Aujourd'hui · {shops.length} entreprise{shops.length > 1 ? "s" : ""}</p>
+      </div>
+      <div className="rounded-[24px] p-4 mb-3 text-white" style={{ background: "radial-gradient(120% 90% at 100% 0%, rgba(242,193,78,0.4), transparent 55%), linear-gradient(150deg, #4A2E12, #6B451E)", boxShadow: "0 14px 30px -16px rgba(74,46,18,0.8)" }}>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] opacity-80">Chiffre d'affaires total</p>
+        <p className="font-display font-bold text-[30px] leading-tight mt-0.5">{fmt(grand)}</p>
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          {[["Ventes", String(tickets), "#fff"], ["Crédits du jour", fmt(credits), "#FFB4A8"], ["Entreprises", String(shops.length), "#FFD978"]].map(([l, v, c]) => (
+            <div key={l} className="rounded-[14px] px-2.5 py-2" style={{ background: "rgba(255,255,255,0.12)" }}><p className="text-[10.5px] font-bold opacity-80 whitespace-nowrap">{l}</p><p className="text-[14.5px] font-extrabold mt-0.5 break-words" style={{ color: c }}>{v}</p></div>
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        {rows.sort((a, b) => b.total - a.total).map((r) => (
+          <button key={r.s.id} onClick={() => r.s.id !== activeShopId && onSwitchShop?.(r.s.id)} className="gb-focus w-full rounded-[18px] p-3.5 flex items-center gap-3 text-left" style={{ background: "var(--card)", border: `1.5px solid ${r.s.id === activeShopId ? r.color : "var(--line)"}` }}>
+            <span className="w-11 h-11 rounded-[14px] flex items-center justify-center font-display font-bold text-[16px] shrink-0 text-white" style={{ background: r.color }}>{(r.s.name || "?").trim().charAt(0).toUpperCase()}</span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[15px] font-bold break-words">{r.s.name}</span>
+              <span className="block text-[12px] opacity-60">{typeLabel(r.s.type)} · {r.count} vente{r.count > 1 ? "s" : ""}{r.s.id === activeShopId ? " · ouverte" : ""}</span>
+            </span>
+            <span className="text-right shrink-0">
+              <span className="block text-[15px] font-extrabold whitespace-nowrap">{fmt(r.total)}</span>
+              {r.delta != null && <span className="block text-[12px] font-bold" style={{ color: r.delta >= 0 ? "#1E7A46" : "#B3261E" }}>{r.delta >= 0 ? "+" : ""}{r.delta} %</span>}
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="rounded-[20px] p-4 mt-3" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <p className="text-[14px] font-bold mb-3">7 derniers jours, par entreprise</p>
+        <div className="flex items-end gap-2" style={{ height: 140 }}>
+          {dayTotals.map((tot, k) => (
+            <div key={k} className="flex-1 h-full flex flex-col justify-end items-center gap-1">
+              <div className="w-full flex flex-col-reverse rounded-[8px] overflow-hidden" style={{ height: `${Math.max(2, (tot / maxDay) * 100)}%`, transformOrigin: "bottom", animation: `gbBarUp .7s cubic-bezier(.2,.8,.2,1) ${k * 60}ms both` }}>
+                {rows.map((r) => r.days[k] > 0 && <div key={r.s.id} style={{ height: `${(r.days[k] / Math.max(1, tot)) * 100}%`, background: r.color }} />)}
+              </div>
+              <span className="text-[10.5px] font-bold opacity-55">{dayLetters[k]}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3">
+          {rows.map((r) => <span key={r.s.id} className="flex items-center gap-1.5 text-[11.5px] font-bold"><span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: r.color }} />{r.s.name}</span>)}
+        </div>
+        <p className="text-[11px] opacity-55 mt-2">Chiffres des entreprises déjà ouvertes sur ce téléphone, mis à jour à chaque synchronisation.</p>
+      </div>
+    </div>
+  );
+}
+
+// ---------- D22 · Visite guidée ----------
+// Au premier lancement sur ce téléphone, chaque zone s'éclaire avec une
+// explication courte. Relançable depuis Assistance (« Revoir la visite »).
+const TOUR_KEY = "gestione:tourDone";
+const TOUR_STEPS = [
+  { sel: '[data-nav="sell"]', icon: "🛒", title: "Vendre", text: "Touchez un produit : il tombe dans le panier. Encaissez en espèces, Mobile Money ou à crédit." },
+  { sel: '[data-nav="stock"]', icon: "📦", title: "Le stock", text: "Ici, vous voyez les produits en rupture et vous enregistrez les livraisons." },
+  { sel: '[data-nav="credits"]', icon: "⚖️", title: "Crédits et avoirs", text: "Suivez ce que les clients vous doivent et les avoirs à rendre." },
+  { sel: '[data-nav="history"]', icon: "🕘", title: "Historique", text: "Toutes les ventes, avec le reçu, la facture et les retours." },
+  { sel: '[data-nav="admin"]', icon: "🛡️", title: "Administration", text: "Produits, équipe, dépenses, comptabilité, objectifs du jour et rapports." },
+  { sel: ".gb-sync-pill", icon: "☁️", title: "Synchronisation", text: "Vert : tout est enregistré sur le serveur. Bleu : envoi en cours. Orange : en attente d'envoi. Rouge : hors ligne, rien n'est perdu." },
+];
+function GuidedTour({ onDone }) {
+  const steps = TOUR_STEPS.filter((s) => { const el = document.querySelector(s.sel); return el && el.getBoundingClientRect().width > 0; });
+  const [i, setI] = useState(0);
+  const [rect, setRect] = useState(null);
+  const step = steps[i];
+  useEffect(() => {
+    if (!step) return undefined;
+    const upd = () => { const el = document.querySelector(step.sel); if (el) { const r = el.getBoundingClientRect(); setRect({ x: r.left, y: r.top, w: r.width, h: r.height }); } };
+    upd();
+    window.addEventListener("resize", upd);
+    const t = setInterval(upd, 400);
+    return () => { window.removeEventListener("resize", upd); clearInterval(t); };
+  }, [i, step?.sel]); // eslint-disable-line react-hooks/exhaustive-deps
+  const finish = () => { try { localStorage.setItem(TOUR_KEY, "1"); } catch { /* ignore */ } onDone?.(); };
+  if (!step) { finish(); return null; }
+  const pad = 6;
+  const r = rect || { x: -100, y: -100, w: 0, h: 0 };
+  const below = r.y < window.innerHeight / 2;
+  return createPortal(
+    <div className="fixed inset-0 z-[120] no-print" role="dialog" aria-label="Visite guidée">
+      <style>{`@keyframes gbTourRing{0%{box-shadow:0 0 0 0 rgba(242,193,78,.7),0 0 0 9999px rgba(10,16,24,.62)}70%{box-shadow:0 0 0 12px rgba(242,193,78,0),0 0 0 9999px rgba(10,16,24,.62)}100%{box-shadow:0 0 0 0 rgba(242,193,78,0),0 0 0 9999px rgba(10,16,24,.62)}}`}</style>
+      <div className="absolute rounded-[16px] pointer-events-none" style={{ left: r.x - pad, top: r.y - pad, width: r.w + pad * 2, height: r.h + pad * 2, border: "3px solid #F2C14E", transition: "all .35s cubic-bezier(.2,.8,.2,1)", animation: "gbTourRing 1.6s ease-out infinite" }} />
+      <div className="absolute left-3 right-3 mx-auto max-w-[420px] rounded-[22px] p-4 gb-slide-up" key={i} style={{ background: "#fff", color: "#16202A", boxShadow: "0 24px 50px -18px rgba(0,0,0,0.55)", ...(below ? { top: Math.min(window.innerHeight - 230, r.y + r.h + 18) } : { bottom: Math.max(16, window.innerHeight - r.y + 18) }) }}>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.1em]" style={{ color: "#B07A12" }}>Visite guidée · {i + 1} / {steps.length}</p>
+        <p className="font-display font-bold text-[18px] mt-1">{step.icon} {step.title}</p>
+        <p className="text-[14px] leading-snug mt-1" style={{ color: "#4A535D" }}>{step.text}</p>
+        <div className="flex items-center gap-3 mt-3.5">
+          <button onClick={finish} className="gb-focus text-[13.5px] font-bold px-1 py-2" style={{ color: "#66707A" }}>Passer</button>
+          <div className="flex-1 flex justify-center gap-1.5">{steps.map((_, k) => <span key={k} className="h-1.5 rounded-full transition-all" style={{ width: k === i ? 18 : 6, background: k === i ? "#4A2E12" : "#D6D1C6" }} />)}</div>
+          <button onClick={() => (i + 1 < steps.length ? setI(i + 1) : finish())} className="gb-focus min-h-[42px] px-4 rounded-[13px] text-[14px] font-bold text-white flex items-center gap-1" style={{ background: "#4A2E12" }}>{i + 1 < steps.length ? <>Suivant <ChevronRight size={16} /></> : "Terminer"}</button>
+        </div>
+      </div>
+    </div>,
+    document.querySelector(".gb-root") || document.body,
+  );
+}
+
 function AdminScreen({
   cashRegisterEntries, versements, activeCashSession, onRecordVersement, onUpdateVersement, onDeleteVersement, onUpdateCashSession,
   shop, saveShopMeta, shops, activeShopId, onSwitchShop, onCreateShop, onDeleteShop,
@@ -19440,9 +20755,12 @@ function AdminScreen({
         )}
       </div>
 
-      {menuOpen && (
+      {/* Menu rendu à la racine : il ne suit plus l'animation de changement de
+          page (qui le faisait « trembler » à l'ouverture). */}
+      {menuOpen && createPortal(
         <AdminMenu
           shop={shop}
+          shopCount={(shops || []).length}
           section={section}
           license={license}
           licenseStatus={licenseStatus}
@@ -19454,19 +20772,22 @@ function AdminScreen({
           onClose={() => setMenuOpen(false)}
           editorOn={editorOn}
           onEditorReveal={() => { setSection("abonnement"); onSectionChange?.("abonnement"); setMenuOpen(false); }}
-        />
+        />,
+        document.querySelector(".gb-root") || document.body,
       )}
       {legalDoc && <LegalScreen doc={legalDoc} onSwitch={() => setLegalDoc(legalDoc === "terms" ? "privacy" : "terms")} onClose={() => setLegalDoc(null)} />}
 
       {section === "etablissement" && <EstablishmentSection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
       {section === "securite" && <SecuritySection shop={shop} saveShopMeta={saveShopMeta} pushToast={pushToast} />}
+      {section === "majapp" && <OtaSection pushToast={pushToast} />}
       {section === "journal" && <ActivityLogSection shop={shop} auditLog={auditLog} pushToast={pushToast} />}
       {section === "abonnement" && <SubscriptionSection ownerAccess={ownerAccess} onVerifyOwner={(c) => { setEditorDevice(true); setEditorOn(true); onVerifyOwner(c); }} onLockOwner={onLockOwner} lockReason={ownerLockReason} pushToast={pushToast} ownerUnread={ownerUnread} onMessagesView={onOwnerMessagesView}
         onEditorLogout={() => { setEditorDevice(false); setEditorOn(false); onLockOwner?.(); try { localStorage.removeItem("owner_support_token"); } catch { /* ignore */ } setSection("stats"); onSectionChange?.("stats"); pushToast("Accès éditeur retiré de ce téléphone", "ok"); }} />}
       {section === "assistance" && <ShopSupportPage shop={shop} />}
       {section === "licence" && <LicenseSection license={license} licenseStatus={licenseStatus} onActivate={onActivateLicense} pushToast={pushToast} shopName={shop.name} />}
+      {section === "multi" && <MultiShopSection shops={shops} activeShopId={activeShopId} activeSales={sales} onSwitchShop={onSwitchShop} />}
       {section === "boutiques" && <BoutiquesSection shops={shops} activeShopId={activeShopId} onSwitchShop={onSwitchShop} onCreateShop={onCreateShop} onDeleteShop={onDeleteShop} pushToast={pushToast} />}
-      {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} pushToast={pushToast} onNavigate={(id) => { setSection(id); onSectionChange?.(id); }} />}
+      {section === "stats" && <StatsSection shop={shop} products={products} sales={sales} expenses={expenses} saveShopMeta={saveShopMeta} vendors={vendors} pushToast={pushToast} onNavigate={(id) => { setSection(id); onSectionChange?.(id); }} />}
       {section === "inventaire" && <InventorySection shop={shop} avoirs={avoirs || []} expenses={expenses} vendors={vendors} cashRegisterEntries={cashRegisterEntries} versements={versements} activeCashSession={activeCashSession} onRecordVersement={onRecordVersement} onUpdateVersement={onUpdateVersement} onDeleteVersement={onDeleteVersement} products={products} sales={sales} saveSales={saveSales} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} inventories={inventories} saveInventories={saveInventories} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "produits" && <ProductsSection key={jump?.edit ? `edit-${jump.n}` : "produits"} initialEdit={jump?.edit} requireAdmin={requireAdmin} products={products} saveProducts={saveProducts} categories={categories} movements={movements} saveMovements={saveMovements} author={shop?.adminDisplayName?.trim() || "Administrateur"} pushToast={pushToast} pushNotification={pushNotification} />}
       {section === "snack" && <SnackSection shop={shop} products={products} saveProducts={saveProducts} movements={movements} saveMovements={saveMovements} expenses={expenses} saveExpenses={saveExpenses} sales={sales} snackLots={snackLots} saveSnackLots={saveSnackLots} pushToast={pushToast} author={shop?.adminDisplayName?.trim() || "Administrateur"} />}
@@ -19526,6 +20847,13 @@ function ShopSupportPage({ shop }) {
           {[[Lock, "Conversation privée"], [HelpCircle, "Questions fréquentes"]].map(([Ic, t]) => <span key={t} className="text-[11.5px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5" style={{ background: "rgba(255,255,255,0.1)" }}><Ic size={12} />{t}</span>)}
         </div>
       </div>
+      {!["hotel", "cyber", "bar", "alu"].includes(shop?.type) && (
+        <button onClick={() => window.dispatchEvent(new Event("gb-tour"))} className="gb-focus w-full mb-3 min-h-[50px] rounded-[16px] px-4 flex items-center gap-3 text-left" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+          <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0 text-[17px]" style={{ background: "#FFF1D6" }}>🧭</span>
+          <span className="flex-1 min-w-0"><span className="block text-[14px] font-bold">Revoir la visite guidée</span><span className="block text-[11.5px] opacity-60">Découvrir chaque zone de l'application en 6 étapes</span></span>
+          <ChevronRight size={17} className="opacity-50 shrink-0" />
+        </button>
+      )}
       <SupportChatWidget shop={shop} inline onAgent={setAgent} />
     </div>
   );
@@ -21066,6 +22394,14 @@ function AppInner() {
   const [expenses, setExpenses] = useState(null);
   const [orders, setOrders] = useState(null);
   // Livraison fournisseur fraîchement réceptionnée → camion animé sur Vendre.
+  const [goalParty, setGoalParty] = useState(null);
+  // Mises à jour automatiques : l'application s'est affichée sans erreur →
+  // on le confirme (sinon le téléphone revient tout seul à la version
+  // précédente), puis on cherche une nouvelle version.
+  useEffect(() => { const t = setTimeout(() => { otaAppReady(); }, 1500); return () => clearTimeout(t); }, []);
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => { const f = () => { setView("sell"); setTimeout(() => setTourOpen(true), 350); }; window.addEventListener("gb-tour", f); return () => window.removeEventListener("gb-tour", f); }, []);
+  const [eveningReady, setEveningReady] = useState(null);
   const [delivery, setDelivery] = useState(null);
   // Tablette (≥ 768 px) et ordinateur (≥ 1180 px) : barre latérale, pleine largeur.
   const isTabletUp = useMediaQuery("(min-width: 768px)");
@@ -21090,6 +22426,10 @@ function AppInner() {
         }
         if (e.key.length === 1) { buf = now - last < 40 ? buf + e.key : e.key; last = now; }
       }
+      // Ctrl + P : réimprimer le reçu de la dernière vente.
+      if ((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P")) { e.preventDefault(); if (c.view !== "sell") c.setView("sell"); setTimeout(() => window.dispatchEvent(new CustomEvent("gb-key", { detail: "print" })), c.view !== "sell" ? 350 : 0); return; }
+      // Échap : referme le panier ou la fenêtre ouverte sur la page Vendre.
+      if (e.key === "Escape") { window.dispatchEvent(new CustomEvent("gb-key", { detail: "escape" })); return; }
       if (isField(e.target) && e.key !== "F2" && e.key !== "F4") return;
       if (e.key === "/" ) { e.preventDefault(); if (c.view !== "sell") c.setView("sell"); setTimeout(() => window.dispatchEvent(new CustomEvent("gb-key", { detail: "search" })), 60); return; }
       if (e.key === "F2") { e.preventDefault(); if (c.view !== "sell") c.setView("sell"); c.openCart(); return; }
@@ -21211,6 +22551,7 @@ function AppInner() {
   };
   useEffect(() => { if (view !== "admin") setActiveAdminSection("stats"); }, [view]);
   const [pendingSync, setPendingSync] = useState(0);
+  const [syncBusy, setSyncBusy] = useState(false); // envoi au serveur en cours (voyant bleu)
   const [license, setLicense] = useState(undefined); // undefined = chargement, null = jamais activée
   const [trialUsed, setTrialUsed] = useState(false);
   const [ownerAccess, setOwnerAccess] = useState(null); // null = non vérifié, string (email) = vérifié
@@ -22127,14 +23468,16 @@ function AppInner() {
 
   const trySync = (verbose) => {
     if (shop?.backendLinked) {
+      if (api.getPendingCount() > 0) setSyncBusy(true);
       api.flushSyncQueue(getLocalValueRef.current).then((result) => {
+        setSyncBusy(false);
         setPendingSync(api.getPendingCount());
         if (verbose) {
           if (result.lastError) pushToast(`Erreur de synchro : ${result.lastError}`, "error");
           else if (result.remaining === 0) pushToast("Synchronisation à jour ✓", "ok");
           else pushToast(`${result.synced} synchronisé(s), ${result.remaining} en attente`, "ok");
         }
-      }).catch((e) => { if (verbose) pushToast(`Erreur : ${e.message}`, "error"); });
+      }).catch((e) => { setSyncBusy(false); if (verbose) pushToast(`Erreur : ${e.message}`, "error"); });
     }
   };
 
@@ -22620,6 +23963,19 @@ function AppInner() {
     if (shop?.protectSensitive === false) { action(); return; }
     setAdminGuard({ label, action });
   };
+  // Empreinte / visage (Android) : remplace la saisie du code administrateur
+  // sur CE téléphone, si l'administrateur l'a activée dans Sécurité.
+  const bioAdminOn = !!(shop && bioEnabled(shop.id));
+  const handleAdminGuardBio = async () => {
+    if (!adminGuard) return;
+    const ok = await bioAuth(`Confirmer : ${adminGuard.label}`);
+    if (!ok) return;
+    const { action, label } = adminGuard;
+    setAdminGuard(null);
+    logAudit("securite", `Action autorisée par empreinte (administrateur) : ${label}`);
+    try { action(); } catch { /* ignore */ }
+  };
+  const handleUnlockBio = async () => { if (await bioAuth("Déverrouiller la session")) { logAudit("connexion", "Session déverrouillée par empreinte (administrateur)"); clearLock(); } };
   const handleAdminGuard = (pin) => {
     if (!adminGuard) return true;
     if (!verifyAdminPin(pin)) { pushToast("Code administrateur incorrect", "error"); logAudit("securite", `Code administrateur erroné · ${adminGuard.label}`); return false; }
@@ -23726,14 +25082,72 @@ function AppInner() {
     pushNotification({ type: "expiry_alert", count: urgent.length, expired: urgent.filter((x) => x.days < 0).length, first: urgent[0].product.name });
   }, [role, activeShopId, products]);
 
+  // D22 — Visite guidée au premier lancement (une fois par téléphone).
+  useEffect(() => {
+    if (!role || locked || !shop || ["hotel", "cyber", "bar", "alu"].includes(shop.type) || isNuit(shop)) return undefined;
+    try { if (localStorage.getItem(TOUR_KEY)) return undefined; } catch { return undefined; }
+    const t = setTimeout(() => setTourOpen(true), 1800);
+    return () => clearTimeout(t);
+  }, [role, locked, shop?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // D14 — Objectif du jour atteint (entreprise ou vendeur) : confettis +
+  // annonce vocale, une seule fois par jour et par objectif. Rien n'est
+  // déclenché au chargement : seulement quand une vente fait franchir le cap.
+  const goalPrevRef = useRef(null);
+  useEffect(() => {
+    if (!role || !activeShopId || !Array.isArray(sales) || !shop || ["hotel", "cyber", "bar", "alu"].includes(shop.type)) return;
+    const day = new Date().toDateString();
+    const total = todayRevenueOf(sales);
+    const per = Object.fromEntries(vendorStats(sales, startOfToday()).map((v) => [v.name, v.ca]));
+    const prev = goalPrevRef.current;
+    goalPrevRef.current = { shop: activeShopId, day, total, per };
+    if (!prev || prev.shop !== activeShopId || prev.day !== day) return;
+    const once = (k) => { const key = `goalHit:${activeShopId}:${day}:${k}`; try { if (localStorage.getItem(key)) return false; localStorage.setItem(key, "1"); } catch { /* ignore */ } return true; };
+    const money = (n) => formatMoney(Number(n) || 0, shop.currency);
+    const g = Number(shop.dayGoal) || 0;
+    if (g > 0 && prev.total < g && total >= g && once("shop")) {
+      setGoalParty({ at: Date.now(), title: "Objectif du jour atteint !", sub: `${money(g)} · bravo à toute l'équipe` });
+      speak(`Bravo ! Objectif du jour atteint : ${spokenAmount(money(g))}.`, voiceOn(shop, "sale"));
+      return;
+    }
+    for (const [name, goal] of Object.entries(shop.vendorDayGoals || {})) {
+      const n = Number(goal) || 0;
+      if (n > 0 && (prev.per[name] || 0) < n && (per[name] || 0) >= n && once(`v:${name}`)) {
+        setGoalParty({ at: Date.now(), title: `Bravo ${name} !`, sub: `Objectif du jour atteint · ${money(n)}` });
+        speak(`Bravo ${name}, objectif atteint !`, voiceOn(shop, "sale"));
+        break;
+      }
+    }
+  }, [sales, role, activeShopId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // D17 — Rapport automatique du soir (administrateur, à l'heure choisie).
+  useEffect(() => {
+    if (role !== "admin" || !activeShopId || !shop?.eveningReport?.enabled || ["hotel", "cyber", "bar", "alu"].includes(shop.type)) return;
+    const check = () => {
+      const now = new Date();
+      if (now.getHours() < (Number(shop.eveningReport.hour ?? 22))) return;
+      const key = `eveningReport:${activeShopId}:${now.toDateString()}`;
+      try { if (localStorage.getItem(key)) return; localStorage.setItem(key, "1"); } catch { /* ignore */ }
+      const d = eveningReportData(shop, sales, expenses, products);
+      const money = (n) => formatMoney(Number(n) || 0, shop.currency);
+      const body = `Ventes ${money(d.total)} · Caisse ${money(d.caisse)} · Crédits ${money(d.credit)}${d.out.length ? ` · ${d.out.length} produit${d.out.length > 1 ? "s" : ""} en rupture` : ""}`;
+      try { phoneNotify(`📊 Rapport du soir · ${shop.name}`, body, { type: "report" }); } catch { /* ignore */ }
+      pushNotification({ type: "evening_report", text: body });
+      setEveningReady({ at: Date.now(), text: eveningReportText(shop, d), body });
+    };
+    check();
+    const t = setInterval(check, 60000);
+    return () => clearInterval(t);
+  }, [role, activeShopId, shop?.eveningReport?.enabled, shop?.eveningReport?.hour, sales, expenses]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const lowStockCount = products ? products.filter((p) => !p.stockFrom && p.stock <= p.minStock).length : 0;
   const creditCount = sales ? sales.filter((s) => s.paymentMethod === "credit" && !s.paid).length : 0;
 
   if (!dataReady) {
     return (
-      <div className="gb-root min-h-screen flex items-center justify-center">
+      <div className="gb-root min-h-screen">
         <GlobalStyle />
-        <div className="w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: "var(--glass)", borderTopColor: "transparent" }} />
+        <AppSkeleton />
       </div>
     );
   }
@@ -23774,6 +25188,7 @@ function AppInner() {
               <LoginScreen shop={shop} shops={shops} activeShopId={activeShopId} onSwitchShop={handleSwitchShop} vendors={vendors} onLogin={(r, name) => { clearLock(); lastActivityRef.current = Date.now(); try { localStorage.setItem("lastActivityAt", String(Date.now())); } catch { /* ignore */ } logAudit("connexion", autoLoggedOutRef.current ? `Reconnexion de ${name} après déconnexion automatique${autoLoggedOutRef.current !== name ? ` (session précédente : ${autoLoggedOutRef.current})` : ""}` : `Connexion de ${name}`, { by: name, role: r }); autoLoggedOutRef.current = ""; try { localStorage.removeItem("autoLoggedOut"); } catch { /* ignore */ } setRole(r); setCurrentVendorName(name); setView(shop?.type === "hotel" || shop?.type === "cyber" ? "hotel" : isNuit(shop) ? "home" : "sell"); window.storage.set("sessionRole", JSON.stringify(r)).catch(() => {}); window.storage.set("sessionVendorName", JSON.stringify(name)).catch(() => {}); }} pushToast={pushToast} onGoHome={() => setHomeScreenActive(true)} notice={autoLoggedOutRef.current} />
             ) : shop.type === "hotel" || shop.type === "cyber" || shop.type === "bar" || shop.type === "alu" ? (
               <>
+                <Suspense fallback={<AppSkeleton kind={shop.type} />}>
                 {licenseStatus === "expired" ? (
                   <LicenseLockedScreen role={role} shopName={shop?.name} onActivate={handleActivateLicense} pushToast={pushToast} onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }} />
                 ) : shop.type === "bar" ? (
@@ -23866,6 +25281,7 @@ function AppInner() {
                     renderInvites={shop.backendLinked ? () => <VendorsSection shop={shop} sales={[]} vendors={vendors || []} saveVendors={saveVendors} pushToast={pushToast} adminPin={shop.adminPin} adminPinHash={shop.adminPinHash} backendLinked={shop.backendLinked} pushNotification={pushNotification} /> : null}
                   />
                 )}
+                </Suspense>
                 {hotelEditorOpen && (
                   <div className="fixed inset-0 z-[55] overflow-y-auto" style={{ background: "var(--paper)" }}>
                     <div className="fixed top-0 inset-x-0 z-10 pointer-events-none" style={{ height: "max(40px, env(safe-area-inset-top))", background: "linear-gradient(90deg, #0B1628 0%, #14294A 100%)" }} />
@@ -23889,10 +25305,11 @@ function AppInner() {
                   <LockScreen
                     userName={actorName()}
                     onUnlock={handleUnlock}
+                    onBio={role === "admin" && bioAdminOn ? handleUnlockBio : undefined}
                     onSwitchUser={() => { logAudit("connexion", `Changement d'utilisateur depuis l'écran verrouillé (${actorName()})`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); }}
                   />
                 )}
-                {adminGuard && <AdminCodeModal label={adminGuard.label} onSubmit={handleAdminGuard} onCancel={() => { setAdminGuard(null); pushToast("Action annulée", "error"); }} />}
+                {adminGuard && <AdminCodeModal label={adminGuard.label} onSubmit={handleAdminGuard} onBio={bioAdminOn ? handleAdminGuardBio : undefined} onCancel={() => { setAdminGuard(null); pushToast("Action annulée", "error"); }} />}
               </>
             ) : (
               <>
@@ -23901,13 +25318,23 @@ function AppInner() {
                     {nuit && <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "var(--cap)" }}><ShoppingCart size={18} color="#fff" /></span>}
                   <div className="min-w-0">
                     <p className="font-display font-bold text-base leading-none truncate">{shop.name}</p>
-                    <p className={`text-[11px] mt-0.5 flex items-center gap-1.5 ${nuit ? "opacity-70" : "opacity-50"}`}>
-                      {currentVendorName}
-                      {shop.backendLinked && pendingSync > 0 && (
-                        <button onClick={() => trySync(true)} className="gb-focus inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#E8720C", color: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }} title="Appuyer pour forcer la synchronisation">
-                          ⏳ {pendingSync}
-                        </button>
-                      )}
+                    <p className="text-[11px] mt-0.5 flex items-center gap-1.5 min-w-0">
+                      <span className={`truncate ${nuit ? "opacity-70" : "opacity-50"}`}>{currentVendorName}</span>
+                      {shop.backendLinked && (() => {
+                        // Voyant de synchronisation, 4 états : vert « À jour », bleu « Envoi… »
+                        // (en cours), orange « En attente · n », rouge « Hors ligne » (les
+                        // ventes restent enregistrées sur le téléphone).
+                        const st = !online ? { l: pendingSync > 0 ? `Hors ligne · ${pendingSync}` : "Hors ligne", bg: "#FCE4E2", fg: "#B3261E", dot: "#D93B30", pulse: false }
+                          : syncBusy && pendingSync > 0 ? { l: `Envoi… ${pendingSync}`, bg: "#E3EEFB", fg: "#1D5FA8", dot: "#2F7BD6", pulse: true }
+                          : pendingSync > 0 ? { l: `En attente · ${pendingSync}`, bg: "#FFEBD2", fg: "#9A4A00", dot: "#E8720C", pulse: false }
+                          : { l: "À jour", bg: "#E1F3E8", fg: "#14684A", dot: "#22A35A", pulse: false };
+                        return (
+                          <button onClick={() => trySync(true)} className="gb-focus gb-sync-pill inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap opacity-100" style={{ background: st.bg, color: st.fg }} title={online ? "Appuyer pour synchroniser maintenant" : "Hors connexion : les données partiront au retour du réseau"} aria-label={`Synchronisation : ${st.l}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${st.pulse ? "gb-pulse" : ""}`} style={{ background: st.dot }} />{st.l}
+                          </button>
+                        );
+                      })()}
+                      <OtaPill />
                     </p>
                   </div>
                   </div>
@@ -23958,7 +25385,7 @@ function AppInner() {
                     onLogout={() => { logAudit("connexion", `Déconnexion de ${actorName() || "l'utilisateur"}`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); setHomeScreenActive(true); }}
                   />
                 ) : (
-                  <>
+                  <div key={`view-${view}`} className={view === "admin" && adminMenuOpen ? "" : "gb-view-in"}>
                     {nuit && view === "home" && (
                       <HomeDashboard shop={shop} sales={sales} products={products} activeCashSession={activeCashSession} userName={actorName()} isAdmin={role === "admin"} onGo={setView} />
                     )}
@@ -24019,19 +25446,35 @@ function AppInner() {
                         dernier élément reste visible au-dessus de la barre de
                         navigation, de la bulle d'assistance et de la zone système. */}
                     {view !== "sell" && view !== "admin" && <div aria-hidden="true" className="gb-safe-bottom" style={{ height: "calc(120px + env(safe-area-inset-bottom))" }} />}
-                  </>
+                  </div>
                 )}
 
                 {role && locked && (
                   <LockScreen
                     userName={actorName()}
                     onUnlock={handleUnlock}
+                    onBio={role === "admin" && bioAdminOn ? handleUnlockBio : undefined}
                     onSwitchUser={() => { logAudit("connexion", `Changement d'utilisateur depuis l'écran verrouillé (${actorName()})`); clearLock(); setRole(null); setCurrentVendorName(""); setCart([]); setNotifications([]); setUnreadCount(0); setNotifPanelOpen(false); window.storage.delete("sessionRole").catch(() => {}); window.storage.delete("sessionVendorName").catch(() => {}); }}
                   />
                 )}
-                {adminGuard && <AdminCodeModal label={adminGuard.label} onSubmit={handleAdminGuard} onCancel={() => { setAdminGuard(null); pushToast("Action annulée", "error"); }} />}
+                {adminGuard && <AdminCodeModal label={adminGuard.label} onSubmit={handleAdminGuard} onBio={bioAdminOn ? handleAdminGuardBio : undefined} onCancel={() => { setAdminGuard(null); pushToast("Action annulée", "error"); }} />}
                 {heldPrintId && (heldSales || []).some((h) => h.id === heldPrintId) && <HeldReceiptModal held={heldSales.find((h) => h.id === heldPrintId)} products={products} shop={shop} printedBy={actorName()} onClose={() => setHeldPrintId(null)} pushToast={pushToast} />}
                 {delivery && role && !locked && licenseStatus !== "expired" && <DeliveryTruck key={delivery.key} delivery={delivery} onDone={() => setDelivery(null)} />}
+                {goalParty && <GoalCelebration data={goalParty} onClose={() => setGoalParty(null)} />}
+                {role && <OtaReadySheet cartCount={(cart || []).length} />}
+                {tourOpen && role && !locked && <GuidedTour onDone={() => setTourOpen(false)} />}
+                {eveningReady && role === "admin" && !locked && (
+                  <div className="fixed left-0 right-0 z-[96] flex justify-center px-3 no-print" style={{ top: "calc(max(12px, env(safe-area-inset-top)) + 6px)" }} role="alert">
+                    <div className="w-full max-w-[460px] rounded-[22px] p-3 text-white gb-slide-up" style={{ background: "linear-gradient(150deg,#0F5A44,#14684A 60%,#1E8E6A)", boxShadow: "0 18px 36px -14px rgba(10,60,45,0.7)" }}>
+                      <div className="flex items-start gap-3">
+                        <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0 text-[20px]" style={{ background: "rgba(255,255,255,0.16)" }}>📊</span>
+                        <div className="flex-1 min-w-0"><p className="text-[11px] font-bold uppercase tracking-[0.08em] opacity-80">Rapport du soir</p><p className="text-[13px] leading-snug mt-0.5 break-words" data-no-count>{eveningReady.body}</p></div>
+                        <button onClick={() => setEveningReady(null)} className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.14)" }} aria-label="Fermer"><X size={16} /></button>
+                      </div>
+                      <button onClick={() => { sendEveningReport(shop, eveningReady.text); setEveningReady(null); }} className="gb-focus w-full mt-2.5 min-h-[44px] rounded-[14px] text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: "#fff", color: "#0F5A44" }}><MessageCircle size={17} /> Envoyer sur WhatsApp</button>
+                    </div>
+                  </div>
+                )}
                 {licenseStatus !== "expired" && <ScrollTopBubble key={view} bottom={role === "admin" && view === "admin" && !ownerAccess && !adminMenuOpen && activeAdminSection !== "abonnement" && activeAdminSection !== "assistance" ? 168 : view === "sell" ? 156 : 92} />}
                 {licenseStatus !== "expired" && (
                 <div className="gb-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] sm:max-w-[600px] lg:max-w-[880px] xl:max-w-[1100px] px-3 pt-2 z-30 no-print" style={{ background: "linear-gradient(to top, var(--paper) 60%, transparent)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>

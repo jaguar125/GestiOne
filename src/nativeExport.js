@@ -61,6 +61,23 @@ export async function exportCsvFile(fileName, csvString) {
   URL.revokeObjectURL(url);
 }
 
+// Exporte un fichier texte (.txt), en UTF-8.
+export async function exportTextFile(fileName, text) {
+  if (await isNative()) {
+    await saveAndShare(fileName, text, false);
+    return;
+  }
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // Exporte un document jsPDF (l'objet retourné par `new jsPDF()`).
 export async function exportPdfDoc(fileName, doc) {
   if (await isNative()) {

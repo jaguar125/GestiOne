@@ -140,6 +140,22 @@ export async function ownerResetVendorPin({ email, secret, shopId, vendorId }) {
   return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "reset-vendor-pin", shop_id: shopId, vendor_id: vendorId });
 }
 // Code PIN du propriétaire de l'application (validation des jours bonus).
+// ---------- Licences (espace propriétaire) ----------
+export async function ownerLicenseStats({ email, secret }) {
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "license-stats" });
+}
+export async function ownerLicenseGenerate({ email, secret, plan, count }) {
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "license-generate", plan, count }, 60000);
+}
+export async function ownerLicenseLookup({ email, secret, code }) {
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "license-lookup", code });
+}
+export async function ownerLicenseExpired({ email, secret }) {
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "license-expired" });
+}
+export async function ownerLicenseDelete({ email, secret, codes, pin, confirm }) {
+  return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "license-delete", codes, pin, confirm });
+}
 export async function ownerPinStatus({ email, secret }) {
   return callFunction("owner-shops", { email, secret, password: ownerPassword, action: "pin-status" });
 }
