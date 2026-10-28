@@ -1,5 +1,12 @@
 {
   "appId": "com.gestione.app",
   "appName": "GestiOne",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "appReadyTimeout": 15000,
+      "resetWhenUpdate": true
+    }
+  }
 }

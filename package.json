@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/make-ota.mjs",
     "preview": "vite preview",
     "check": "node tools/check-syntax.mjs"
   },
@@ -22,6 +22,7 @@
     "@capacitor/share": "^8.0.0",
     "@capawesome/capacitor-badge": "^8.0.3",
     "@capgo/capacitor-speech-recognition": "^8.3.2",
+    "@capgo/capacitor-updater": "^8.0.0",
     "bcryptjs": "^2.4.3",
     "cordova-plugin-bluetooth-serial": "^0.4.7",
     "jsbarcode": "^3.12.3",
