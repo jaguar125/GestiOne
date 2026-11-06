@@ -3,6 +3,7 @@
 // dépenses, personnel, licence, commande de licence, nouvelle réservation.
 
 import { MomoPicker, DEFAULT_MOMO, momoOf } from "../MomoPicker.jsx";
+import { licenseSalesAllowed, payLinkFor, openPayLink, STORE_CODE_HINT } from "../licensePay.js";
 import { useMemo, useRef, useState } from "react";
 import { PaySheet } from "./HotelReceipts.jsx";
 import { H, Icon, Btn, Card, Label, GroupTitle, Segmented, Chip, Toggle, Stepper, TopBar, RoomBadge, Row, Field, inputStyle, Sheet, Empty } from "./HotelUI.jsx";
@@ -148,7 +149,7 @@ export function SettingsScreen({ ctx, go, license, licenseStatus }) {
       <Card className="px-3">
         <Row icon="money" tint={H.redSoft} ink={H.red} title="Dépenses" sub="Déduites de la recette du jour" value={`−${fmt(todayExp)}`} valueInk={H.red} onClick={() => go("expenses")} />
         <Row icon="users" tint="#E7EEFD" ink="#2457B8" title="Personnel & accès" sub="Réception, technicien de surface, blocage" onClick={() => go("staff")} />
-        <Row icon="key" tint={H.goldSoft} ink={H.goldDark} title="Licence" sub={license?.planId === "trial" ? "Essai gratuit de 14 jours" : "Durée, activation, commande"} value={licTxt} valueInk={H.goldDark} last onClick={() => go("licence")} />
+        <Row icon="key" tint={H.goldSoft} ink={H.goldDark} title="Licence" sub={license?.planId === "trial" ? "Essai gratuit de 14 jours" : "Durée et activation"} value={licTxt} valueInk={H.goldDark} last onClick={() => go("licence")} />
       </Card>
       <GroupTitle>HÔTEL</GroupTitle>
       <Card className="px-3">
@@ -380,8 +381,8 @@ export function RoomsConfigScreen({ ctx, onBack }) {
         <p className="text-[11.5px]" style={{ color: H.muted }}>Une seule (même numéro deux fois) ou une série d'un coup</p>
         <div className="mt-2.5"><Segmented small value={type} onChange={(x) => { setType(x); setFrom(null); setTo(null); }} options={[{ id: "vent", label: "Ventilée", color: ROOM_TYPES.vent.ink }, { id: "clim", label: "Climatisée", color: ROOM_TYPES.clim.ink }]} /></div>
         <div className="mt-2.5 grid grid-cols-2 gap-2">
-          <Field label="Du numéro"><Stepper value={f} onMinus={() => { setFrom(Math.max(1, f - 1)); setTo(t); }} onPlus={() => { setFrom(f + 1); setTo(Math.max(t, f + 1)); }} /></Field>
-          <Field label="Au numéro"><Stepper value={t} onMinus={() => { setFrom(f); setTo(Math.max(f, t - 1)); }} onPlus={() => { setFrom(f); setTo(t + 1); }} /></Field>
+          <Field label="Du numéro"><Stepper compact value={f} onMinus={() => { setFrom(Math.max(1, f - 1)); setTo(t); }} onPlus={() => { setFrom(f + 1); setTo(Math.max(t, f + 1)); }} /></Field>
+          <Field label="Au numéro"><Stepper compact value={t} onMinus={() => { setFrom(f); setTo(Math.max(f, t - 1)); }} onPlus={() => { setFrom(f); setTo(t + 1); }} /></Field>
         </div>
         <div className="mt-2.5 flex items-center gap-2.5">
           <p className="flex-1 text-[12px] font-semibold" style={{ color: H.ink2 }}>{preview.skipped.length ? `Déjà existantes : ${preview.skipped.join(", ")}. ` : ""}{preview.added.length ? `${preview.added.length} à ajouter : ${preview.added.map((r) => r.num).join(", ")}` : "Rien à ajouter"}</p>
@@ -616,7 +617,10 @@ export function StaffScreen({ ctx, onBack, staffApi, renderInvites }) {
 // ---------- Licence ----------
 export function LicenceScreen({ ctx, onBack, license, licenseStatus, onActivate, pricing = [], onOrder }) {
   const { fmt } = ctx;
-  const plans = pricing.filter((p) => p.price);
+  // Application Android (Play Store) : pas d'offres ni de prix, seulement l'activation.
+  const sales = licenseSalesAllowed();
+  const plans = sales ? pricing.filter((p) => p.price) : [];
+  const [paying, setPaying] = useState(null);
   const [sel, setSel] = useState(plans.find((p) => p.popular)?.id || plans[0]?.id);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -639,13 +643,14 @@ export function LicenceScreen({ ctx, onBack, license, licenseStatus, onActivate,
       </div>
       <Card className="mt-3 p-3.5">
         <p className="text-[14px] font-extrabold">Activer une licence</p>
-        <p className="text-[11.5px]" style={{ color: H.muted }}>Saisissez le code reçu après l'achat</p>
+        <p className="text-[11.5px]" style={{ color: H.muted }}>{sales ? "Saisissez le code reçu après votre paiement" : STORE_CODE_HINT}</p>
         <div className="mt-2.5 flex gap-2">
           <input aria-label="Code de licence" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Code de licence" style={{ ...inputStyle, fontFamily: "monospace", letterSpacing: 1.5 }} />
           <Btn kind="navy" onClick={activate} disabled={busy || !code.trim()}>{busy ? "…" : "Activer"}</Btn>
         </div>
       </Card>
-      <Label right={<span className="text-[11.5px]" style={{ color: H.muted }}>Mobile Money ou carte</span>}>Choisir une licence</Label>
+      {plans.length > 0 && (<>
+      <Label right={<span className="text-[11.5px]" style={{ color: H.muted }}>{payLinkFor(sel) ? "Paiement en ligne" : "Mobile Money ou carte"}</span>}>Choisir une licence</Label>
       <div className="flex flex-col gap-2">
         {plans.map((p) => { const on = p.id === sel; return (
           <button key={p.id} type="button" onClick={() => setSel(p.id)} aria-pressed={on} className="gb-focus rounded-[16px] min-h-[58px] px-3.5 flex items-center gap-3 text-left" style={{ background: on ? "#F0FBFE" : "#fff", border: on ? `2px solid ${H.gold}` : `1.5px solid ${H.line}` }}>
@@ -655,8 +660,16 @@ export function LicenceScreen({ ctx, onBack, license, licenseStatus, onActivate,
           </button>
         ); })}
       </div>
-      <Btn kind="gold" full className="mt-4 !min-h-[56px] !text-[16px]" onClick={() => onOrder(sel)} disabled={!cur}>Acheter une licence{cur ? ` · ${fmt(cur.price)}` : ""}</Btn>
-      <p className="mt-2 text-center text-[11px]" style={{ color: H.muted }}>La commande part dans l'assistance ; le code arrive après paiement.</p>
+      <Btn kind="gold" full className="mt-4 !min-h-[56px] !text-[16px]" onClick={() => { const url = payLinkFor(sel); if (url) { openPayLink(url); setPaying(cur); } else onOrder(sel); }} disabled={!cur}>{payLinkFor(sel) ? "Payer la licence" : "Acheter une licence"}{cur ? ` · ${fmt(cur.price)}` : ""}</Btn>
+      <p className="mt-2 text-center text-[11px]" style={{ color: H.muted }}>{payLinkFor(sel) ? "La page de paiement s'ouvre ; votre code arrive après la confirmation du paiement." : "La commande part dans l'assistance ; le code arrive après paiement."}</p>
+      {paying && (
+        <Card className="mt-3 p-3.5" style={{ background: "#F0FBFE", border: `1.5px solid ${H.gold}` }}>
+          <p className="text-[13.5px] font-extrabold">Paiement de la licence {paying.name} ouvert</p>
+          <p className="text-[12px] mt-0.5" style={{ color: H.muted }}>Une fois le paiement confirmé, saisissez votre code de licence dans « Activer une licence » ci-dessus.</p>
+          <button type="button" onClick={() => openPayLink(payLinkFor(paying.id))} className="gb-focus mt-1.5 text-[12.5px] font-extrabold" style={{ color: H.goldDark }}>Rouvrir la page de paiement</button>
+        </Card>
+      )}
+      </>)}
     </div>
   );
 }

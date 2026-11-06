@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { H, Icon, Btn, Card, TopBar, Toggle, GroupTitle } from "./HotelUI.jsx";
 import { releaseMessage, cleaningMessage, hotelCashForDay, isActiveStay, localDayKey, hmOf, dayLabel, DAY } from "./hotelLogic.js";
 import { exportBinaryFile } from "../nativeExport.js";
+import { licenseSalesAllowed } from "../licensePay.js";
 
 // Numéro d'assistance GestiOne (téléphone et WhatsApp), format international
 // sans « + ». Laisser vide pour masquer la ligne « Appeler · WhatsApp ».
@@ -75,7 +76,7 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
   const helpRows = [
     r("support", "Écrire à l'équipe GestiOne", "Messagerie · réponse rapide", "#E0F2FE", "#0369A1", "chat", pick(onSupport)),
     faq?.length ? r("faq", "Questions fréquentes", "Réservations, reçus, synchronisation…", "#EDF2F7", "#3B5B7A", "book", pick(() => go("faq"))) : null,
-    isOwner ? r("order", "Commander une licence", "Message pré-rempli · paiement Mobile Money", "#E0F7FB", "#0E7490", "cart", pick(() => go("order"))) : null,
+    isOwner && licenseSalesAllowed() ? r("order", "Commander une licence", "Message pré-rempli · paiement Mobile Money", "#E0F7FB", "#0E7490", "cart", pick(() => go("order"))) : null,
     GESTIONE_SUPPORT_PHONE ? r("call", "Appeler · WhatsApp", "Assistance du lundi au samedi", "#ECFDF3", "#15803D", "phone", () => { try { window.open(`https://wa.me/${GESTIONE_SUPPORT_PHONE}`, "_blank"); } catch { /* ignore */ } }) : null,
     onLegal ? r("legal", "Conditions et confidentialité", "Documents GestiOne", "#F1F5F9", "#475569", "shield", pick(() => onLegal("terms"))) : null,
   ].filter(Boolean);
@@ -123,7 +124,7 @@ export function HotelMenuDrawer({ ctx, tab, license, licenseStatus, onClose, onT
         r("announce", "Annonces des chambres", "Libération et ménage · écrite et vocale", "#ECF8F6", "#0B6B61", "speaker", pick(() => go("announce")), settings.releaseNotify || settings.releaseVoice ? "Oui" : "Non", settings.releaseNotify || settings.releaseVoice ? H.green : H.muted),
         syncRow,
         r("backup", "Sauvegarde & restauration", "Fichier de sauvegarde de l'hôtel", "#E0F2FE", "#0369A1", "save", pick(() => go("backup")), lastBackup ? ago(lastBackup.at, now) : "À faire", backupOld ? H.orange : H.green),
-        r("licence", "Licence", license?.planId === "trial" ? "Essai gratuit de 14 jours" : "Durée, activation, commande", H.goldSoft, H.goldDark, "key", pick(() => go("licence")), lic, H.goldDark),
+        r("licence", "Licence", license?.planId === "trial" ? "Essai gratuit de 14 jours" : "Durée et activation", H.goldSoft, H.goldDark, "key", pick(() => go("licence")), lic, H.goldDark),
       ] },
       { sub: "A", t: "Assistance", s: "Aide, messagerie et licence", icon: "help", rows: helpRows },
     ];

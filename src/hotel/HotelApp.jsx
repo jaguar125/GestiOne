@@ -491,7 +491,7 @@ export default function HotelApp(props) {
         </>
       )}
       <div aria-hidden="true" style={{ height: isTech ? "calc(40px + env(safe-area-inset-bottom))" : "calc(118px + env(safe-area-inset-bottom))" }} />
-      {!routed && !isTech && <BottomNav tab={tab} setTab={(t) => { setRoute(null); setTab(t); }} onMenu={() => setMenuOpen(true)} menuOpen={menuOpen} badges={{ rooms: stays.filter((s) => isActiveStay(s) && toMs(s.end) < now).length }} />}
+      {(!routed || route?.name === "stay") && !isTech && <BottomNav tab={routed ? "rooms" : tab} setTab={(t) => { setRoute(null); setTab(t); }} onMenu={() => setMenuOpen(true)} menuOpen={menuOpen} badges={{ rooms: stays.filter((s) => isActiveStay(s) && toMs(s.end) < now).length }} />}
       {menuOpen && (
         <HotelMenuDrawer ctx={ctx} tab={routed ? route?.name : tab} license={license} licenseStatus={licenseStatus} faq={faq}
           onClose={() => setMenuOpen(false)}
@@ -542,47 +542,129 @@ function BottomNav({ tab, setTab, onMenu, menuOpen, badges }) {
 }
 
 // ---------- Accueil ----------
+function Sec({ children, right }) {
+  return (
+    <div className="mt-5 mb-2 flex items-center justify-between gap-3 px-0.5">
+      <p className="text-[12px] font-extrabold tracking-[0.06em] uppercase min-w-0 truncate" style={{ color: H.muted }}>{children}</p>
+      {right}
+    </div>
+  );
+}
+function More({ onClick, children }) {
+  return <button type="button" onClick={onClick} className="gb-focus shrink-0 text-[12.5px] font-extrabold whitespace-nowrap" style={{ color: H.goldDark }}>{children}</button>;
+}
+
+// Courbe de la recette encaissée au fil de la journée (cumul heure par heure).
+function CashSpark({ ops, now }) {
+  const [d0] = dayBounds(now);
+  const hNow = Math.max(1, Math.min(24, Math.ceil((now - d0) / HOUR)));
+  const pts = [];
+  let acc = 0;
+  const sorted = [...ops].sort((a, b) => a.at - b.at);
+  let k = 0;
+  for (let h = 0; h <= hNow; h++) {
+    const lim = d0 + h * HOUR;
+    while (k < sorted.length && sorted[k].at <= lim) { acc += sorted[k].amount; k++; }
+    pts.push(acc);
+  }
+  while (k < sorted.length) { acc += sorted[k].amount; k++; }
+  pts[pts.length - 1] = acc;
+  const max = Math.max(1, ...pts);
+  const min = Math.min(0, ...pts);
+  const W = 300, Hh = 46;
+  const xy = pts.map((v, i) => [Math.round((i / Math.max(1, pts.length - 1)) * W), Math.round(Hh - 3 - ((v - min) / (max - min || 1)) * (Hh - 8))]);
+  const line = xy.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${Hh}`} preserveAspectRatio="none" className="block w-full mt-1.5" style={{ height: 46 }} aria-hidden="true">
+      <defs><linearGradient id="hcs" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#22D3EE" stopOpacity=".35" /><stop offset="1" stopColor="#22D3EE" stopOpacity="0" /></linearGradient></defs>
+      <path d={`${line} L${W} ${Hh} L0 ${Hh}Z`} fill="url(#hcs)" />
+      <path d={line} fill="none" stroke="#0891B2" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
 function HomeScreen({ ctx, openStay, goRooms, goCash, goRent }) {
-  const { shop, rooms, stays, reservations, now, fmt, expenses, isOwner, userName, sync } = ctx;
+  const { shop, rooms, stays, reservations, now, fmt, expenses, isOwner, userName, sync, actions } = ctx;
   const states = rooms.map((r) => roomState(r, ctx));
   const count = (k) => states.filter((s) => s.kind === k).length;
-  const occupied = count("occupee") + count("depassee");
+  const nOcc = count("occupee");
+  const nOver = count("depassee");
+  const nClean = count("menage");
+  const nFree = count("libre") + count("reservee");
+  const occupied = nOcc + nOver;
   const total = rooms.filter((r) => !r.outOfService).length || 0;
   const pct = total ? Math.round((occupied / total) * 100) : 0;
   const cash = hotelCashForDay({ stays, expenses, reservations, now });
+  const prev = hotelCashForDay({ stays, expenses, reservations, now: now - DAY });
+  const trend = prev.total > 0 ? Math.round(((cash.total - prev.total) / prev.total) * 100) : null;
   const active = stays.filter(isActiveStay).sort((a, b) => toMs(a.end) - toMs(b.end));
   const overdue = active.filter((s) => toMs(s.end) < now);
-  const upcoming = active.filter((s) => toMs(s.end) >= now).slice(0, 3);
+  const running = active.filter((s) => toMs(s.end) >= now);
+  const upcoming = running.slice(0, 3);
   const [d0, d1] = dayBounds(now);
   const todayResas = reservations.filter((r) => isLiveResa(r) && toMs(r.start) >= now - HOUR && toMs(r.start) < d1).sort((a, b) => toMs(a.start) - toMs(b.start));
+  const arrivals = stays.filter((s) => s.status !== "cancelled" && toMs(s.start) >= d0 && toMs(s.start) < d1).length;
+  const departures = running.filter((s) => toMs(s.end) < d1).length;
   const dateTxt = new Date(now).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+  const hour = new Date(now).getHours();
+  const hello = hour < 5 || hour >= 18 ? "Bonsoir" : "Bonjour";
+  const sec = new Date(now).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const who = userName || (isOwner ? "Propriétaire" : "Réception");
+  // Anneau d'occupation : une part par état (occupées, dépassées, ménage).
+  const t = Math.max(1, total);
+  const a1 = (nOcc / t) * 360, a2 = a1 + (nOver / t) * 360, a3 = a2 + (nClean / t) * 360;
+  const ring = `conic-gradient(#FB7185 0 ${a1}deg, #F59E0B ${a1}deg ${a2}deg, #A78BFA ${a2}deg ${a3}deg, rgba(255,255,255,0.10) ${a3}deg 360deg)`;
+  const types = Object.values(ROOM_TYPES).map((T) => {
+    const list = rooms.filter((r) => !r.outOfService && (r.type || "vent") === T.id);
+    const busy = list.filter((r) => { const k = roomState(r, ctx).kind; return k === "occupee" || k === "depassee"; }).length;
+    return { T, n: list.length, busy };
+  }).filter((x) => x.n > 0);
+  const cashTotal = Math.max(0, cash.cash) + Math.max(0, cash.momo);
+
   return (
     <div>
-      <div className="-mx-4 px-4 pt-3 pb-5 rounded-b-[32px] text-white" style={{ background: H.navy }}>
+      {/* ---------- En-tête ---------- */}
+      <div className="-mx-4 px-4 pt-3 pb-4 rounded-b-[30px] text-white" style={{ background: "radial-gradient(130% 90% at 100% 0%, rgba(34,211,238,0.26), transparent 55%), linear-gradient(160deg, #0A1730, #132A52)" }}>
         <div className="flex items-center gap-3">
-          <span className="w-[46px] h-[46px] rounded-[15px] flex items-center justify-center shrink-0" style={{ background: H.gold }}><Icon name="bed" size={24} color={H.navy} /></span>
+          <span className="w-[44px] h-[44px] rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#22D3EE,#0EA5E9)", boxShadow: "0 8px 18px -8px rgba(34,211,238,0.9)" }}><Icon name="bed" size={22} color={H.navy} stroke={2.3} /></span>
           <div className="flex-1 min-w-0">
-            <p className="text-[17px] font-extrabold truncate">{shop?.name || "Mon hôtel"}</p>
-            <p className="text-[12.5px] truncate" style={{ color: "#B8C4D6" }}>{dateTxt} · {hmOf(now)} · {userName || (isOwner ? "Propriétaire" : "Réception")}</p>
+            <p className="text-[17px] font-extrabold truncate">{hello} {who}</p>
+            <p className="text-[11.5px] flex flex-wrap gap-x-1" style={{ color: "#AEBBD2" }}>{shop?.name && <span className="whitespace-nowrap">{shop.name} ·</span>}<span className="whitespace-nowrap">{dateTxt} ·</span><b className="font-mono whitespace-nowrap" style={{ color: "#fff" }}>{sec}</b></p>
           </div>
-          {sync && <span className="shrink-0 text-[11px] font-extrabold px-2.5 py-1.5 rounded-[10px] flex items-center gap-1.5" style={{ background: "rgba(255,255,255,0.10)", color: sync.pending > 0 ? "#FCD34D" : "#9BF0CF" }}><Icon name="sync" size={13} />{sync.pending > 0 ? `${sync.pending} en attente` : "À jour"}</span>}
+          {sync && <span className="shrink-0 text-[11px] font-extrabold px-2.5 py-1.5 rounded-full flex items-center gap-1.5" style={{ background: sync.pending > 0 ? "rgba(252,211,77,0.14)" : "rgba(52,211,153,0.14)", border: `1px solid ${sync.pending > 0 ? "rgba(252,211,77,0.35)" : "rgba(110,231,183,0.3)"}`, color: sync.pending > 0 ? "#FCD34D" : "#6EE7B7" }}>{sync.pending > 0 ? <Icon name="sync" size={12} /> : <LiveDot />}{sync.pending > 0 ? `${sync.pending} en attente` : "À jour"}</span>}
         </div>
-        <button type="button" onClick={() => goRooms("plan")} className="gb-focus mt-4 w-full flex items-center gap-4 text-left">
-          <span className="rounded-full flex items-center justify-center shrink-0" style={{ width: 96, height: 96, background: `conic-gradient(${H.gold} 0 ${pct * 3.6}deg, rgba(255,255,255,0.12) 0)` }}>
-            <span className="rounded-full flex flex-col items-center justify-center" style={{ width: 78, height: 78, background: H.navy }}>
-              <span className="text-[23px] font-extrabold leading-none">{pct}%</span>
-              <span className="text-[10.5px] mt-1" style={{ color: "#B8C4D6" }}>occupation</span>
+
+        <div className="mt-3.5 flex items-center gap-3.5">
+          <button type="button" onClick={() => goRooms("plan")} aria-label={`Occupation ${pct} %, voir le plan`} className="gb-focus rounded-full flex items-center justify-center shrink-0 relative" style={{ width: "clamp(94px, 29vw, 112px)", aspectRatio: "1 / 1", background: ring, transition: "background .6s" }}>
+            <span className="rounded-full flex flex-col items-center justify-center" style={{ width: "calc(100% - 20px)", height: "calc(100% - 20px)", background: "#10244A" }}>
+              <span className="text-[26px] font-extrabold leading-none">{pct}%</span>
+              <span className="text-[10.5px] font-bold mt-1" style={{ color: "#9FB2CF" }}>occupation</span>
+              <span className="text-[10px] font-bold" style={{ color: "#67E8F9" }}>{occupied}/{total}</span>
             </span>
-          </span>
-          <span className="flex-1 grid grid-cols-2 gap-2">
-            {[["Libres", count("libre") + count("reservee"), "#34D399"], ["Occupées", occupied, "#F87171"], ["Dépassées", count("depassee"), "#FB923C"], ["Ménage", count("menage"), "#A78BFA"]].map(([l, n, c]) => (
-              <span key={l} className="rounded-[14px] px-2.5 py-2" style={{ background: "rgba(255,255,255,0.08)" }}>
-                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: c }} /><span className="text-[19px] font-extrabold">{n}</span></span>
-                <span className="block text-[11px]" style={{ color: "#C9D3E1" }}>{l}</span>
-              </span>
+          </button>
+          <div className="flex-1 min-w-0 grid grid-cols-2 gap-2">
+            {[
+              ["Libres", nFree, "#34D399", () => goRooms("plan"), null],
+              ["Occupées", occupied, "#FB7185", () => goRooms("encours"), null],
+              ["Dépassées", nOver, "#F59E0B", () => goRooms("encours"), nOver > 0],
+              ["Ménage", nClean, "#C084FC", () => goRooms("menage"), null],
+            ].map(([l, n, c, go, hot]) => (
+              <button key={l} type="button" onClick={go} className="gb-focus text-left rounded-[14px] px-2.5 py-2 min-w-0" style={{ background: hot ? "rgba(245,158,11,0.15)" : "rgba(255,255,255,0.07)", border: `1px solid ${hot ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.10)"}` }}>
+                <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shrink-0${hot ? " animate-pulse" : ""}`} style={{ background: c }} /><span className="text-[20px] font-extrabold leading-tight">{n}</span></span>
+                <span className="block text-[11px] font-bold whitespace-nowrap" style={{ color: hot ? "#FCD34D" : "#AEBBD2", letterSpacing: "-0.01em" }}>{l}</span>
+              </button>
             ))}
-          </span>
-        </button>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-4 gap-1.5">
+          {[["Arrivées", arrivals], ["Départs", departures], ["Réserv.", todayResas.length], ["Chambres", total]].map(([l, n]) => (
+            <span key={l} className="rounded-[12px] py-1.5 text-center min-w-0" style={{ background: "rgba(255,255,255,0.07)" }}>
+              <span className="block text-[14px] font-extrabold leading-tight">{n}</span>
+              <span className="block text-[10px] font-bold truncate px-1" style={{ color: "#AEBBD2" }}>{l}</span>
+            </span>
+          ))}
+        </div>
       </div>
 
       {rooms.length === 0 && (
@@ -591,49 +673,120 @@ function HomeScreen({ ctx, openStay, goRooms, goCash, goRent }) {
         </div>
       )}
 
-      <Card onClick={goCash} className="mt-3.5 px-4 py-3.5">
-        <div className="flex items-center justify-between"><span className="text-[12.5px] font-bold" style={{ color: H.muted }}>Recette nette du jour</span><Icon name="chev" size={16} color="#94A3B8" /></div>
-        <p className="text-[28px] font-extrabold tracking-tight mt-0.5">{fmt(cash.net)}</p>
-        <div className="mt-2.5 pt-2.5 grid grid-cols-3 gap-2" style={{ borderTop: `1px solid ${H.line}` }}>
-          <span><span className="block text-[11px]" style={{ color: H.muted }}>Encaissé · {cash.passages + cash.nuitees}</span><span className="block text-[14px] font-extrabold">{fmt(cash.total)}</span></span>
-          <span><span className="block text-[11px]" style={{ color: H.muted }}>Dépenses</span><span className="block text-[14px] font-extrabold" style={{ color: H.red }}>−{fmt(cash.expensesTotal)}</span></span>
-          <span><span className="block text-[11px]" style={{ color: H.muted }}>À encaisser</span><span className="block text-[14px] font-extrabold" style={{ color: H.orange }}>{fmt(cash.pendingTotal)}</span></span>
+      {/* ---------- Actions rapides ---------- */}
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {[
+          ["Louer", "plus", "#CFFAFE", "#0E7490", goRent],
+          ["Réserver", "cal", "#E0E7FF", "#4338CA", () => ctx.setRoute({ name: "newResa" })],
+          ["Ménage", "check", "#F3E8FF", "#7E22CE", () => goRooms("menage")],
+          ["Caisse", "wallet", "#DCFCE7", "#15803D", goCash],
+        ].map(([l, ic, bg, ink, go]) => (
+          <button key={l} type="button" onClick={go} className="gb-focus rounded-[16px] pt-2.5 pb-2 flex flex-col items-center gap-1 min-w-0 active:scale-[0.97] transition-transform" style={{ background: "#fff", boxShadow: "0 6px 14px -10px rgba(10,23,48,0.45)" }}>
+            <span className="w-[34px] h-[34px] rounded-[11px] flex items-center justify-center" style={{ background: bg }}><Icon name={ic} size={17} color={ink} stroke={2.4} /></span>
+            <span className="text-[11px] font-extrabold truncate max-w-full px-1" style={{ color: H.ink2 }}>{l}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ---------- Recette du jour ---------- */}
+      <Card onClick={goCash} className="mt-3 px-4 py-3.5">
+        <div className="flex items-center justify-between gap-2"><span className="text-[12.5px] font-extrabold" style={{ color: H.muted }}>Recette nette du jour</span><span className="text-[12px] font-extrabold flex items-center gap-0.5 shrink-0" style={{ color: H.goldDark }}>Détails<Icon name="chev" size={14} stroke={2.4} /></span></div>
+        <div className="flex items-baseline flex-wrap gap-x-2 gap-y-1 mt-0.5">
+          <p className="text-[28px] font-extrabold tracking-tight leading-tight" style={{ overflowWrap: "anywhere" }}>{fmt(cash.net)}</p>
+          {trend !== null && <span className="text-[11px] font-extrabold rounded-full px-2 py-0.5 whitespace-nowrap" style={{ background: trend >= 0 ? "#DCFCE7" : "#FEE2E2", color: trend >= 0 ? "#15803D" : "#B91C1C" }}>{trend >= 0 ? "▲" : "▼"} {Math.abs(trend)} % vs hier</span>}
+        </div>
+        <CashSpark ops={cash.operations} now={now} />
+        {cashTotal > 0 && (
+          <>
+            <div className="flex h-[7px] rounded-full overflow-hidden mt-2" style={{ background: H.line2 }}>
+              <span style={{ width: `${(Math.max(0, cash.cash) / cashTotal) * 100}%`, background: "#34D399" }} />
+              <span style={{ width: `${(Math.max(0, cash.momo) / cashTotal) * 100}%`, background: "#60A5FA" }} />
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] font-bold" style={{ color: H.muted }}>
+              <span className="flex items-center gap-1"><span className="w-[7px] h-[7px] rounded-full" style={{ background: "#34D399" }} />Espèces {fmt(cash.cash)}</span>
+              <span className="flex items-center gap-1"><span className="w-[7px] h-[7px] rounded-full" style={{ background: "#60A5FA" }} />Mobile {fmt(cash.momo)}</span>
+            </div>
+          </>
+        )}
+        <div className="mt-2.5 pt-2.5 grid grid-cols-3 gap-2" style={{ borderTop: `1px solid ${H.line2}` }}>
+          <span className="min-w-0"><span className="block text-[10.5px] font-bold truncate" style={{ color: H.muted }}>Encaissé · {cash.passages + cash.nuitees}</span><span className="block text-[13.5px] font-extrabold truncate">{fmt(cash.total)}</span></span>
+          <span className="min-w-0"><span className="block text-[10.5px] font-bold truncate" style={{ color: H.muted }}>Dépenses</span><span className="block text-[13.5px] font-extrabold truncate" style={{ color: H.red }}>−{fmt(cash.expensesTotal)}</span></span>
+          <span className="min-w-0"><span className="block text-[10.5px] font-bold truncate" style={{ color: H.muted }}>À encaisser</span><span className="block text-[13.5px] font-extrabold truncate" style={{ color: H.orange }}>{fmt(cash.pendingTotal)}</span></span>
         </div>
       </Card>
 
-      {overdue.map((s) => (
-        <div key={s.id} className="mt-3 flex items-center gap-3 rounded-[18px] px-3 py-2.5" style={{ background: "#FFF4E6", border: "1.5px solid #F7C58A" }}>
-          <span className="w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "#EA7A0C" }}><Icon name="clock" size={20} color="#fff" /></span>
-          <div className="flex-1 min-w-0">
-            <p className="text-[13.5px] font-extrabold truncate" style={{ color: "#7C2D12" }}>Chambre {s.roomNum} · temps dépassé</p>
-            <p className="text-[12px] truncate" style={{ color: "#9A3412" }}>{s.tariffName}{s.client ? ` · ${s.client}` : ""} · <span className="font-mono font-bold">{fmtClock(now - toMs(s.end)).replace(/^/, "+")}</span></p>
+      {/* ---------- À traiter maintenant ---------- */}
+      {overdue.length > 0 && (
+        <>
+          <Sec right={overdue.length > 3 ? <More onClick={() => goRooms("encours")}>Tout voir ›</More> : null}>À traiter maintenant · {overdue.length}</Sec>
+          <div className="flex flex-col gap-2">
+            {overdue.slice(0, 3).map((s) => (
+              <div key={s.id} className="rounded-[18px] px-3 py-2.5" style={{ background: "linear-gradient(90deg,#FFF7ED,#FFFBF5)", border: "1.5px solid #FED7AA" }}>
+                <button type="button" onClick={() => openStay(s)} className="gb-focus w-full flex items-center gap-3 text-left">
+                  <span className="w-10 h-10 rounded-[13px] flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#FB923C,#EA580C)", boxShadow: "0 6px 14px -6px rgba(234,88,12,0.7)" }}><Icon name="clock" size={19} color="#fff" stroke={2.3} /></span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13.5px] font-extrabold truncate" style={{ color: "#7C2D12" }}>Chambre {s.roomNum} · temps dépassé</span>
+                    <span className="block text-[11.5px] truncate" style={{ color: "#9A3412" }}>{s.tariffName}{s.client ? ` · ${s.client}` : ""}</span>
+                  </span>
+                  <span className="font-mono text-[14px] font-bold shrink-0" style={{ color: "#C2410C" }}>+{fmtClock(now - toMs(s.end)).replace("+", "")}</span>
+                </button>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => actions.extendStay(s, 1)} className="gb-focus min-h-[40px] rounded-[12px] text-[12.5px] font-extrabold" style={{ background: "#FFEDD5", color: "#9A3412" }}>Prolonger · +1 h</button>
+                  <button type="button" onClick={() => actions.releaseStay(s)} className="gb-focus min-h-[40px] rounded-[12px] text-[12.5px] font-extrabold text-white" style={{ background: H.navy }}>Libérer</button>
+                </div>
+              </div>
+            ))}
           </div>
-          <Btn kind="navy" onClick={() => openStay(s)} className="!min-h-[40px] !px-3.5 !text-[13px]">Gérer</Btn>
-        </div>
-      ))}
+        </>
+      )}
 
+      {/* ---------- Fins les plus proches ---------- */}
+      {rooms.length > 0 && (
+        <>
+          <Sec right={active.length ? <More onClick={() => goRooms("encours")}>Voir les {active.length} ›</More> : null}>Fins les plus proches</Sec>
+          {upcoming.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {upcoming.map((s) => <StayRow key={s.id} s={s} now={now} fmt={fmt} onClick={() => openStay(s)} />)}
+            </div>
+          ) : overdue.length > 0 ? (
+            <Card className="px-4 py-3"><p className="text-[12.5px] font-bold" style={{ color: H.muted }}>Toutes les chambres en cours ont dépassé leur temps : elles sont listées dans « À traiter maintenant ».</p></Card>
+          ) : (
+            <Empty icon="bed" title="Aucune chambre en cours" text="Louez une chambre avec le bouton « Louer »." action={<Btn kind="gold" icon="plus" onClick={goRent}>Louer une chambre</Btn>} />
+          )}
+        </>
+      )}
+
+      {/* ---------- Arrivées réservées ---------- */}
       {todayResas.length > 0 && (
         <>
-          <Label right={<button type="button" onClick={() => goRooms("resa")} className="gb-focus text-[12.5px] font-extrabold" style={{ color: H.goldDark }}>Voir ›</button>}>Réservations du jour</Label>
+          <Sec right={<More onClick={() => goRooms("resa")}>Réservations ›</More>}>Arrivées prévues aujourd'hui</Sec>
           <Card className="px-3">
             {todayResas.slice(0, 3).map((r, i, a) => (
               <div key={r.id} className="flex items-center gap-3 py-2.5" style={{ borderBottom: i === a.length - 1 ? "none" : `1px solid ${H.line2}` }}>
                 <span className="w-[54px] text-center rounded-[12px] py-1.5 shrink-0" style={{ background: H.indigoSoft, color: "#3730A3" }}><span className="block text-[15px] font-extrabold">{hmOf(toMs(r.start))}</span></span>
-                <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold truncate">{r.client || "Client"}</span><span className="block text-[11.5px] truncate" style={{ color: H.muted }}>Ch. {r.roomNum} · {r.tariffName}</span></span>
-                <span className="text-[11.5px] font-extrabold shrink-0" style={{ color: "#3730A3" }}>{fmtShort(toMs(r.start) - now).replace("+", "")}</span>
+                <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-extrabold truncate">{r.client || "Client"}</span><span className="block text-[11.5px] truncate" style={{ color: H.muted }}>Ch. {r.roomNum} · {r.tariffName}{Number(r.deposit) > 0 ? ` · acompte ${fmt(r.deposit)}` : ""}</span></span>
+                <span className="text-[11.5px] font-extrabold shrink-0" style={{ color: "#3730A3" }}>{toMs(r.start) > now ? `dans ${fmtShort(toMs(r.start) - now).replace("+", "")}` : "maintenant"}</span>
               </div>
             ))}
           </Card>
         </>
       )}
 
-      <Label right={active.length ? <button type="button" onClick={() => goRooms("encours")} className="gb-focus text-[12.5px] font-extrabold" style={{ color: H.goldDark }}>Voir les {active.length} ›</button> : null}>Fins les plus proches</Label>
-      {upcoming.length === 0 ? (
-        rooms.length > 0 && <Empty icon="bed" title="Aucune chambre en cours" text="Louez une chambre avec le bouton doré « Louer »." action={<Btn kind="gold" icon="plus" onClick={goRent}>Louer une chambre</Btn>} />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {upcoming.map((s) => <StayRow key={s.id} s={s} now={now} fmt={fmt} onClick={() => openStay(s)} />)}
-        </div>
+      {/* ---------- Occupation par type ---------- */}
+      {types.length > 0 && (
+        <>
+          <Sec>Occupation par type</Sec>
+          <Card className="px-4 py-3 flex flex-col gap-2.5">
+            {types.map(({ T, n, busy }) => (
+              <div key={T.id} className="flex items-center gap-2.5">
+                <span className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center shrink-0" style={{ background: T.tint }}><Icon name={T.id === "clim" ? "snow" : "fan"} size={15} color={T.ink} stroke={2.3} /></span>
+                <span className="text-[12.5px] font-extrabold w-[78px] shrink-0 truncate">{T.label}</span>
+                <span className="flex-1 h-[8px] rounded-full overflow-hidden" style={{ background: H.line2 }}><span className="block h-full rounded-full" style={{ width: `${n ? Math.max(busy ? 4 : 0, (busy / n) * 100) : 0}%`, background: T.ink, transition: "width .6s" }} /></span>
+                <span className="text-[12px] font-extrabold shrink-0 w-[44px] text-right" style={{ color: T.ink }}>{busy}/{n}</span>
+              </div>
+            ))}
+          </Card>
+        </>
       )}
     </div>
   );
@@ -807,10 +960,31 @@ function RoomsScreen({ ctx, tab, setTab, openStay, rentRoom, newResa }) {
     window.addEventListener("scroll", on, { passive: true });
     return () => window.removeEventListener("scroll", on);
   }, []);
+  // Anti-tremblement : quand l'en-tête se resserre, une cale invisible garde la
+  // même hauteur totale dans la page. Sans elle, la page « remontait » d'un coup,
+  // le navigateur corrigeait le défilement, l'en-tête se rouvrait… en boucle.
+  const headRef = useRef(null);
+  const fullH = useRef(0);
+  const [headH, setHeadH] = useState(0);
+  useEffect(() => {
+    const el = headRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => setHeadH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isTech, premium, tab]);
+  useEffect(() => {
+    // Le navigateur ne doit pas « corriger » le défilement quand l'en-tête change de taille.
+    const html = document.documentElement; const prev = html.style.overflowAnchor;
+    html.style.overflowAnchor = "none";
+    return () => { html.style.overflowAnchor = prev; };
+  }, []);
+  if (!compact && headH) fullH.current = headH;
+  const shim = compact && fullH.current > headH ? fullH.current - headH : 0;
   return (
     <div>
       {!isTech && (
-        <div className="sticky z-30 -mx-4 px-4 pb-2.5" style={{ top: STATUS_H, background: "#EEF2F8", boxShadow: compact ? "0 10px 16px -14px rgba(10,23,48,0.45)" : "none" }}>
+        <div ref={headRef} className="sticky z-30 -mx-4 px-4 pb-2.5" style={{ top: STATUS_H, background: "#EEF2F8", boxShadow: compact ? "0 10px 16px -14px rgba(10,23,48,0.45)" : "none" }}>
           <div className="pt-1.5" />
           {premium ? (tab === "plan" ? <PlanHero ctx={ctx} compact={compact} /> : <EnCoursHero ctx={ctx} compact={compact} />) : (
             <TopBar title="Chambres" sub={`${rooms.length} chambre${rooms.length > 1 ? "s" : ""} · mise à jour en direct`}
@@ -819,6 +993,7 @@ function RoomsScreen({ ctx, tab, setTab, openStay, rentRoom, newResa }) {
           <RoomsTabs tab={tab} setTab={setTab} compact={compact} />
         </div>
       )}
+      {!isTech && <div aria-hidden="true" style={{ height: shim }} />}
       {/* Compteurs et filtres : ils défilent avec la liste (seul l'en-tête reste fixe). */}
       {!isTech && tab === "plan" && rooms.length > 0 && <PlanStickyBar ctx={ctx} filter={planFilter} setFilter={setPlanFilter} compact={false} />}
       {!isTech && tab === "encours" && <EnCoursChips ctx={ctx} f={encFilter} setF={setEncFilter} />}
@@ -1450,7 +1625,7 @@ function RentScreen({ ctx, preset, onStarted, onReserve, onNeedGuest }) {
               <button key={t.id} type="button" onClick={() => { setTariffId(t.id); setRoomId(null); }} aria-pressed={on} className="gb-focus relative rounded-[18px] text-left px-3 py-2.5 flex flex-col" style={{ minHeight: 88, background: on ? roomTypeOf(type).soft : "#fff", border: on ? `2px solid ${H.navy}` : `1.5px solid ${H.line}` }}>
                 <span className="text-[14px] font-extrabold pr-6">{t.name}</span>
                 <span className="text-[11.5px]" style={{ color: H.muted }}>{isNight(t) ? `jusqu'à demain ${settings.checkoutTime}` : `${t.hours} heure${t.hours > 1 ? "s" : ""}`}</span>
-                <span className="mt-auto flex items-center gap-1.5"><span className="text-[17px] font-extrabold" style={{ color: roomTypeOf(type).ink }}>{fmt(Number(t.price) || 0)}</span>{promo && <span className="text-[10px] font-extrabold rounded-[6px] px-1.5 py-0.5" style={{ background: H.greenSoft, color: H.green }}>PROMO</span>}</span>
+                <span className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-1"><span className="text-[17px] font-extrabold whitespace-nowrap" style={{ color: roomTypeOf(type).ink }}>{fmt(Number(t.price) || 0)}</span>{promo && <span className="text-[10px] font-extrabold rounded-[6px] px-1.5 py-0.5" style={{ background: H.greenSoft, color: H.green }}>PROMO</span>}</span>
                 {on && <span className="absolute top-2.5 right-2.5 w-[22px] h-[22px] rounded-full flex items-center justify-center" style={{ background: H.navy }}><Icon name="check" size={13} color="#fff" stroke={3} /></span>}
               </button>
             );
@@ -1459,8 +1634,20 @@ function RentScreen({ ctx, preset, onStarted, onReserve, onNeedGuest }) {
       )}
       <Label right={<span className="text-[12px]" style={{ color: H.muted }}>{free.length} disponible{free.length > 1 ? "s" : ""}</span>}>Chambre libre</Label>
       {free.length === 0 ? <p className="text-[12.5px] px-1" style={{ color: H.orange }}>Aucune chambre {roomTypeOf(type).label.toLowerCase()} libre pour ce forfait (occupée, au ménage ou réservée).</p> : (
-        <div className="flex gap-2 flex-wrap">
-          {free.map((r) => { const on = room && r.id === room.id; return <button key={r.id} type="button" onClick={() => setRoomId(r.id)} aria-pressed={on} className="gb-focus rounded-[13px] text-[14.5px] font-extrabold" style={{ width: 58, height: 46, background: on ? roomTypeOf(type).ink : "#fff", color: on ? "#fff" : H.ink, border: `1.5px solid ${on ? roomTypeOf(type).ink : H.line}` }}>{r.num}</button>; })}
+        <div className="rounded-[20px] p-2.5" style={{ background: "#fff", boxShadow: H.shadow }}>
+          {/* Grille qui s'étire sur toute la largeur : 5 à 7 cases par ligne selon l'écran, sans marge vide à droite. */}
+          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(54px, 1fr))" }}>
+            {free.map((r) => { const on = room && r.id === room.id; const ink = roomTypeOf(type).ink; return (
+              <button key={r.id} type="button" onClick={() => setRoomId(r.id)} aria-pressed={on} aria-label={`Chambre ${r.num}`} className="gb-focus relative h-12 min-w-0 rounded-[14px] text-[15.5px] font-extrabold flex items-center justify-center active:scale-95 transition-transform" style={{ background: on ? ink : "#F6F8FB", color: on ? "#fff" : H.ink, border: `1.5px solid ${on ? ink : "#E3E8EF"}`, boxShadow: on ? `0 8px 16px -8px ${ink}` : "none" }}>
+                <span className="px-1 break-all leading-none">{r.num}</span>
+                {on && <span className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full flex items-center justify-center" style={{ background: "#fff", boxShadow: "0 2px 6px rgba(0,0,0,0.2)" }}><Icon name="check" size={11} color={ink} stroke={3.5} /></span>}
+              </button>
+            ); })}
+          </div>
+          <div className="flex gap-3 mt-2.5 px-0.5 text-[11.5px] font-bold" style={{ color: H.muted }}>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: roomTypeOf(type).ink }} />Choisie</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: "#F6F8FB", border: "1.5px solid #E3E8EF" }} />Libre</span>
+          </div>
         </div>
       )}
       <div className="mt-3 flex items-center gap-3 rounded-[18px] px-3.5 py-3 text-white" style={{ background: H.navy }}>
@@ -1514,66 +1701,106 @@ function StayScreen({ ctx, stay, onBack, onReleased, onOpenGuest }) {
   if (stay.status !== "active") {
     return <div className="pt-2"><TopBar title={`Chambre ${stay.roomNum}`} onBack={onBack} /><div className="mt-3"><Empty icon="check" title={stay.status === "cancelled" ? "Séjour annulé" : "Séjour terminé"} text={`${stay.status === "cancelled" ? "Annulé" : "Libérée"} ${stay.releasedAt ? `à ${hmOf(stay.releasedAt)}` : ""} · ${fmt(stayTotal(stay))}`} action={receipts.length ? <Btn kind="ghost" icon="receipt" onClick={() => openReceipt(receipts[receipts.length - 1])}>Voir le reçu</Btn> : null} /></div></div>;
   }
+  const accent = over ? "#FB923C" : low ? "#F87171" : stay.type === "clim" ? "#60A5FA" : "#2DD4BF";
+  const progress = Math.max(0, Math.min(100, (elapsed / total) * 100));
+  const extrasTotal = (stay.extras || []).reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const extTotal = (stay.extensions || []).reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const badge = over ? { bg: "rgba(251,146,60,0.18)", ink: "#FDBA74", line: "rgba(253,186,116,0.4)", t: "Dépassée" } : low ? { bg: "rgba(248,113,113,0.18)", ink: "#FCA5A5", line: "rgba(252,165,165,0.4)", t: "Bientôt fini" } : { bg: "rgba(244,63,94,0.18)", ink: "#FDA4AF", line: "rgba(253,164,175,0.35)", t: isNight(stay) ? "Nuitée" : "Occupée" };
+  const rowCls = "w-full flex items-center gap-3 py-2.5 text-[13px] text-left";
+  const rowSt = (last) => ({ borderBottom: last ? "none" : `1px solid ${H.line2}` });
+  const Ic = ({ name, bg, ink }) => <span className="w-[32px] h-[32px] rounded-[10px] flex items-center justify-center shrink-0" style={{ background: bg }}><Icon name={name} size={15} color={ink} stroke={2.3} /></span>;
+  const rows = [];
+  if (stay.guestId) rows.push({ k: "Fiche client", icon: ["user", "#E0E7FF", "#4338CA"], v: <span className="flex items-center gap-1 font-extrabold" style={{ color: H.goldDark }}>Pièce d'identité<Icon name="chev" size={14} stroke={2.4} /></span>, onClick: () => onOpenGuest(stay.guestId) });
+  if (receipts.length > 0) rows.push({ k: `Reçu${receipts.length > 1 ? `s (${receipts.length})` : ""}`, icon: ["receipt", "#CFFAFE", "#0E7490"], v: <span className="flex items-center gap-1 font-extrabold truncate" style={{ color: H.goldDark }}>N° {receipts[receipts.length - 1].no}<Icon name="chev" size={14} stroke={2.4} /></span>, onClick: () => openReceipt(receipts[receipts.length - 1]) });
+  rows.push({ k: "Client", icon: ["users", "#EEF2FF", "#4F46E5"], v: [stay.client, stay.phone].filter(Boolean).join(" · ") ? <b className="truncate">{[stay.client, stay.phone].filter(Boolean).join(" · ")}</b> : <span className="font-bold" style={{ color: "#94A3B8" }}>Non renseigné</span> });
+  rows.push({ k: "Enregistré par", icon: ["shield", "#F1F5F9", "#475569"], v: <b className="truncate">{stay.by || "—"}</b> });
+  rows.push({ k: "Forfait", icon: ["clock", T.tint, T.ink], v: <b className="truncate">{stay.tariffName} · {fmt(Number(stay.price) || 0)}</b> });
+  if (extTotal > 0) rows.push({ k: "Prolongations", icon: ["plus", "#E0F2FE", "#0369A1"], v: <b>{fmt(extTotal)}</b> });
+  rows.push({ k: "Consommations", icon: ["glass", "#FEF3C7", "#B45309"], v: <span className="flex items-center gap-2.5"><b>{fmt(extrasTotal)}</b><button type="button" onClick={() => setExtraOpen(true)} aria-label="Ajouter une consommation" className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ border: `1.5px solid ${H.line}`, background: "#fff" }}><Icon name="plus" size={14} stroke={3} /></button></span> });
+
   return (
     <div>
-      <div className="-mx-4 px-4 pt-2 pb-5 rounded-b-[32px] text-white" style={{ background: H.navy }}>
+      {/* ---------- En-tête ---------- */}
+      <div className="-mx-4 px-4 pt-2 pb-4 rounded-b-[30px] text-white" style={{ background: `radial-gradient(120% 80% at 100% 0%, ${over ? "rgba(251,146,60,0.30)" : stay.type === "clim" ? "rgba(96,165,250,0.30)" : "rgba(45,212,191,0.30)"}, transparent 55%), linear-gradient(165deg, #0A1730, #14305A)` }}>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={onBack} aria-label="Retour" className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center" style={{ background: "rgba(255,255,255,0.10)" }}><Icon name="back" size={20} stroke={2.4} /></button>
-          <div className="flex-1 min-w-0"><p className="text-[20px] font-extrabold">Chambre {stay.roomNum}</p><p className="text-[12.5px] truncate" style={{ color: "#B8C4D6" }}><b style={{ color: stay.type === "clim" ? "#93C5FD" : "#5EEAD4" }}>{T.label}</b> · {stay.tariffName}</p></div>
-          <span className="h-[30px] px-3 rounded-[10px] text-[12.5px] font-extrabold flex items-center" style={{ background: over ? H.orange : H.red }}>{over ? "Dépassée" : "Occupée"}</span>
+          <button type="button" onClick={onBack} aria-label="Retour" className="gb-focus w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.10)" }}><Icon name="back" size={20} stroke={2.4} /></button>
+          <div className="flex-1 min-w-0">
+            <p className="text-[20px] font-extrabold truncate">Chambre {stay.roomNum}</p>
+            <p className="text-[12.5px] flex items-center flex-wrap gap-x-1" style={{ color: "#AEBBD2" }}><span className="flex items-center gap-1 whitespace-nowrap"><Icon name={stay.type === "clim" ? "snow" : "fan"} size={13} color={stay.type === "clim" ? "#93C5FD" : "#5EEAD4"} stroke={2.3} /><b style={{ color: stay.type === "clim" ? "#93C5FD" : "#5EEAD4" }}>{T.label}</b></span><span className="whitespace-nowrap">· {stay.tariffName}</span></p>
+          </div>
+          <span className="shrink-0 h-[30px] px-3 rounded-full text-[12px] font-extrabold flex items-center gap-1.5" style={{ background: badge.bg, color: badge.ink, border: `1px solid ${badge.line}` }}><span className={`w-[7px] h-[7px] rounded-full${over || low ? " animate-pulse" : ""}`} style={{ background: badge.ink }} />{badge.t}</span>
         </div>
-        <div className="mt-4 flex items-center gap-4">
-          <span className="rounded-full flex items-center justify-center shrink-0" style={{ width: 136, height: 136, background: `conic-gradient(${over ? "#FB923C" : low ? "#F87171" : H.gold} 0 ${deg}deg, rgba(255,255,255,0.12) 0)` }}>
-            <span className="rounded-full flex flex-col items-center justify-center" style={{ width: 116, height: 116, background: H.navy }}>
-              <span className="text-[10.5px] font-extrabold tracking-[0.06em]" style={{ color: "#B8C4D6" }}>{over ? "DÉPASSÉ" : "RESTANT"}</span>
-              <span className="font-mono text-[24px] font-bold mt-0.5">{over ? `+${fmtClock(-rem).replace("+", "")}` : fmtClock(rem)}</span>
+
+        <div className="mt-3.5 flex items-center gap-3.5">
+          <span className="rounded-full flex items-center justify-center shrink-0" style={{ width: 128, height: 128, background: `conic-gradient(${accent} 0 ${deg}deg, rgba(255,255,255,0.12) 0)`, boxShadow: `0 0 26px -8px ${accent}` }}>
+            <span className="rounded-full flex flex-col items-center justify-center" style={{ width: 106, height: 106, background: "#10264B" }}>
+              <span className="text-[10px] font-extrabold tracking-[0.08em]" style={{ color: "#9FB2CF" }}>{over ? "DÉPASSÉ" : "RESTANT"}</span>
+              <span className="font-mono text-[23px] font-bold mt-0.5 leading-tight" style={{ color: over ? "#FDBA74" : "#fff" }}>{over ? `+${fmtClock(-rem).replace("+", "")}` : fmtClock(rem)}</span>
+              <span className="text-[10.5px] font-bold" style={{ color: accent }}>fin à {hmOf(end)}</span>
             </span>
           </span>
-          <div className="flex-1 min-w-0 flex flex-col gap-2">
-            <div><p className="text-[11.5px]" style={{ color: "#B8C4D6" }}>Arrivée</p><p className="text-[16px] font-extrabold">{hmOf(start)}</p></div>
-            <div><p className="text-[11.5px]" style={{ color: "#B8C4D6" }}>Fin prévue</p><p className="text-[16px] font-extrabold" style={{ color: H.gold }}>{isNight(stay) ? `${dayLabel(end, now)} ${hmOf(end)}` : hmOf(end)}</p></div>
-            <div><p className="text-[11.5px]" style={{ color: "#B8C4D6" }}>Temps écoulé</p><p className="font-mono text-[16px] font-bold">{fmtClock(elapsed).replace("+", "")}</p></div>
+          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            {[["Arrivée", hmOf(start), "#fff", false], ["Fin prévue", isNight(stay) ? `${dayLabel(end, now)} ${hmOf(end)}` : hmOf(end), accent, false], ["Écoulé", fmtClock(elapsed).replace("+", ""), "#fff", true]].map(([l, v, c, mono]) => (
+              <div key={l} className="rounded-[13px] px-2.5 py-1.5 flex items-center justify-between gap-2 min-w-0" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.10)" }}>
+                <span className="text-[11px] font-bold shrink-0" style={{ color: "#9FB2CF" }}>{l}</span>
+                <span className={`text-[14.5px] font-extrabold truncate${mono ? " font-mono" : ""}`} style={{ color: c }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3.5 px-1">
+          <div className="relative h-[8px] rounded-full" style={{ background: "rgba(255,255,255,0.12)" }}>
+            <div className="absolute left-0 top-0 bottom-0 rounded-full" style={{ width: `${progress}%`, background: `linear-gradient(90deg, ${accent}AA, ${accent})`, transition: "width 1s linear" }} />
+            <span className="absolute top-1/2 w-[16px] h-[16px] rounded-full" style={{ left: `${progress}%`, transform: "translate(-50%,-50%)", background: "#fff", border: `3px solid ${accent}`, boxShadow: `0 0 0 4px ${accent}33` }} />
+          </div>
+          <div className="mt-1.5 flex justify-between text-[10.5px] font-bold" style={{ color: "#9FB2CF" }}>
+            <span>{hmOf(start)} arrivée</span><span>{over ? "temps dépassé" : `${Math.round(progress)} %`}</span><span>{hmOf(end)} fin</span>
           </div>
         </div>
       </div>
 
-      <Card className="mt-3.5 px-3.5">
-        {stay.guestId && (
-          <button type="button" onClick={() => onOpenGuest(stay.guestId)} className="gb-focus w-full flex items-center justify-between gap-3 py-2.5 text-[13.5px] text-left" style={{ borderBottom: `1px solid ${H.line2}` }}>
-            <span style={{ color: H.muted }}>Fiche client</span>
-            <span className="flex items-center gap-1.5 font-extrabold" style={{ color: H.goldDark }}>Pièce d'identité<Icon name="chev" size={15} stroke={2.4} /></span>
-          </button>
-        )}
-        {receipts.length > 0 && (
-          <button type="button" onClick={() => openReceipt(receipts[receipts.length - 1])} className="gb-focus w-full flex items-center justify-between gap-3 py-2.5 text-[13.5px] text-left" style={{ borderBottom: `1px solid ${H.line2}` }}>
-            <span style={{ color: H.muted }}>Reçu{receipts.length > 1 ? `s (${receipts.length})` : ""}</span>
-            <span className="flex items-center gap-1.5 font-extrabold" style={{ color: H.goldDark }}><Icon name="receipt" size={15} />N° {receipts[receipts.length - 1].no}<Icon name="chev" size={15} stroke={2.4} /></span>
-          </button>
-        )}
-        {[["Client", [stay.client, stay.phone].filter(Boolean).join(" · ") || "—"], ["Enregistré par", stay.by || "—"], ["Forfait", `${stay.tariffName} · ${fmt(Number(stay.price) || 0)}`]].map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-3 py-2.5 text-[13.5px]" style={{ borderBottom: `1px solid ${H.line2}` }}><span style={{ color: H.muted }}>{k}</span><b className="text-right truncate">{v}</b></div>
-        ))}
-        {(stay.extensions || []).length > 0 && <div className="flex justify-between gap-3 py-2.5 text-[13.5px]" style={{ borderBottom: `1px solid ${H.line2}` }}><span style={{ color: H.muted }}>Prolongations</span><b>{fmt((stay.extensions || []).reduce((t, e) => t + (Number(e.amount) || 0), 0))}</b></div>}
-        <div className="flex justify-between items-center gap-3 py-2 text-[13.5px]" style={{ borderBottom: `1px solid ${H.line2}` }}>
-          <span style={{ color: H.muted }}>Consommations</span>
-          <span className="flex items-center gap-2.5"><b>{fmt((stay.extras || []).reduce((t, e) => t + (Number(e.amount) || 0), 0))}</b><button type="button" onClick={() => setExtraOpen(true)} aria-label="Ajouter une consommation" className="gb-focus w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ border: `1.5px solid ${H.line}` }}><Icon name="plus" size={14} stroke={3} /></button></span>
-        </div>
-        <div className="flex justify-between items-baseline gap-3 py-2.5 text-[13.5px]"><span style={{ color: H.muted }}>Total séjour</span><span><b className="text-[17px]">{fmt(stayTotal(stay))}</b> <span className="text-[11.5px] font-extrabold" style={{ color: due > 0 ? H.orange : H.green }}>{due > 0 ? `reste ${fmt(due)}` : "payé"}</span></span></div>
+      {/* ---------- Séjour ---------- */}
+      <p className="mt-4 mb-2 px-0.5 text-[12px] font-extrabold tracking-[0.06em] uppercase" style={{ color: H.muted }}>Séjour</p>
+      <Card className="px-3.5">
+        {rows.map((r, i) => {
+          const last = i === rows.length - 1;
+          const inner = <><Ic name={r.icon[0]} bg={r.icon[1]} ink={r.icon[2]} /><span className="flex-1 min-w-0 truncate" style={{ color: H.muted }}>{r.k}</span><span className="min-w-0 max-w-[62%] flex justify-end text-right">{r.v}</span></>;
+          return r.onClick
+            ? <button key={r.k} type="button" onClick={r.onClick} className={`gb-focus ${rowCls}`} style={rowSt(last)}>{inner}</button>
+            : <div key={r.k} className={rowCls} style={rowSt(last)}>{inner}</div>;
+        })}
       </Card>
+      <div className="mt-2.5 flex items-center justify-between gap-3 rounded-[18px] px-3.5 py-3" style={{ background: due > 0 ? "linear-gradient(90deg,#FFF7ED,#FFFBF5)" : "linear-gradient(90deg,#ECFDF5,#F0FDFA)", border: `1px solid ${due > 0 ? "#FED7AA" : "#A7F3D0"}` }}>
+        <span className="min-w-0"><span className="block text-[11px] font-extrabold" style={{ color: due > 0 ? "#C2410C" : "#047857" }}>Total séjour</span><span className="block text-[21px] font-extrabold leading-tight" style={{ overflowWrap: "anywhere" }}>{fmt(stayTotal(stay))}</span></span>
+        <span className="shrink-0 rounded-full px-2.5 py-1 text-[11.5px] font-extrabold text-white flex items-center gap-1" style={{ background: due > 0 ? "#EA580C" : "#16A34A" }}>{due > 0 ? `Reste ${fmt(due)}` : <><Icon name="check" size={12} color="#fff" stroke={3} />Payé</>}</span>
+      </div>
 
       {due > 0 && <Btn kind="green" full icon="money" onClick={() => setPayOpen(true)} className="mt-2.5 !text-[14.5px]">Encaisser {fmt(due)}</Btn>}
 
-      <Label>Prolonger</Label>
+      {/* ---------- Prolonger ---------- */}
+      <p className="mt-4 mb-2 px-0.5 text-[12px] font-extrabold tracking-[0.06em] uppercase" style={{ color: H.muted }}>Prolonger</p>
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => actions.extendStay(stay, 1)} className="gb-focus rounded-[16px] min-h-[60px] font-extrabold text-[14px]" style={{ background: "#fff", border: `1.5px solid ${ROOM_TYPES.vent.line}` }}>+ 1 heure<span className="block text-[12px] font-bold" style={{ color: ROOM_TYPES.vent.ink }}>+ {fmt(extensionPrice(stay, settings))}</span></button>
-        <button type="button" disabled={isNight(stay) || !night} onClick={() => actions.toNight(stay)} className="gb-focus rounded-[16px] min-h-[60px] font-extrabold text-[14px] disabled:opacity-45" style={{ background: "#fff", border: `1.5px solid ${ROOM_TYPES.clim.line}` }}>Passer en nuitée<span className="block text-[12px] font-bold" style={{ color: ROOM_TYPES.clim.ink }}>{isNight(stay) ? "déjà en nuitée" : `+ ${fmt(nightDiff)}`}</span></button>
+        <button type="button" onClick={() => actions.extendStay(stay, 1)} className="gb-focus relative overflow-hidden rounded-[18px] min-h-[66px] px-3 py-2.5 text-left text-white active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(135deg,#14B8A6,#0F766E)", boxShadow: "0 10px 20px -12px rgba(15,118,110,0.9)" }}>
+          <span className="absolute right-2.5 top-2.5 opacity-90"><Icon name="clock" size={18} color="#fff" stroke={2.3} /></span>
+          <span className="block text-[14.5px] font-extrabold pr-6">+ 1 heure</span>
+          <span className="block text-[12px] font-bold opacity-90">+ {fmt(extensionPrice(stay, settings))}</span>
+        </button>
+        <button type="button" disabled={isNight(stay) || !night} onClick={() => actions.toNight(stay)} className="gb-focus relative overflow-hidden rounded-[18px] min-h-[66px] px-3 py-2.5 text-left text-white disabled:opacity-50 active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(135deg,#6366F1,#3730A3)", boxShadow: "0 10px 20px -12px rgba(55,48,163,0.9)" }}>
+          <span className="absolute right-2.5 top-2.5 opacity-90"><Icon name="moon" size={18} color="#fff" stroke={2.3} /></span>
+          <span className="block text-[14.5px] font-extrabold pr-6 leading-tight">Passer en nuitée</span>
+          <span className="block text-[12px] font-bold opacity-90">{isNight(stay) ? "déjà en nuitée" : night ? `+ ${fmt(nightDiff)}` : "aucune formule nuitée"}</span>
+        </button>
       </div>
-      <div className="mt-2.5 flex items-center gap-2.5 rounded-[14px] px-3 py-2.5 text-[12px] font-bold" style={{ background: "#ECF8F6", color: "#0B6B61" }}><Icon name="speaker" size={18} />Alerte vocale {settings.endAlertMinutes} min avant la fin, puis à l'heure exacte.</div>
-      <div className="mt-4 flex gap-2">
-        <Btn kind="ghost" icon="swap" onClick={() => setMoveOpen(true)} className="!px-3 !text-[13px]">Changer</Btn>
-        <Btn kind="navy" full onClick={() => { if (actions.releaseStay(stay)) onReleased(); }} className="flex-1 !min-h-[56px] !text-[16px]">Libérer la chambre</Btn>
+      <div className="mt-2 flex items-center gap-2.5 rounded-[14px] px-3 py-2.5 text-[12px] font-bold" style={{ background: "#fff", color: "#0B6B61", border: "1px dashed #99F6E4" }}><span className="shrink-0"><Icon name="speaker" size={17} /></span><span className="min-w-0">Alerte vocale {settings.endAlertMinutes} min avant la fin, puis à l'heure exacte.</span></div>
+
+      {/* ---------- Actions ---------- */}
+      <p className="mt-4 mb-2 px-0.5 text-[12px] font-extrabold tracking-[0.06em] uppercase" style={{ color: H.muted }}>Actions</p>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setMoveOpen(true)} className="gb-focus w-[96px] shrink-0 min-h-[56px] rounded-[16px] flex flex-col items-center justify-center gap-0.5 text-[12px] font-extrabold" style={{ background: "#fff", border: `1.5px solid ${H.line}`, color: H.ink }}><Icon name="swap" size={17} stroke={2.4} />Changer</button>
+        <button type="button" onClick={() => { if (actions.releaseStay(stay)) onReleased(); }} className="gb-focus flex-1 min-w-0 min-h-[56px] rounded-[16px] flex items-center justify-center gap-2 text-[15.5px] font-extrabold text-white active:scale-[0.98] transition-transform" style={{ background: "linear-gradient(135deg,#0B1B33,#1D3A66)", boxShadow: "0 10px 20px -10px rgba(11,27,51,0.8)" }}><Icon name="key" size={18} color="#fff" stroke={2.4} /><span className="truncate">Libérer la chambre</span></button>
       </div>
-      {isOwner && <Btn kind="danger" full icon="ban" onClick={() => setCancelOpen(true)} className="mt-2.5 !min-h-[44px] !text-[13px]">Annuler ce séjour (propriétaire)</Btn>}
+      {isOwner && <button type="button" onClick={() => setCancelOpen(true)} className="gb-focus mt-2.5 w-full min-h-[44px] rounded-[14px] flex items-center justify-center gap-1.5 text-[12.5px] font-extrabold" style={{ background: "#FFF5F5", border: "1.5px solid #FECACA", color: "#B91C1C" }}><Icon name="ban" size={15} stroke={2.4} />Annuler ce séjour (propriétaire)</button>}
       <p className="mt-2 text-center text-[11.5px]" style={{ color: H.muted }}>{settings.cleaningRequired ? "Ensuite : ménage" : "Ensuite : chambre libre"}{settings.releaseVoice || settings.releaseNotify ? ` · annonce ${settings.releaseVoice && settings.releaseNotify ? "écrite et vocale" : settings.releaseVoice ? "vocale" : "écrite"} du numéro.` : "."}</p>
 
       {payOpen && <PaySheet title={`Encaisser · chambre ${stay.roomNum}`} amount={due} fmt={fmt} defaultPrint={settings.receipt.ask !== false} onClose={() => setPayOpen(false)} onConfirm={({ mode, op, given, print }) => { const rc = actions.collect(stay, mode, { given, op }); setPayOpen(false); if (rc && print) openReceipt(rc); }} />}

@@ -147,15 +147,16 @@ export function Toggle({ on, onChange, label }) {
   );
 }
 
-export function Stepper({ value, onMinus, onPlus, sub, big }) {
+export function Stepper({ value, onMinus, onPlus, sub, big, compact }) {
+  const btn = big ? "w-12 h-12" : compact ? "w-9 h-9" : "w-10 h-10";
   return (
-    <div className={`flex items-center ${big ? "gap-2 p-2" : "gap-1.5 p-1.5"} rounded-[18px]`} style={{ background: H.card, boxShadow: H.shadow }}>
-      <button type="button" onClick={onMinus} aria-label="Diminuer" className={`gb-focus ${big ? "w-12 h-12" : "w-10 h-10"} rounded-[13px] text-[22px] font-extrabold shrink-0`} style={{ background: "#F1F3F6", color: H.navy }}>−</button>
+    <div className={`flex items-center ${big ? "gap-2 p-2" : compact ? "gap-1 p-1" : "gap-1.5 p-1.5"} rounded-[18px] min-w-0`} style={{ background: H.card, boxShadow: H.shadow }}>
+      <button type="button" onClick={onMinus} aria-label="Diminuer" className={`gb-focus ${btn} rounded-[13px] text-[22px] font-extrabold shrink-0`} style={{ background: "#F1F3F6", color: H.navy }}>−</button>
       <div className="flex-1 min-w-0 text-center">
-        <div className={`${big ? "text-[26px]" : "text-[21px]"} font-extrabold tracking-tight tabular-nums`} style={{ color: H.navy, whiteSpace: "nowrap" }}>{value}</div>
+        <div className={`${big ? "text-[26px]" : compact ? "text-[clamp(14px,4.6vw,20px)]" : "text-[clamp(15px,5.4vw,21px)]"} font-extrabold tracking-tight tabular-nums`} style={{ color: H.navy, whiteSpace: "nowrap" }}>{value}</div>
         {sub && <div className="text-[11.5px] truncate" style={{ color: H.muted }}>{sub}</div>}
       </div>
-      <button type="button" onClick={onPlus} aria-label="Augmenter" className={`gb-focus ${big ? "w-12 h-12" : "w-10 h-10"} rounded-[13px] text-[22px] font-extrabold shrink-0`} style={{ background: "#F1F3F6", color: H.navy }}>+</button>
+      <button type="button" onClick={onPlus} aria-label="Augmenter" className={`gb-focus ${btn} rounded-[13px] text-[22px] font-extrabold shrink-0`} style={{ background: "#F1F3F6", color: H.navy }}>+</button>
     </div>
   );
 }
