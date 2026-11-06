@@ -21,6 +21,7 @@ import {
 import { announceVoice, setSpeaker } from "./cyberVoice.js";
 import { DragBubble } from "../DragBubble.jsx";
 import { momoLabel } from "../MomoPicker.jsx";
+import { licenseSalesAllowed } from "../licensePay.js";
 import { SellScreen, PayScreen, ReceiptScreen } from "./CyberSell.jsx";
 import { PaymentReceiptScreen, CloseReceiptScreen } from "./CyberDocs.jsx";
 import { HistoryScreen, CreditsScreen, ClientScreen, clientDebts } from "./CyberBook.jsx";
@@ -576,7 +577,7 @@ function MenuDrawer({ ctx, tab, onClose, onTab, go, onLogout, editorOn, onEditor
   const helpRows = [
     row("Écrire à l'équipe GestiOne", "chat", "#E0F2FE", "#0369A1", pick(() => (can.support ? onOpenSupport?.() : go("support"))), can.support ? "" : "Propriétaire", C.muted),
     faq?.length ? row("Questions fréquentes", "book", C.ground, C.ink2, pick(() => go("faq"))) : null,
-    can.licence ? row("Commander une licence", "bag", C.amberSoft, C.amber, pick(() => go("order"))) : null,
+    can.licence && licenseSalesAllowed() ? row("Commander une licence", "bag", C.amberSoft, C.amber, pick(() => go("order"))) : null,
     onOpenLegal ? row("Conditions et confidentialité", "shield", "#F1F5F9", "#475569", pick(() => onOpenLegal("terms"))) : null,
   ].filter(Boolean);
   const Row = ({ x, small, first }) => (
