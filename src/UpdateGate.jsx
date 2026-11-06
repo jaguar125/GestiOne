@@ -11,6 +11,8 @@ import { RefreshCw, Download, ShieldAlert, Sparkles, X } from "lucide-react";
 import { fetchVersionInfo } from "./api.js";
 import { APP_VERSION } from "./appVersion.js";
 
+export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.gestione.app";
+
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000; // toutes les 6 heures
 const MIN_GAP_MS = 30 * 60 * 1000; // au retour à l'écran : au plus toutes les 30 min
 
@@ -44,7 +46,10 @@ export function UpdateGate() {
   const min = Number(info.min) || 0;
   const latest = Number(info.latest) || 0;
   const native = isNativeApp();
-  const apkUrl = typeof info.apk_url === "string" && /^https?:\/\//.test(info.apk_url) ? info.apk_url : "";
+  // Application installée depuis le Play Store : Google interdit qu'elle se
+  // mette à jour autrement que par le Play Store. Le bouton ouvre donc la
+  // fiche Play Store de GestiOne (jamais un fichier APK téléchargé).
+  const apkUrl = PLAY_STORE_URL;
   const message = typeof info.message === "string" ? info.message.trim() : "";
 
   const doUpdate = () => {
@@ -54,7 +59,7 @@ export function UpdateGate() {
     }
     window.location.reload();
   };
-  const actionLabel = native ? (apkUrl ? "Télécharger la nouvelle version" : null) : "Mettre à jour maintenant";
+  const actionLabel = native ? (apkUrl ? "Mettre à jour sur le Play Store" : null) : "Mettre à jour maintenant";
 
   // ---- Mise à jour obligatoire : écran bloquant ----
   if (min > APP_VERSION) {
@@ -112,12 +117,12 @@ export function UpdateGate() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 800 }}>Nouvelle version disponible</div>
           <div style={{ fontSize: 12.5, color: "#C9D6CE", lineHeight: 1.35 }}>
-            {message || (native ? (apkUrl ? "Téléchargez-la pour profiter des dernières améliorations." : "Demandez-la à votre administrateur ou au Play Store.") : "Rechargez pour profiter des dernières améliorations.")}
+            {message || (native ? (apkUrl ? "Mettez-la à jour depuis le Play Store pour profiter des dernières améliorations." : "Demandez-la à votre administrateur ou au Play Store.") : "Rechargez pour profiter des dernières améliorations.")}
           </div>
         </div>
         {actionLabel && (
           <button onClick={doUpdate} style={{ border: "none", borderRadius: 12, background: "#3E8E62", color: "#fff", fontSize: 13, fontWeight: 800, padding: "10px 12px", flexShrink: 0 }}>
-            {native ? "Télécharger" : "Mettre à jour"}
+            {native ? "Play Store" : "Mettre à jour"}
           </button>
         )}
         <button onClick={close} aria-label="Fermer" style={{ border: "none", background: "transparent", color: "#C9D6CE", padding: 6, flexShrink: 0 }}>

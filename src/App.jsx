@@ -33,9 +33,10 @@ import { BAR_KEYS } from "./bar/barEngine.js";
 // Chargé seulement pour ce type d'entreprise (application plus légère au démarrage).
 const AluApp = lazy(() => import("./alu/AluApp.jsx"));
 import { DeliveryTruck } from "./DeliveryTruck.jsx";
-import { installCountUp } from "./countUp.js";
+import { installCountUp, setCountUpEnabled } from "./countUp.js";
 import { flyToCart } from "./flyToCart.js";
 import { bioIsNative, bioStatus, bioAuth, bioEnabled, setBioEnabled } from "./biometric.js";
+import { isStoreApp, licenseSalesAllowed, payLinkFor, openPayLink, STORE_CODE_HINT } from "./licensePay.js";
 import { useOta, otaAppReady, otaCheck, otaApplyNow, otaLater, otaSetAuto, otaListBundles, otaUseBundle, otaResetToBuiltin, otaIsNative, currentCodeId } from "./otaUpdate.js";
 import { APP_VERSION } from "./appVersion.js";
 // Montants qui « comptent » de 0 jusqu'à leur valeur à l'affichage des pages.
@@ -434,7 +435,7 @@ const PAYMENT_LABELS = { especes: "Espèces", mobile: "Mobile Money", credit: "C
 // Moyen d'un règlement de crédit : espèces (par défaut, anciens règlements)
 // ou Mobile Money (avec l'opérateur).
 function creditPayIsMobile(p) { return !!p && p.method === "mobile"; }
-function creditPayLabel(p) { return creditPayIsMobile(p) ? (p.operator ? (p.operator === "Carte bancaire" || p.operator === "Autre" ? p.operator : `Mobile · ${p.operator}`) : "Mobile Money") : "Espèces"; }
+function creditPayLabel(p) { if (p && p.method === "avoir") return "Avoir monnaie"; return creditPayIsMobile(p) ? (p.operator ? (p.operator === "Carte bancaire" || p.operator === "Autre" ? p.operator : `Mobile · ${p.operator}`) : "Mobile Money") : "Espèces"; }
 function creditPaymentsOf(sale) {
   if (Array.isArray(sale.payments)) return sale.payments;
   if (sale.paid && sale.paidDate) return [{ amount: sale.total, date: sale.paidDate, by: sale.paidBy }];
@@ -1690,7 +1691,9 @@ function PricingScreen({ registeredAdmin, onClose, pushToast, shopName, license,
   const plans = LICENSE_PLANS_PRICING.filter((p) => p.price);
   const lifetime = LICENSE_PLANS_PRICING.find((p) => p.id === "lifetime");
   const [planId, setPlanId] = useState(plans.find((p) => p.popular)?.id || plans[0].id);
-  const [step, setStep] = useState(initialStep || "offers"); // offers | order | sent | activate
+  // Application Android (Play Store) : uniquement l'activation d'un code.
+  const store = isStoreApp();
+  const [step, setStep] = useState(store ? "activate" : initialStep || "offers"); // offers | order | paying | sent | activate
   const [orderPlan, setOrderPlan] = useState(null);
   const [name, setName] = useState(registeredAdmin?.name || "");
   const [phone, setPhone] = useState(registeredAdmin?.phone || "");
@@ -1704,6 +1707,12 @@ function PricingScreen({ registeredAdmin, onClose, pushToast, shopName, license,
   const daysLeft = license?.expiresAt ? Math.ceil((new Date(license.expiresAt) - Date.now()) / MS_DAY) : null;
 
   const openOrder = (p) => { setOrderPlan(p); setStep("order"); };
+  // Version web : le lien de paiement de la durée choisie s'ouvre directement ;
+  // sans lien réglé, la demande part à l'assistance comme avant.
+  const choosePlan = (p) => {
+    const url = payLinkFor(p.id);
+    if (url) { setOrderPlan(p); openPayLink(url); setStep("paying"); } else openOrder(p);
+  };
   const submitOrder = async () => {
     if (!name.trim() || !phone.trim()) { pushToast("Indiquez votre nom et votre téléphone", "error"); return; }
     setSending(true);
@@ -1769,12 +1778,12 @@ function PricingScreen({ registeredAdmin, onClose, pushToast, shopName, license,
   if (step === "activate") {
     const groups = [code.slice(0, 4), code.slice(4, 8), code.slice(8, 12)];
     return shell(<>
-      <Header title="Activer ma licence" back={initialStep === "activate" ? null : () => setStep("offers")} />
+      <Header title="Activer ma licence" back={store || initialStep === "activate" ? null : () => setStep(orderPlan && payLinkFor(orderPlan.id) ? "paying" : "offers")} />
       <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5 pt-6 pb-4 flex flex-col gap-5">
         <div className="flex flex-col items-center text-center gap-3">
           <div className="w-[72px] h-[72px] rounded-[22px] flex items-center justify-center" style={{ background: LIC.okBg, border: "1px solid #BFE3CC" }}><KeyRound size={32} color={LIC.pri} /></div>
           <p className="font-display font-bold text-[24px]">Entrez votre code</p>
-          <p className="text-[14px] leading-relaxed max-w-[300px]" style={{ color: LIC.mut }}>Reçu après la validation de votre commande. Il s'applique à tous les appareils de l'entreprise.</p>
+          <p className="text-[14px] leading-relaxed max-w-[300px]" style={{ color: LIC.mut }}>{store ? `${STORE_CODE_HINT} Il s'applique à tous les appareils de l'entreprise.` : "Reçu après votre paiement. Il s'applique à tous les appareils de l'entreprise."}</p>
         </div>
         <label className="relative block">
           <div className="flex items-center gap-2" aria-hidden="true">
@@ -1792,11 +1801,41 @@ function PricingScreen({ registeredAdmin, onClose, pushToast, shopName, license,
             <div key={t} className="flex items-center gap-2.5 text-[13.5px]"><Check size={16} color={LIC.ok} strokeWidth={2.6} />{t}</div>
           ))}
         </div>
-        {step === "activate" && !initialStep && (
+        {step === "activate" && !initialStep && !store && (
           <button onClick={() => setStep("offers")} className="gb-focus self-center text-[13.5px] font-semibold" style={{ color: LIC.pri }}>Pas encore de code ? Voir les offres</button>
         )}
       </div>
       <Footer><LicPrimaryButton onClick={submitCode} disabled={checking || code.length !== 12} Icon={Check}>{checking ? "Vérification…" : "Activer"}</LicPrimaryButton></Footer>
+    </>);
+  }
+
+  // ---------- Paiement en ligne ouvert (version web) ----------
+  if (step === "paying" && orderPlan) {
+    const url = payLinkFor(orderPlan.id);
+    return shell(<>
+      <Header title="Paiement de la licence" back={() => setStep("offers")} />
+      <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5 pt-3 pb-4 flex flex-col gap-4">
+        <div className="rounded-[22px] p-px" style={{ background: "linear-gradient(160deg, #0F6E56, rgba(15,110,86,0.15) 45%, #C98A1B)" }}>
+          <div className="rounded-[21px] p-4 flex items-center gap-3" style={{ background: LIC.card }}>
+            <div className="w-[46px] h-[46px] rounded-[14px] flex items-center justify-center shrink-0" style={{ background: LIC.okBg }}><Sparkles size={22} color={LIC.pri} /></div>
+            <div className="flex-1 min-w-0"><p className="font-display font-bold text-[17px]">{orderPlan.name} · {orderPlan.duration}</p><p className="text-[12.5px]" style={{ color: LIC.mut }}>La page de paiement s'est ouverte dans un nouvel onglet.</p></div>
+            <span className="font-display font-bold text-[18px] whitespace-nowrap">{licFmt(orderPlan.price)} F</span>
+          </div>
+        </div>
+        <div className="rounded-[20px] p-4 flex flex-col gap-3.5" style={{ background: LIC.card, border: `1px solid ${LIC.line}` }}>
+          <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: LIC.mut }}>Comment ça se passe</p>
+          {[["Payez en ligne", "Sur la page de paiement sécurisée qui vient de s'ouvrir."], ["Recevez votre code", "Un code de licence de 12 chiffres, après la confirmation du paiement."], ["Activez-le ici", "Il s'applique à tous les appareils de l'entreprise."]].map(([t, d], i) => (
+            <div key={t} className="flex gap-3 items-start">
+              <span className="w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 font-display font-bold text-[13px]" style={{ background: i === 0 ? LIC.pri : LIC.okBg, color: i === 0 ? "#fff" : LIC.pri }}>{i + 1}</span>
+              <div className="min-w-0"><p className="text-[14.5px] font-bold">{t}</p><p className="text-[12.5px] leading-snug" style={{ color: LIC.mut }}>{d}</p></div>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => openPayLink(url)} className="gb-focus self-center text-[13.5px] font-semibold" style={{ color: LIC.pri }}>La page ne s'est pas ouverte ? Rouvrir le paiement</button>
+      </div>
+      <Footer>
+        {onActivate ? <LicPrimaryButton onClick={() => setStep("activate")} Icon={KeyRound}>J'ai payé, saisir mon code</LicPrimaryButton> : <LicPrimaryButton onClick={onClose} Icon={Check}>Terminé</LicPrimaryButton>}
+      </Footer>
     </>);
   }
 
@@ -1885,8 +1924,8 @@ function PricingScreen({ registeredAdmin, onClose, pushToast, shopName, license,
               <span key={t} className="px-3 py-1.5 rounded-[11px] text-[12.5px]" style={{ background: "#F3F1EB" }}>{t}</span>
             ))}
           </div>
-          <LicPrimaryButton onClick={() => openOrder(plan)}>Choisir la formule {plan.name}</LicPrimaryButton>
-          <p className="text-[12px] text-center" style={{ color: LIC.mut }}>Sans engagement · aucun prélèvement automatique</p>
+          <LicPrimaryButton onClick={() => choosePlan(plan)}>{payLinkFor(plan.id) ? `Payer la formule ${plan.name}` : `Choisir la formule ${plan.name}`}</LicPrimaryButton>
+          <p className="text-[12px] text-center" style={{ color: LIC.mut }}>{payLinkFor(plan.id) ? "Paiement sécurisé en ligne · sans engagement" : "Sans engagement · aucun prélèvement automatique"}</p>
         </div>
       </div>
 
@@ -1920,7 +1959,7 @@ function PricingScreen({ registeredAdmin, onClose, pushToast, shopName, license,
     <Footer>
       <div className="flex items-center gap-3.5">
         <div className="min-w-0"><p className="text-[12px]" style={{ color: LIC.mut }}>{plan.name} · {plan.duration}</p><p className="font-display font-bold text-[20px] whitespace-nowrap">{licFmt(plan.price)} F</p></div>
-        <div className="flex-1"><LicPrimaryButton onClick={() => openOrder(plan)}>Continuer</LicPrimaryButton></div>
+        <div className="flex-1"><LicPrimaryButton onClick={() => choosePlan(plan)}>{payLinkFor(plan.id) ? "Payer" : "Continuer"}</LicPrimaryButton></div>
       </div>
     </Footer>
   </>);
@@ -1952,9 +1991,11 @@ function LicenseLockedScreen({ role, shopName, onLogout, onActivate, pushToast }
           <button onClick={() => setShowRenew("activate")} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "var(--cap)", color: "var(--glass)" }}>
             <KeyRound size={16} /> J'ai un code d'activation
           </button>
-          <button onClick={() => setShowRenew("offers")} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "rgba(255,255,255,0.12)" }}>
-            <ShoppingCart size={16} /> Commander une licence
-          </button>
+          {licenseSalesAllowed() && (
+            <button onClick={() => setShowRenew("offers")} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-transform" style={{ background: "rgba(255,255,255,0.12)" }}>
+              <ShoppingCart size={16} /> Voir les licences
+            </button>
+          )}
         </div>
       ) : (
         <div className="w-full max-w-xs rounded-2xl py-3.5 px-4 text-xs font-medium" style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.6)" }}>
@@ -2014,7 +2055,7 @@ function SecretPinField({ label, value, onChange, onEnter, length = 4 }) {
 const TERMS_SECTIONS = [
   { title: "1. Objet", body: "GestiOne est une application de gestion de caisse, de stock et de crédits clients destinée aux petits commerces (maquis, bars, buvettes, caves, entreprises...). Les présentes conditions encadrent l'utilisation de l'application par le propriétaire d'une entreprise et par les vendeurs qu'il autorise." },
   { title: "2. Compte et essai gratuit", body: "Chaque entreprise créée bénéficie d'un essai gratuit de 14 jours donnant accès à l'ensemble des fonctionnalités, sans engagement. À l'issue de l'essai, l'accès à l'entreprise est suspendu jusqu'à l'activation d'une licence payante." },
-  { title: "3. Licences et paiement", body: "Les licences sont proposées par durée (1, 3, 6 ou 12 mois) ou à vie. Un code de licence est à usage unique et ne peut être activé que sur une seule entreprise. Les tarifs affichés dans l'application sont ceux en vigueur au moment de l'achat et peuvent évoluer." },
+  { title: "3. Licences et paiement", body: "Les licences sont proposées par durée (1, 3, 6 ou 12 mois) ou à vie. Un code de licence est à usage unique et ne peut être activé que sur une seule entreprise. Les tarifs en vigueur au moment de l'achat s'appliquent et peuvent évoluer." },
   { title: "4. Comptes vendeurs", body: "Le propriétaire d'une entreprise peut créer des comptes vendeurs, chacun protégé par un code d'accès personnel. Le propriétaire est responsable de la bonne attribution et de la sécurité de ces accès au sein de son équipe." },
   { title: "5. Fonctionnement hors-ligne", body: "L'application fonctionne sans connexion internet pour les opérations quotidiennes (vente, stock, consultation). Une connexion est nécessaire pour la création d'une entreprise, l'activation d'une licence, et la synchronisation entre plusieurs appareils." },
   { title: "6. Responsabilité", body: "GestiOne est un outil de gestion. L'exactitude des données saisies (prix, stock, ventes, informations clients) relève de la responsabilité de l'utilisateur. GestiOne ne peut être tenu responsable des décisions commerciales prises sur la base de ces données." },
@@ -3135,7 +3176,7 @@ function SaleReceiptModal({ receipt: receiptIn, shop, clients, onClose, pushToas
                 {st.done ? `${st.verb === "rendu" ? "Monnaie rendue" : "Avoir monnaie soldé"} : ${fmt(st.amount)}` : st.partial ? `Monnaie en avoir : reste ${fmt(st.remaining)} sur ${fmt(st.amount)}` : `Monnaie en avoir : ${fmt(receipt.avoirAmount)}`}
               </p>
               {st.reds.map((r, k) => (
-                <p key={k} className="text-[11px] mt-0.5" style={{ color: t.softFg, paddingLeft: st.done ? 26 : 0 }}>{r.kind === "achat" ? "Utilisé en achat" : "Rendu"} le {shortDateTime(r.date)} : {fmt(r.amount)}{r.by ? ` · par ${r.by}` : ""}</p>
+                <p key={k} className="text-[11px] mt-0.5" style={{ color: t.softFg, paddingLeft: st.done ? 26 : 0 }}>{r.kind === "achat" ? "Utilisé en achat" : r.kind === "credit" ? "Crédit remboursé" : "Rendu"} le {shortDateTime(r.date)} : {fmt(r.amount)}{r.by ? ` · par ${r.by}` : ""}</p>
               ))}
               {!st.done && <p className="text-[11px] mt-0.5" style={{ color: t.softFg }}>Client : {who} — à récupérer lors d'un prochain passage.</p>}
             </div>
@@ -4633,7 +4674,7 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
           const split = Math.max(1, cash + mobile + credit);
           const last = todaySales.reduce((m, x) => (!m || x.date > m ? x.date : m), null);
           const big = fmt(todayTotal);
-          const tile = (v) => (String(v).length > 11 ? "text-[12.5px]" : "text-[14.5px]");
+          const tile = (v) => (String(v).replace(/[^\d\s.,-]/g, "").trim().length > 8 ? "text-[12.5px]" : "text-[14.5px]");
           return (
             <>
               <span className="pointer-events-none absolute -right-14 -top-16 w-48 h-48 rounded-full" style={{ background: "rgba(255,255,255,0.07)" }} />
@@ -4676,8 +4717,8 @@ function SellScreen({ shop, categories, products: productsRaw, sales, clients, a
               <div className="relative grid grid-cols-3 gap-2">
                 {[["Recette", fmt(todayRecette), "#FFD978", Banknote, "encaissée"], ["Crédit dû", fmt(todayCredit), "#FFB4A8", Clock, "à recevoir"], ["Caisse du jour", fmt(Math.max(0, todayTotal - credit)), "#BFF5D7", Wallet, "ventes − crédits"]].map(([l, v, c, Ic, sub]) => (
                   <div key={l} className="rounded-[16px] px-2.5 py-2 min-w-0" style={l === "Caisse du jour" ? { background: "rgba(191,245,215,0.16)", border: "1.5px solid rgba(191,245,215,0.55)", boxShadow: "0 8px 18px -12px rgba(0,0,0,0.5)" } : { background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.12)" }}>
-                    <span className={`flex items-center gap-1 font-bold leading-tight whitespace-nowrap ${l === "Caisse du jour" ? "text-[10px]" : "text-[10.5px]"}`} style={{ color: l === "Caisse du jour" ? "#fff" : "rgba(255,255,255,0.75)" }}><Ic size={l === "Caisse du jour" ? 11 : 12} color={c} className="shrink-0" /> <span className="min-w-0">{l}</span></span>
-                    <p className={`font-display font-bold ${tile(v)} leading-tight mt-0.5 whitespace-nowrap`} style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{v}</p>
+                    <span className={`flex items-center gap-1 font-bold leading-tight whitespace-nowrap ${l === "Caisse du jour" ? "text-[10px]" : "text-[10.5px]"}`} style={{ color: l === "Caisse du jour" ? "#fff" : "rgba(255,255,255,0.75)" }}><Ic size={l === "Caisse du jour" ? 11 : 12} color={c} className="shrink-0" /> <span className="min-w-0 truncate">{l}</span></span>
+                    <p className={`font-display font-bold ${tile(v)} leading-tight mt-0.5 flex flex-wrap items-baseline gap-x-1`} style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{(() => { const m = String(v).match(/^(.*\d)\s*([^\d\s]+)$/); return m ? <><span className="whitespace-nowrap">{m[1]}</span><span className="text-[10px] font-bold whitespace-nowrap" style={{ opacity: 0.85 }}>{m[2]}</span></> : <span className="whitespace-nowrap">{v}</span>; })()}</p>
                     <p className="text-[10px] truncate" style={{ color: "rgba(255,255,255,0.6)" }}>{sub}</p>
                   </div>
                 ))}
@@ -5270,15 +5311,29 @@ function changeAvoirStatusOf(s, avoirs, amount) {
   const p = avoirMoneyProgress(a);
   const reds = (a.redemptions || []).slice().sort((x, y) => String(x.date).localeCompare(String(y.date)));
   const done = p.remaining <= 0 || !!a.settled;
-  const allPurchase = reds.length > 0 && reds.every((r) => r.kind === "achat");
-  const somePurchase = reds.some((r) => r.kind === "achat");
+  const allPurchase = reds.length > 0 && reds.every((r) => r.kind === "achat" || r.kind === "credit");
+  const somePurchase = reds.some((r) => r.kind === "achat" || r.kind === "credit");
   const last = reds[reds.length - 1];
   return {
     amount: Number(a.amount) || amt, returned: done ? (Number(a.amount) || amt) : p.already, remaining: done ? 0 : p.remaining,
     done, partial: !done && p.already > 0, reds, last,
-    verb: allPurchase ? "utilisé en achat" : somePurchase ? "rendu / utilisé" : "rendu",
+    verb: allPurchase ? (reds.every((r) => r.kind === "credit") ? "utilisé pour un crédit" : "utilisé en achat") : somePurchase ? "rendu / utilisé" : "rendu",
     client: a.clientName,
   };
+}
+// Empreinte d'une fiche produit SANS les champs de stock : sert à savoir si
+// la fiche elle-même (prix, formules, nom…) a été modifiée.
+const PRODUCT_VOLATILE = new Set(["stock", "_sb", "_sbb", "lots", "openingStock", "openingStockDate", "updatedAt"]);
+function productSig(p) {
+  const o = {};
+  Object.keys(p || {}).sort().forEach((k) => {
+    if (PRODUCT_VOLATILE.has(k)) return;
+    let v = p[k];
+    if (k === "image" && typeof v === "string") v = `${v.length}:${v.slice(-48)}`;
+    if (k === "boutique" && v && typeof v === "object") { const { stockBy, ...rest } = v; v = rest; } // eslint-disable-line no-unused-vars
+    o[k] = v;
+  });
+  return JSON.stringify(o);
 }
 const AVOIR_TINT = {
   open: { bg: "#C62828", fg: "#fff", softBg: "#FDECEA", softBorder: "#F5C2BD", softFg: "#C62828" },
@@ -6587,7 +6642,7 @@ function HistoryScreen({ shop, sales, products, clients, avoirs, vendorFilter, i
                       </div>
                       {avSt.reds.map((r, k) => (
                         <div key={k} className="mt-1 pt-1 text-[10.5px] font-semibold" style={{ color: avTint.softFg, borderTop: `1px dashed ${avTint.softBorder}` }}>
-                          <div className="flex justify-between gap-2"><span>{r.kind === "achat" ? "Utilisé en achat" : "Rendu"} le {shortDateTime(r.date)}</span><span className="whitespace-nowrap">{fmt(r.amount)}</span></div>
+                          <div className="flex justify-between gap-2"><span>{r.kind === "achat" ? "Utilisé en achat" : r.kind === "credit" ? "Crédit remboursé" : "Rendu"} le {shortDateTime(r.date)}</span><span className="whitespace-nowrap">{fmt(r.amount)}</span></div>
                           {r.by && <div className="opacity-75 font-medium break-words">par {r.by}</div>}
                         </div>
                       ))}
@@ -7304,82 +7359,223 @@ function ReturnFinderModal({ sales, onPick, onClose }) {
   );
 }
 
-function SettleCreditModal({ sale, onConfirm, onClose }) {
+// Encaisser un crédit : espèces, Mobile Money ou avoir monnaie du client.
+// Avec l'avoir monnaie, les avoirs du client sont pris du plus ancien au plus
+// récent ; s'ils ne suffisent pas, le complément se paie en espèces ou Mobile
+// Money ; s'ils dépassent le crédit, seul le nécessaire est prélevé et le
+// reste de l'avoir reste au client. Après validation : écran de confirmation
+// (reçu, WhatsApp).
+const SC_AV = { ink: "#5B3CC4", deep: "#3B2390", soft: "#F4F0FF", tint: "#EDE7FE", line: "#CFC2F8", grad: "linear-gradient(135deg,#6D4AE0,#4527B5)" };
+function SettleCreditModal({ sale, avoirs = [], clients = [], shop, onConfirm, onClose, onReceipt }) {
   const fmt = useFmt();
   const symbol = useCurrencySymbol();
   const alreadyPaid = creditPaidSoFar(sale);
-  const remaining = Math.max(0, sale.total - alreadyPaid);
+  const remaining = Math.max(0, Math.round((Number(sale.total) || 0) - alreadyPaid));
   const [amount, setAmount] = useState(String(remaining));
   const [error, setError] = useState("");
   const [method, setMethod] = useState("especes");
+  const [compMethod, setCompMethod] = useState("especes");
   const [operator, setOperator] = useState(DEFAULT_MOMO);
+  const [done, setDone] = useState(null);
   const value = Number(String(amount).replace(/[^\d.]/g, "")) || 0;
   const after = Math.max(0, remaining - value);
+  const norm = (x) => String(x || "").trim().toLowerCase();
+  const who = norm(sale.clientName);
+  const clientAvoirs = who ? (avoirs || []).filter((a) => a && a.type === "monnaie" && !a.settled && avoirRemaining(a) > 0.5 && norm(a.clientName) === who).sort((a, b) => new Date(a.date) - new Date(b.date)) : [];
+  const avoirAvail = clientAvoirs.reduce((t, a) => t + avoirRemaining(a), 0);
+  const isAvoir = method === "avoir";
+  const avoirUse = isAvoir ? Math.min(avoirAvail, value) : 0;
+  const complement = Math.max(0, value - avoirUse);
+  const payMethod = isAvoir ? compMethod : method;
+  let rest = avoirUse;
+  const plan = isAvoir ? clientAvoirs.map((a) => { const avail = avoirRemaining(a); const take = Math.min(avail, rest); rest -= take; return { a, avail, take, left: avail - take }; }).filter((x) => x.take > 0) : [];
+  const avoirLeft = avoirAvail - avoirUse;
+  const valid = value > 0 && value <= remaining + 0.5;
+  const pct = sale.total > 0 ? Math.min(100, Math.round((alreadyPaid / sale.total) * 100)) : 0;
+  const initials = String(sale.clientName || "Client").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const dateTxt = (() => { try { const d = new Date(sale.date); return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`; } catch { return ""; } })();
+  const age = Math.floor((Date.now() - new Date(sale.date).getTime()) / 86400000);
+  const ageTxt = age <= 0 ? "aujourd'hui" : age === 1 ? "depuis hier" : `depuis ${age} jours`;
 
   const submit = () => {
     if (!value || value <= 0) { setError("Entre un montant valide"); return; }
     if (value > remaining + 0.5) { setError(`Le montant dépasse le solde dû (${fmt(remaining)})`); return; }
-    onConfirm(value, method === "mobile" ? { method, operator } : { method });
+    if (isAvoir && avoirUse <= 0) { setError("Ce client n'a pas d'avoir monnaie disponible"); return; }
+    const pay = { method: payMethod, ...(payMethod === "mobile" ? { operator } : {}), ...(isAvoir ? { avoirUse: plan.map((x) => ({ avoirId: x.a.id, amount: x.take })) } : {}) };
+    const updated = onConfirm(value, pay);
+    if (!updated) return;
+    setDone({ updated, value, avoirUse, complement, payMethod, operator, avoirLeft: isAvoir ? avoirLeft : avoirAvail, rest: Math.max(0, (Number(updated.total) || 0) - creditPaidSoFar(updated)), at: new Date() });
   };
 
-  return (
-    <div className="fixed inset-0 z-[85] flex items-end no-print">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full rounded-t-3xl p-6 gb-slide-up max-h-[85vh] overflow-y-auto gb-scroll" style={{ background: "var(--card)", paddingBottom: "max(56px, calc(env(safe-area-inset-bottom) + 16px))" }}>
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="font-display font-bold text-lg">Encaisser un crédit</h2>
-          <button onClick={onClose} className="gb-focus p-1"><X size={20} /></button>
-        </div>
-        <p className="text-xs opacity-50 mb-4">{sale.clientName || "Client"} · vendu le {new Date(sale.date).toLocaleDateString("fr-FR")}</p>
+  const phone = (() => { const c = (clients || []).find((x) => x.id === sale.clientId) || (clients || []).find((x) => x.name && norm(x.name) === who); return c?.phone || ""; })();
+  const sendWhatsApp = () => {
+    if (!done) return;
+    const lines = [
+      `Bonjour ${sale.clientName || ""},`,
+      `${shop?.name || "Votre boutique"} confirme votre règlement de ${fmt(done.value)} pour l'achat N° ${receiptNumber(sale.id)}.`,
+      done.avoirUse > 0 ? `· Payé avec votre avoir monnaie : ${fmt(done.avoirUse)}` : null,
+      done.complement > 0 ? `· Payé ${done.payMethod === "mobile" ? `par ${done.operator || "Mobile Money"}` : "en espèces"} : ${fmt(done.complement)}` : null,
+      done.rest > 0.5 ? `Reste à payer : ${fmt(done.rest)}` : "Votre crédit est entièrement soldé.",
+      done.avoirLeft > 0.5 ? `Il vous reste ${fmt(done.avoirLeft)} en avoir monnaie.` : null,
+      "Merci pour votre confiance !",
+    ].filter(Boolean).join("\n");
+    window.open(`https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent(lines)}`, "_blank");
+  };
 
-        <div className="rounded-2xl p-3.5 mb-4 flex items-center justify-between" style={{ background: "#FCEBEB" }}>
-          <div>
-            <p className="text-[11px] font-semibold" style={{ color: "#A32D2D" }}>Solde restant dû</p>
-            <p className="text-xl font-bold" style={{ color: "#A32D2D" }}>{fmt(remaining)}</p>
-          </div>
-          <Receipt size={24} color="#A32D2D" />
-        </div>
-
-        <label className="text-xs font-semibold opacity-60 block mb-1.5">Montant reçu du client ({symbol})</label>
-        <input
-          type="number"
-          value={amount}
-          onChange={(e) => { setAmount(e.target.value); setError(""); }}
-          className="gb-focus w-full rounded-xl px-3 py-3 text-lg font-bold text-center border mb-1.5"
-          style={{ borderColor: error && !value ? "var(--danger)" : "var(--line)" }}
-        />
-        <div className="flex gap-1.5 mb-1">
-          {[["Tout le solde", remaining], ["Moitié", Math.round(remaining / 2)]].filter(([, v]) => v > 0).map(([l, v]) => (
-            <button key={l} onClick={() => { setAmount(String(v)); setError(""); }} className="gb-focus flex-1 rounded-xl py-1.5 text-[11.5px] font-bold" style={{ background: value === v ? "#E3F4EC" : "var(--paper-dim)", color: value === v ? "#0F6E56" : "var(--ink)" }}>{l} · {fmt(v)}</button>
-          ))}
-        </div>
-        <p className="text-[11px] mb-3.5" style={{ color: after > 0 ? "#9A5B00" : "#0F6E56" }}>{value > 0 && value <= remaining + 0.5 ? (after > 0 ? `Paiement partiel · il restera ${fmt(after)}` : "Le crédit sera entièrement soldé") : "\u00a0"}</p>
-
-        <p className="text-xs font-semibold opacity-60 mb-1.5">Moyen de paiement</p>
-        <div className="grid grid-cols-2 gap-2 mb-2">
-          {[["especes", "Espèces", Banknote, "Dans la caisse", "#1E7A46", "#E6F4EC"], ["mobile", "Mobile Money", Smartphone, "Hors caisse", "#1D5FA8", "#E8F0FB"]].map(([id, label, Ico, sub, fg, bg]) => {
-            const on = method === id;
-            return (
-              <button key={id} onClick={() => { setMethod(id); setError(""); }} aria-pressed={on} className="gb-focus relative rounded-2xl px-3 py-2.5 flex items-center gap-2.5 text-left" style={{ background: on ? bg : "var(--paper)", border: `1.5px solid ${on ? fg : "var(--line)"}` }}>
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: on ? fg : "var(--paper-dim)", color: on ? "#fff" : "var(--ink)" }}><Ico size={17} /></span>
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-bold leading-tight" style={{ color: on ? fg : "var(--ink)" }}>{label}</span>
-                  <span className="block text-[10.5px] opacity-60">{sub}</span>
-                </span>
-                {on && <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: fg }}><Check size={10} color="#fff" strokeWidth={3.5} /></span>}
-              </button>
-            );
-          })}
-        </div>
-        {method === "mobile" && <div className="mb-3 gb-slide-up"><MomoPicker value={operator} onChange={setOperator} /></div>}
-        {error && <p className="text-xs mb-1 font-semibold" style={{ color: "var(--danger)" }}>{error}</p>}
-
-        <button onClick={submit} className="gb-focus w-full rounded-2xl py-3.5 font-semibold text-sm text-white flex items-center justify-center gap-2 mt-2" style={{ background: method === "mobile" ? "#1D5FA8" : "var(--glass)" }}>
-          {method === "mobile" ? <Smartphone size={16} /> : <Banknote size={16} />} Encaisser {value ? fmt(value) : ""} {method === "mobile" ? `par ${operator}` : "en espèces"}
-        </button>
-        <p className="text-[11px] opacity-50 text-center mt-2.5">{method === "mobile" ? "Ajouté à la recette du jour, sans entrer dans la caisse (espèces)." : "Ajouté à la recette du jour et aux espèces de la caisse."}</p>
+  const Sec = ({ children }) => <p className="text-[11.5px] font-extrabold uppercase tracking-[0.06em] opacity-55 mt-4 mb-1.5 px-0.5">{children}</p>;
+  const Line = ({ l, v, c, strong }) => <div className="flex items-center justify-between gap-3 py-[7px] text-[12.5px]"><span className="opacity-65 min-w-0">{l}</span><span className={`text-right ${strong ? "font-extrabold" : "font-bold"}`} style={{ color: c }}>{v}</span></div>;
+  const shell = (children) => (
+    <div data-no-count className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center no-print" style={{ paddingTop: "max(40px, env(safe-area-inset-top))" }}>
+      <div className="absolute inset-0 bg-black/55" onClick={onClose} />
+      <div className="relative w-full max-w-[460px] rounded-t-[28px] sm:rounded-[28px] gb-slide-up flex flex-col" style={{ background: "var(--card)", color: "var(--ink)", maxHeight: "100%" }}>
+        <div className="pt-2.5 pb-1 flex justify-center shrink-0"><span className="w-10 h-[5px] rounded-full" style={{ background: "var(--line)" }} /></div>
+        <div className="flex-1 min-h-0 overflow-y-auto gb-scroll px-5" style={{ paddingBottom: "max(24px, calc(env(safe-area-inset-bottom) + 16px))" }}>{children}</div>
       </div>
     </div>
+  );
+
+  // ---------- Confirmation ----------
+  if (done) {
+    const settledAll = done.rest <= 0.5;
+    return shell(
+      <>
+        <div className="mx-auto mt-3 w-[78px] h-[78px] rounded-full flex items-center justify-center gb-pop" style={{ background: "radial-gradient(circle,#22C55E,#15803D)", boxShadow: "0 0 0 9px rgba(34,197,94,0.16), 0 16px 30px -12px rgba(21,128,61,0.8)" }}><Check size={38} color="#fff" strokeWidth={3} /></div>
+        <p className="text-center font-display font-bold text-[19px] mt-3">{settledAll ? "Crédit soldé" : "Règlement enregistré"}</p>
+        <p className="text-center text-[12.5px] opacity-65 mt-0.5 px-2">{settledAll ? `${sale.clientName || "Le client"} ne doit plus rien sur la vente N° ${receiptNumber(sale.id)}` : `Il reste ${fmt(done.rest)} à payer sur la vente N° ${receiptNumber(sale.id)}`}</p>
+        <div className="mt-4 rounded-[18px] px-4 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--line)" }}>
+          {done.avoirUse > 0 && <Line l="Payé par avoir monnaie" v={fmt(done.avoirUse)} c={SC_AV.ink} strong />}
+          {done.complement > 0 && <Line l={done.payMethod === "mobile" ? `Payé par ${done.operator || "Mobile Money"}` : "Payé en espèces"} v={fmt(done.complement)} strong />}
+          <Line l="Argent reçu maintenant" v={fmt(done.complement)} />
+          <Line l="Reste dû" v={fmt(done.rest)} c={settledAll ? "#15803D" : "#B3261E"} strong />
+          {(done.avoirUse > 0 || done.avoirLeft > 0.5) && <Line l="Avoir restant du client" v={fmt(done.avoirLeft)} c={SC_AV.ink} strong />}
+          <Line l="Date" v={`${done.at.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} · ${done.at.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`} />
+        </div>
+        {done.avoirUse > 0 && done.avoirLeft > 0.5 && (
+          <div className="mt-2.5 rounded-[16px] px-3.5 py-2.5 flex items-center gap-2.5" style={{ background: SC_AV.soft, border: `1.5px dashed ${SC_AV.line}` }}>
+            <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: SC_AV.grad }}><Coins size={17} color="#fff" /></span>
+            <p className="text-[12px] font-bold min-w-0" style={{ color: SC_AV.deep }}>{fmt(done.avoirLeft)} restent en avoir monnaie pour {String(sale.clientName || "ce client").replace(/\.+$/, "")}.</p>
+          </div>
+        )}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button onClick={() => onReceipt ? onReceipt(done.updated) : onClose()} className="gb-focus min-h-[50px] rounded-[16px] flex items-center justify-center gap-2 text-[13.5px] font-bold" style={{ background: "var(--paper)", border: "1.5px solid var(--line)" }}><Printer size={16} /> Reçu</button>
+          <button onClick={sendWhatsApp} className="gb-focus min-h-[50px] rounded-[16px] flex items-center justify-center gap-2 text-[13.5px] font-bold text-white" style={{ background: "#1FAF5A" }}><MessageCircle size={16} /> WhatsApp</button>
+        </div>
+        <button onClick={onClose} className="gb-focus w-full mt-2 min-h-[52px] rounded-[16px] text-white font-bold text-[14.5px]" style={{ background: "var(--glass)" }}>Terminé</button>
+        <p className="text-[11px] opacity-55 text-center mt-2.5">Visible dans « Règlements » du crédit{done.avoirUse > 0 ? " et dans l'historique de l'avoir" : ""}.</p>
+      </>
+    );
+  }
+
+  // ---------- Saisie ----------
+  const methods = [
+    { id: "especes", label: "Espèces", sub: "Dans la caisse", Ico: Banknote, fg: "#1E7A46", bg: "#E6F4EC" },
+    { id: "mobile", label: "Mobile Money", sub: "Hors caisse", Ico: Smartphone, fg: "#1D5FA8", bg: "#E8F0FB" },
+    { id: "avoir", label: "Avoir monnaie", sub: avoirAvail > 0 ? `${fmt(avoirAvail)} dispo` : "aucun avoir", Ico: Coins, fg: SC_AV.ink, bg: SC_AV.soft, off: avoirAvail <= 0 },
+  ];
+  const btnTxt = isAvoir
+    ? (complement > 0 ? `Régler ${fmt(avoirUse)} avoir + ${fmt(complement)} ${compMethod === "mobile" ? "mobile" : "espèces"}` : after > 0 ? `Payer ${fmt(avoirUse)} avec l'avoir` : `Solder ${fmt(avoirUse)} avec l'avoir`)
+    : `Encaisser ${value ? fmt(value) : ""} ${method === "mobile" ? `par ${operator}` : "en espèces"}`;
+  return shell(
+    <>
+      <div className="flex items-center gap-3 pt-1">
+        <span className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0 font-extrabold text-[14px]" style={{ background: "linear-gradient(135deg,#F9D9C8,#F3B79B)", color: "#8A2D12" }}>{initials}</span>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-display font-bold text-[17px] leading-tight">Encaisser un crédit</h2>
+          <p className="text-[11.5px] opacity-60 leading-snug">{sale.clientName || "Client"} · N° {receiptNumber(sale.id)} · {dateTxt}</p>
+        </div>
+        <button onClick={onClose} aria-label="Fermer" className="gb-focus w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: "var(--paper-dim)" }}><X size={17} /></button>
+      </div>
+
+      <div className="mt-3 rounded-[20px] px-4 py-3 text-white" style={{ background: "radial-gradient(120% 90% at 100% 0%, rgba(255,180,150,0.35), transparent 55%), linear-gradient(135deg,#9F2B1D,#6E1A10)", boxShadow: "0 14px 24px -16px rgba(110,26,16,0.9)" }}>
+        <p className="text-[11.5px] font-bold opacity-85">Reste dû</p>
+        <p className="font-display font-bold text-[28px] leading-tight" style={{ overflowWrap: "anywhere" }}>{fmt(remaining)}</p>
+        <div className="mt-2 h-[7px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.2)" }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: "#FCD9C9" }} /></div>
+        <div className="mt-1.5 flex justify-between gap-2 text-[11px] font-bold opacity-90 flex-wrap"><span>Payé {fmt(alreadyPaid)}</span><span>Total {fmt(sale.total)} · {ageTxt}</span></div>
+      </div>
+
+      <Sec>Montant à régler ({symbol})</Sec>
+      <input type="number" inputMode="numeric" value={amount} onChange={(e) => { setAmount(e.target.value); setError(""); }} className="gb-focus w-full rounded-[16px] px-3 py-3 text-[24px] font-extrabold text-center border [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" style={{ borderColor: error && !valid ? "var(--danger)" : "var(--line)", background: "var(--paper)" }} />
+      <div className="flex gap-1.5 mt-1.5">
+        {[["Tout", remaining], ["Moitié", Math.round(remaining / 2)]].filter(([, v]) => v > 0).map(([l, v]) => (
+          <button key={l} onClick={() => { setAmount(String(v)); setError(""); }} className="gb-focus flex-1 rounded-[12px] py-2 text-[11.5px] font-bold" style={{ background: value === v ? "#E3F4EC" : "var(--paper-dim)", color: value === v ? "#0F6E56" : "var(--ink)", boxShadow: value === v ? "inset 0 0 0 1.5px #8FD3AC" : "none" }}>{l} · {fmt(v)}</button>
+        ))}
+      </div>
+      <p className="text-[11.5px] font-bold mt-1.5 flex items-center gap-1" style={{ color: after > 0 ? "#9A5B00" : "#0F6E56" }}>{valid ? (after > 0 ? `Paiement partiel · il restera ${fmt(after)}` : <><Check size={13} strokeWidth={3} /> Le crédit sera entièrement soldé</>) : " "}</p>
+
+      <Sec>Moyen de paiement</Sec>
+      <div className="grid grid-cols-3 gap-2">
+        {methods.map((m) => {
+          const on = method === m.id;
+          return (
+            <button key={m.id} disabled={m.off} onClick={() => { setMethod(m.id); setError(""); }} aria-pressed={on} className="gb-focus relative rounded-[16px] px-1.5 pt-2.5 pb-2 flex flex-col items-center text-center min-w-0 disabled:opacity-45" style={{ background: on ? m.bg : "var(--paper)", border: `1.5px solid ${on ? m.fg : "var(--line)"}`, boxShadow: on ? `0 8px 16px -12px ${m.fg}` : "none" }}>
+              <span className="w-9 h-9 rounded-[11px] flex items-center justify-center" style={{ background: on ? m.fg : "var(--paper-dim)", color: on ? "#fff" : m.fg }}><m.Ico size={17} /></span>
+              <span className="block text-[12px] font-bold leading-tight mt-1.5" style={{ color: on ? m.fg : "var(--ink)" }}>{m.label}</span>
+              {m.id === "avoir"
+                ? <span className="mt-1 text-[10px] font-extrabold rounded-full px-1.5 py-0.5 whitespace-nowrap" style={{ background: m.off ? "var(--paper-dim)" : SC_AV.tint, color: m.off ? "inherit" : SC_AV.ink }}>{m.sub}</span>
+                : <span className="block text-[10px] opacity-60 mt-0.5">{m.sub}</span>}
+              {on && <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: m.fg }}><Check size={10} color="#fff" strokeWidth={3.5} /></span>}
+            </button>
+          );
+        })}
+      </div>
+      {method === "mobile" && <div className="mt-2.5 gb-slide-up"><MomoPicker value={operator} onChange={setOperator} /></div>}
+
+      {isAvoir && valid && (
+        <div className="gb-slide-up">
+          <Sec>{plan.length > 1 ? `Avoirs utilisés · ${plan.length}` : "Avoir utilisé"}</Sec>
+          <div className="rounded-[16px] px-3" style={{ background: "var(--paper)", border: `1.5px solid ${SC_AV.line}` }}>
+            {plan.map((x, i) => (
+              <div key={x.a.id} className="flex items-center gap-2.5 py-2" style={{ borderTop: i ? "1px solid var(--line)" : "none" }}>
+                <span className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: SC_AV.tint, color: SC_AV.ink }}><Coins size={15} /></span>
+                <span className="flex-1 min-w-0"><span className="block text-[12.5px] font-bold">Avoir du {new Date(x.a.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span><span className="block text-[10.5px] opacity-60">Disponible {fmt(x.avail)}{x.a.vendor ? ` · par ${x.a.vendor}` : ""}</span></span>
+                <span className="text-right shrink-0"><span className="block text-[13px] font-extrabold">−{fmt(x.take)}</span><span className="block text-[10px] font-bold" style={{ color: SC_AV.ink }}>{x.left > 0.5 ? `reste ${fmt(x.left)}` : "utilisé en entier"}</span></span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-2.5 rounded-[16px] overflow-hidden" style={{ border: "1.5px solid var(--line)" }}>
+            <div className="grid grid-cols-[1.2fr_1fr_16px_1fr] gap-1 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.05em] opacity-55" style={{ background: "var(--paper-dim)" }}><span /><span className="text-right">Avant</span><span /><span className="text-right">Après</span></div>
+            {[["Crédit", fmt(remaining), "#B3261E", fmt(after), after > 0 ? "#9A5B00" : "#15803D"], ["Avoir monnaie", fmt(avoirAvail), SC_AV.ink, fmt(avoirLeft), SC_AV.ink], ["Argent reçu", "—", null, fmt(complement), null]].map(([l, a, ca, b, cb]) => (
+              <div key={l} className="grid grid-cols-[1.2fr_1fr_16px_1fr] gap-1 items-center px-3 py-2 text-[12.5px]" style={{ borderTop: "1px solid var(--line)", background: "var(--paper)" }}>
+                <span className="font-bold opacity-80 min-w-0">{l}</span><b className="text-right" style={{ color: ca }}>{a}</b><span className="text-center opacity-40">→</span><b className="text-right" style={{ color: cb }}>{b}{l === "Crédit" && after <= 0 ? " ✓" : ""}</b>
+              </div>
+            ))}
+          </div>
+
+          {complement > 0 ? (
+            <div className="mt-2.5 rounded-[16px] px-3 py-2.5" style={{ background: "#FFF8EC", border: "1px solid #F6D9A8" }}>
+              <p className="text-[12px] font-bold" style={{ color: "#8A5300" }}>L'avoir couvre {fmt(avoirUse)} · {fmt(complement)} à compléter</p>
+              <div className="flex h-[7px] rounded-full overflow-hidden my-2"><span style={{ flex: avoirUse, background: "#7C5CF0" }} /><span style={{ flex: complement, background: compMethod === "mobile" ? "#2563EB" : "#22A35A" }} /></div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[["especes", "Espèces", "#22A35A"], ["mobile", "Mobile Money", "#2563EB"]].map(([id, l, c]) => (
+                  <button key={id} onClick={() => setCompMethod(id)} className="gb-focus min-h-[38px] rounded-[11px] text-[12px] font-bold" style={compMethod === id ? { background: c, color: "#fff" } : { background: "var(--card)", color: c, border: `1px solid ${c}55` }}>{l} {fmt(complement)}{compMethod === id ? " ✓" : ""}</button>
+                ))}
+              </div>
+              {compMethod === "mobile" && <div className="mt-2"><MomoPicker value={operator} onChange={setOperator} /></div>}
+            </div>
+          ) : avoirLeft > 0.5 ? (
+            <div className="mt-2.5 rounded-[16px] px-3.5 py-2.5 flex items-center gap-2.5" style={{ background: SC_AV.soft, border: `1.5px dashed ${SC_AV.line}` }}>
+              <span className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: SC_AV.grad, boxShadow: "0 8px 14px -8px rgba(91,60,196,0.9)" }}><Coins size={17} color="#fff" /></span>
+              <span className="min-w-0"><span className="block text-[12.5px] font-extrabold" style={{ color: SC_AV.deep }}>{fmt(avoirLeft)} restent en avoir monnaie</span><span className="block text-[11px] font-semibold" style={{ color: "#5B4A99" }}>Le client pourra les utiliser sur un prochain achat ou un autre crédit.</span></span>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {!isAvoir && valid && (
+        <div className="mt-3 rounded-[16px] px-3.5 py-1" style={{ background: "var(--paper-dim)" }}>
+          <Line l="Après ce règlement" v={after > 0 ? `reste ${fmt(after)}` : "Soldé ✓"} c={after > 0 ? "#9A5B00" : "#15803D"} strong />
+          <Line l={method === "mobile" ? "Reçu par Mobile Money" : "Entre dans la caisse"} v={fmt(value)} />
+        </div>
+      )}
+
+      {error && <p className="text-[12px] mt-2 font-semibold" style={{ color: "var(--danger)" }}>{error}</p>}
+
+      <button onClick={submit} className="gb-focus w-full rounded-[17px] min-h-[54px] px-3 font-bold text-[14.5px] text-white flex items-center justify-center gap-2 mt-3.5 active:scale-[0.99] transition-transform" style={{ background: isAvoir ? SC_AV.grad : method === "mobile" ? "#1D5FA8" : "var(--glass)", boxShadow: isAvoir ? "0 12px 22px -12px rgba(69,39,181,0.9)" : "0 12px 22px -14px rgba(0,0,0,0.6)" }}>
+        {isAvoir ? <Coins size={17} className="shrink-0" /> : method === "mobile" ? <Smartphone size={16} className="shrink-0" /> : <Banknote size={16} className="shrink-0" />}<span className="min-w-0">{btnTxt}</span>
+      </button>
+      <p className="text-[11px] opacity-55 text-center mt-2.5 px-2">{isAvoir ? (complement > 0 ? "L'avoir est déduit ; seul le complément est à recevoir du client." : "Rien à recevoir du client : l'argent de l'avoir est déjà dans la caisse.") : method === "mobile" ? "Ajouté à la recette du jour, sans entrer dans la caisse (espèces)." : "Ajouté à la recette du jour et aux espèces de la caisse."}</p>
+    </>
   );
 }
 
@@ -7450,7 +7646,7 @@ function CreditReceiptModal({ sale, shop, onClose, pushToast }) {
             <div key={i} className="flex justify-between items-start gap-2 text-xs">
               <span className="min-w-0">
                 <span className="opacity-60">{new Date(p.date).toLocaleDateString("fr-FR")} · {p.by}</span>
-                <span className="block mt-0.5"><span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={creditPayIsMobile(p) ? { background: "#E8F0FB", color: "#1D5FA8" } : { background: "#E6F4EC", color: "#1E7A46" }}>{creditPayIsMobile(p) ? <Smartphone size={10} /> : <Banknote size={10} />} {creditPayLabel(p)}</span></span>
+                <span className="block mt-0.5"><span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={p.method === "avoir" ? { background: "#EFEAFE", color: "#5B3CC4" } : creditPayIsMobile(p) ? { background: "#E8F0FB", color: "#1D5FA8" } : { background: "#E6F4EC", color: "#1E7A46" }}>{p.method === "avoir" ? <Coins size={10} /> : creditPayIsMobile(p) ? <Smartphone size={10} /> : <Banknote size={10} />} {creditPayLabel(p)}</span></span>
               </span>
               <span className="font-mono font-semibold shrink-0">{fmt(p.amount)}</span>
             </div>
@@ -7522,7 +7718,7 @@ function creditLineTotal(i) {
   try { return computeItemTotal(i.product, i.qty); } catch { return (Number(i.qty) || 0) * (Number(i.product?.price) || 0); }
 }
 
-function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, onDeleteSale }) {
+function CreditsScreen({ shop, sales, avoirs = [], clients, onSettle, pushToast, onWriteOff, onDeleteSale }) {
   const fmt = useFmt();
   const [openItems, setOpenItems] = useState({});
   const [saleReceipt, setSaleReceipt] = useState(null);
@@ -7776,7 +7972,7 @@ function CreditsScreen({ shop, sales, clients, onSettle, pushToast, onWriteOff, 
         </>
       )}
 
-      {settling && <SettleCreditModal sale={settling} onConfirm={handleConfirmSettle} onClose={() => setSettling(null)} />}
+      {settling && <SettleCreditModal sale={settling} avoirs={avoirs} clients={clients} shop={shop} onConfirm={(amount, pay) => onSettle(settling.id, amount, pay)} onReceipt={(u) => { setSettling(null); setConfirmReceipt(u); }} onClose={() => setSettling(null)} />}
       {deleting && <DeleteCreditSheet sale={deleting} onClose={() => setDeleting(null)} onWriteOff={(id) => { setDeleting(null); onWriteOff(id); }} onDeleteSale={(id) => { setDeleting(null); onDeleteSale(id); }} />}
       {confirmReceipt && <CreditReceiptModal sale={confirmReceipt} shop={shop} onClose={() => setConfirmReceipt(null)} pushToast={pushToast} />}
       {saleReceipt && <SaleReceiptModal receipt={saleReceipt} shop={shop} clients={clients} onClose={() => setSaleReceipt(null)} pushToast={pushToast} />}
@@ -8150,7 +8346,7 @@ function AvoirReceiptModal({ avoir, shop, onClose, pushToast }) {
                   ))
                 ) : (
                   <div className="flex justify-between text-xs font-semibold">
-                    <span>{e.kind === "achat" ? `Utilisé pour un achat${e.saleId ? ` · N° ${receiptNumber(e.saleId)}` : ""}` : "Monnaie rendue"}</span>
+                    <span>{e.kind === "achat" ? `Utilisé pour un achat${e.saleId ? ` · N° ${receiptNumber(e.saleId)}` : ""}` : e.kind === "credit" ? `Crédit remboursé${e.saleId ? ` · N° ${receiptNumber(e.saleId)}` : ""}` : "Monnaie rendue"}</span>
                     <span className="font-mono">{fmt(e.amount)}</span>
                   </div>
                 )}
@@ -8792,8 +8988,9 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
             {!isP && prog.remaining < (Number(a.amount) || 0) && (() => {
               const reds = a.redemptions || [];
               const bought = reds.filter((r) => r.kind === "achat").reduce((t, r) => t + (Number(r.amount) || 0), 0);
-              const given = Math.max(0, (Number(a.amount) || 0) - prog.remaining - bought);
-              return <p className="text-[11.5px] opacity-70">Avoir de {fmt(a.amount)}{bought > 0 ? ` · ${fmt(bought)} utilisés en achat` : ""}{given > 0 ? ` · ${fmt(given)} déjà rendus` : ""}</p>;
+              const onCredit = reds.filter((r) => r.kind === "credit").reduce((t, r) => t + (Number(r.amount) || 0), 0);
+              const given = Math.max(0, (Number(a.amount) || 0) - prog.remaining - bought - onCredit);
+              return <p className="text-[11.5px] opacity-70">Avoir de {fmt(a.amount)}{bought > 0 ? ` · ${fmt(bought)} utilisés en achat` : ""}{onCredit > 0 ? ` · ${fmt(onCredit)} pour rembourser un crédit` : ""}{given > 0 ? ` · ${fmt(given)} déjà rendus` : ""}</p>;
             })()}
             <div className="mt-2.5">
               {isP
@@ -8936,7 +9133,7 @@ function ScanReceiptModal({ sales, avoirs, shop, clients, auditLog = [], onClose
       {viewSale && <SaleReceiptModal receipt={viewSale} shop={shop} clients={clients || []} onClose={() => setViewSale(null)} pushToast={pushToast} avoirs={avoirs} />}
       {viewAvoir && <AvoirReceiptModal avoir={viewAvoir} shop={shop} onClose={() => setViewAvoir(null)} pushToast={pushToast} />}
       {returning && <SaleReturnFlow sale={returning} shop={shop} onReturnSale={onReturnSale} onClose={() => setReturning(null)} pushToast={pushToast} />}
-      {settling && <SettleCreditModal sale={settling} onClose={() => setSettling(null)} onConfirm={(amount, pay) => { const updated = onSettleCredit(settling.id, amount, pay); setSettling(null); if (updated) setCreditReceipt(updated); }} />}
+      {settling && <SettleCreditModal sale={settling} avoirs={avoirs} clients={clients} shop={shop} onClose={() => setSettling(null)} onConfirm={(amount, pay) => onSettleCredit(settling.id, amount, pay)} onReceipt={(u) => { setSettling(null); setCreditReceipt(u); }} />}
       {creditReceipt && <CreditReceiptModal sale={creditReceipt} shop={shop} onClose={() => setCreditReceipt(null)} pushToast={pushToast} />}
       {redeemMoney && <RedeemMoneyAvoirModal avoir={redeemMoney} onClose={() => setRedeemMoney(null)} onConfirm={(amount) => { const updated = onRedeemMoney(redeemMoney.id, amount); setRedeemMoney(null); if (updated) setViewAvoir(updated); }} />}
       {redeemProduct && <RedeemProductAvoirModal avoir={redeemProduct} onClose={() => setRedeemProduct(null)} onConfirm={(items2) => { const updated = onRedeemProduct(redeemProduct.id, items2); setRedeemProduct(null); if (updated) setViewAvoir(updated); }} />}
@@ -9033,7 +9230,7 @@ function PositionScreen({ shop, sales, avoirs, clients, onSettleCredit, onRedeem
         </button>
       </div>
       {sub === "credit" ? (
-        <CreditsScreen shop={shop} sales={sales} clients={clients} onSettle={onSettleCredit} pushToast={pushToast} onWriteOff={onWriteOffCredit} onDeleteSale={onDeleteCreditSale} />
+        <CreditsScreen shop={shop} sales={sales} avoirs={avoirs} clients={clients} onSettle={onSettleCredit} pushToast={pushToast} onWriteOff={onWriteOffCredit} onDeleteSale={onDeleteCreditSale} />
       ) : (
         <AvoirsScreen shop={shop} avoirs={avoirs} sales={sales} clients={clients} onRedeemMoney={onRedeemMoney} onRedeemProduct={onRedeemProduct} pushToast={pushToast} onDeleteAvoirs={onDeleteAvoirs} />
       )}
@@ -17235,7 +17432,7 @@ function OtaSection({ pushToast }) {
   const statusChip = s.status === "downloading" ? `Téléchargement ${s.percent || 0} %`
     : s.status === "ready" ? "Nouvelle version prête"
     : s.status === "checking" ? "Vérification…"
-    : s.status === "needApk" ? "Nouvel APK nécessaire"
+    : s.status === "needApk" ? "Mise à jour Play Store nécessaire"
     : s.status === "available" ? "Mise à jour disponible"
     : s.status === "error" ? "Hors connexion"
     : "À jour";
@@ -17260,12 +17457,12 @@ function OtaSection({ pushToast }) {
       )}
       {native && !s.supported && (
         <div className="rounded-2xl p-4 mb-3 text-[13px]" style={{ background: "#FFF6DD", border: "1px solid #F1D99A", color: "#7A5208" }}>
-          Cette version de l'application ne contient pas encore le module de mise à jour. Installez le nouvel APK une fois : ensuite, les mises à jour arriveront toutes seules.
+          Cette version de l'application ne contient pas encore le module de mise à jour. Mettez GestiOne à jour une fois depuis le Play Store : ensuite, les mises à jour arriveront toutes seules.
         </div>
       )}
       {native && s.status === "needApk" && (
         <div className="rounded-2xl p-4 mb-3 text-[13px]" style={{ background: "#FCEBEB", border: "1px solid #F4C7C7", color: "#8A2A2A" }}>
-          La dernière version a besoin d'un nouvel APK (nouvel accès au téléphone). Installez-le depuis le lien fourni par l'équipe GestiOne.
+          La dernière version a besoin d'une mise à jour de l'application. Mettez GestiOne à jour depuis le Play Store.
         </div>
       )}
 
@@ -19436,11 +19633,11 @@ function LicenseSection({ license, licenseStatus, onActivate, pushToast, shopNam
       {licenseStatus === "expiring" && (
         <div className="rounded-2xl p-3.5 mb-3 flex items-start gap-2.5" style={{ background: "#FFF3DC" }}>
           <Clock size={16} color="#8A5A00" className="shrink-0 mt-0.5" />
-          <p className="text-xs" style={{ color: "#8A5A00" }}>Pensez à prolonger maintenant : le nouveau code s'ajoute aux jours qu'il vous reste.</p>
+          <p className="text-xs" style={{ color: "#8A5A00" }}>Un nouveau code activé avant l'échéance s'ajoute aux jours qu'il vous reste.</p>
         </div>
       )}
 
-      {!license?.lifetime && (
+      {!license?.lifetime && licenseSalesAllowed() && (
         <div className="mb-2.5">
           <LicPrimaryButton onClick={() => setPricingStep("offers")} Icon={ChevronRight}>
             {isTrial || licenseStatus === "expired" || licenseStatus === "none" ? "Choisir une formule" : "Prolonger et économiser"}
@@ -19455,7 +19652,7 @@ function LicenseSection({ license, licenseStatus, onActivate, pushToast, shopNam
           <button onClick={() => setPricingStep("activate")} className="gb-focus w-full min-h-[50px] rounded-[18px] text-[14.5px] font-bold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform" style={{ background: LIC.card, border: `1.5px solid ${LIC.line}`, color: LIC.pri }}>
             <KeyRound size={16} /> J'ai un code d'activation
           </button>
-          <p className="text-center text-[11.5px] mt-3" style={{ color: LIC.mut }}>Aucun paiement dans l'application : vous recevez votre code après votre commande.</p>
+          <p className="text-center text-[11.5px] mt-3" style={{ color: LIC.mut }}>{licenseSalesAllowed() ? "Après votre paiement, vous recevez un code de licence à activer ici." : STORE_CODE_HINT}</p>
         </>
       )}
 
@@ -22717,6 +22914,8 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [license?.expiresAt, license?.lifetime, role]);
   const shop = shops && activeShopId ? shops.find((s) => s.id === activeShopId) : null;
+  // Hôtel : aucun comptage animé des montants (chiffres fixes, écran stable).
+  useEffect(() => { setCountUpEnabled(shop?.type !== "hotel"); }, [shop?.type]);
   shopTypeRef.current = shop?.type || null;
   // Camion de livraison : dès qu'une commande fournisseur passe « reçue »
   // (sur ce téléphone ou un autre, après synchronisation), le camion passe
@@ -23545,6 +23744,20 @@ function AppInner() {
     // boutique partagent une seule clé de stockage, sauvegardée d'un bloc.
     // On recompresse ici n'importe quelle photo oubliée trop volumineuse,
     // pas seulement celle du produit qu'on est en train de modifier.
+    // Date de modification de la fiche (prix, formules, nom, suppléments…).
+    // Le serveur garde toujours la fiche la plus récente : un téléphone qui
+    // n'a pas encore reçu le nouveau prix ne peut plus remettre l'ancien en
+    // vendant (seul son stock est pris en compte). Les simples mouvements de
+    // stock ne changent pas cette date.
+    try {
+      const prevById = new Map((products || []).map((p) => [p.id, p]));
+      const stamp = Date.now();
+      next = (next || []).map((p) => {
+        const old = prevById.get(p.id);
+        if (!old) return p.updatedAt ? p : { ...p, updatedAt: stamp };
+        return productSig(old) === productSig(p) ? p : { ...p, updatedAt: stamp };
+      });
+    } catch { /* la date ne bloque jamais l'enregistrement */ }
     let safeNext = next;
     if (next.some((p) => p.image && p.image.length > 250000)) {
       safeNext = await Promise.all(next.map(async (p) => {
@@ -24619,15 +24832,41 @@ function AppInner() {
     const received = Math.min(Math.max(0, Number(amount) || 0), remaining);
     if (received <= 0) return sale;
     const method = pay && pay.method === "mobile" ? "mobile" : "especes";
-    const newPay = { amount: received, date: paidDate, by: paidBy, method, ...(method === "mobile" && pay.operator ? { operator: pay.operator } : {}) };
-    const payments = [...creditPaymentsOf(sale), newPay];
+    // Part réglée avec les avoirs monnaie du client (du plus ancien au plus
+    // récent) : prélevée sur chaque avoir, le reste de l'avoir reste au
+    // client. L'argent de l'avoir est déjà dans la caisse (monnaie non rendue),
+    // il compte donc comme des espèces dans les totaux, comme pour un achat
+    // payé avec un avoir.
+    const uses = [];
+    let avoirTotal = 0;
+    (Array.isArray(pay?.avoirUse) ? pay.avoirUse : []).forEach((u) => {
+      const av = avoirs.find((a) => a.id === u.avoirId && a.type === "monnaie" && !a.settled);
+      if (!av) return;
+      const take = Math.min(avoirRemaining(av), Math.max(0, Number(u.amount) || 0), received - avoirTotal);
+      if (take > 0) { uses.push({ av, take }); avoirTotal += take; }
+    });
+    const complement = Math.max(0, received - avoirTotal);
+    const newPays = [];
+    if (avoirTotal > 0) newPays.push({ amount: avoirTotal, date: paidDate, by: paidBy, method: "avoir", avoirIds: uses.map((x) => x.av.id) });
+    if (complement > 0) newPays.push({ amount: complement, date: paidDate, by: paidBy, method, ...(method === "mobile" && pay.operator ? { operator: pay.operator } : {}) });
+    const payments = [...creditPaymentsOf(sale), ...newPays];
     const fullyPaid = alreadyPaid + received >= sale.total - 0.5;
     const nextSales = sales.map((s) => (s.id === saleId ? { ...s, payments, paid: fullyPaid, paidBy, paidDate } : s));
     saveSales(nextSales);
+    if (uses.length) {
+      const byId = new Map(uses.map((x) => [x.av.id, x.take]));
+      saveAvoirs(avoirs.map((a) => {
+        const take = byId.get(a.id);
+        if (!take) return a;
+        const redemptions = [...(a.redemptions || []), { amount: take, date: paidDate, by: paidBy, kind: "credit", saleId }];
+        const left = avoirRemaining({ ...a, redemptions });
+        return { ...a, redemptions, settled: left <= 0.5, settledDate: left <= 0.5 ? paidDate : a.settledDate };
+      }));
+    }
     const settled = nextSales.find((s) => s.id === saleId);
-    pushToast(fullyPaid ? "Crédit encaissé en totalité" : "Remboursement partiel enregistré", "ok");
+    pushToast(fullyPaid ? (avoirTotal > 0 && complement <= 0 ? "Crédit soldé avec l'avoir monnaie" : "Crédit encaissé en totalité") : "Remboursement partiel enregistré", "ok");
     pushNotification({ type: "credit_settled", clientName: settled?.clientName || settled?.vendor, total: received, by: paidBy, partial: !fullyPaid });
-    logAudit("caisse", `Crédit encaissé${settled?.clientName ? ` · ${settled.clientName}` : ""} : ${formatMoney(received, shop?.currency)} · ${creditPayLabel(newPay)}${fullyPaid ? " (soldé)" : " (partiel)"}`, { amount: received, saleId });
+    logAudit("caisse", `Crédit encaissé${settled?.clientName ? ` · ${settled.clientName}` : ""} : ${formatMoney(received, shop?.currency)} · ${newPays.map((p) => `${creditPayLabel(p)} ${formatMoney(p.amount, shop?.currency)}`).join(" + ")}${fullyPaid ? " (soldé)" : " (partiel)"}`, { amount: received, saleId });
     return settled;
   };
 
@@ -24807,10 +25046,13 @@ function AppInner() {
     // Suppression en cascade : le crédit disparaît avec la vente (il est porté
     // par elle), les avoirs rattachés sont retirés en un seul enregistrement.
     const impact = saleDeletionImpact(sale, avoirs);
-    if (impact.avoirIds.length || impact.restored) {
+    // Avoirs monnaie qui ont servi à rembourser ce crédit : recrédités.
+    const creditUsed = avoirs.some((a) => (a.redemptions || []).some((r) => r.kind === "credit" && r.saleId === sale.id));
+    if (impact.avoirIds.length || impact.restored || creditUsed) {
       const ids = new Set(impact.avoirIds);
       saveAvoirs(avoirs.filter((a) => !ids.has(a.id)).map((a) => {
-        if (!impact.restored || a.id !== impact.restored.avoir.id) return a;
+        const hasCredit = (a.redemptions || []).some((r) => r.kind === "credit" && r.saleId === sale.id);
+        if (!hasCredit && (!impact.restored || a.id !== impact.restored.avoir.id)) return a;
         const redemptions = (a.redemptions || []).filter((r) => r.saleId !== sale.id);
         return { ...a, redemptions, settled: false, settledDate: undefined };
       }));
@@ -25297,7 +25539,7 @@ function AppInner() {
                 )}
                 {hotelLegal && <div className="fixed inset-0 z-[70]"><LegalScreen doc={hotelLegal} onSwitch={() => setHotelLegal(hotelLegal === "terms" ? "privacy" : "terms")} onClose={() => setHotelLegal(null)} /></div>}
                 {(role === "admin" || hotelSupportAsked) && licenseStatus !== "expired" && !ownerAccess && !hotelEditorOpen && (
-                  <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} variant={shop.type === "hotel" ? "hotel" : undefined} prefill={supportPrefill} onBuyLicense={() => setHotelRouteSignal({ name: "order", n: Date.now() })} />
+                  <SupportChatWidget shop={shop} unread={supportUnread} onSeen={() => setSupportUnread(0)} variant={shop.type === "hotel" ? "hotel" : undefined} prefill={supportPrefill} onBuyLicense={licenseSalesAllowed() ? () => setHotelRouteSignal({ name: "order", n: Date.now() }) : undefined} />
                 )}
                 {/* Bouton « revenir en haut », juste au-dessus de la bulle de messagerie */}
                 {licenseStatus !== "expired" && !ownerAccess && !hotelEditorOpen && <ScrollTopBubble bottom={(role === "admin" || hotelSupportAsked) ? 172 : 104} />}

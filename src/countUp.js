@@ -25,6 +25,16 @@ const SKIP_SEL = "input, textarea, select, option, [contenteditable], [data-no-c
 const animating = new Map(); // textNode -> état de l'animation
 const seen = new WeakSet(); // nœuds déjà traités à leur apparition
 let ourWrite = false;
+// Désactivable par type d'entreprise (Hôtel : chiffres fixes, sans comptage).
+let enabled = true;
+export function setCountUpEnabled(on) {
+  enabled = !!on;
+  if (!enabled) {
+    // Animations en cours : on remet tout de suite la vraie valeur.
+    animating.forEach((st, node) => { cancelAnimationFrame(st.raf); try { ourWrite = true; node.nodeValue = st.final; } finally { ourWrite = false; } });
+    animating.clear();
+  }
+}
 
 function parse(text) {
   const t = String(text || "").trim();
@@ -129,6 +139,7 @@ function scan(root) {
 }
 
 function consider(node) {
+  if (!enabled) return;
   if (seen.has(node) || animating.has(node)) return;
   // Ne pas marquer « vu » un texte qui n'est pas (encore) un nombre : il
   // pourra le devenir (chargement des données).

@@ -102,12 +102,16 @@ input, textarea { -webkit-tap-highlight-color: transparent; }
    Seulement opacity/left : aucun transform, pour ne pas déplacer les éléments
    fixes (barre panier, fenêtres) pendant l'animation. */
 @keyframes gbViewIn { from { opacity: 0; left: 28px; } to { opacity: 1; left: 0; } }
-.gb-view-in { position: relative; animation: gbViewIn .28s cubic-bezier(.2,.8,.2,1) both; }
+/* « backwards » (et non « both ») : une fois l'animation finie, la page ne
+   garde aucun effet. Avec « both », l'opacité restait animée en permanence,
+   ce qui enfermait toutes les fenêtres (feuilles du bas, messagerie…) SOUS le
+   menu du bas : boutons cachés et fenêtres coupées. */
+.gb-view-in { position: relative; animation: gbViewIn .28s cubic-bezier(.2,.8,.2,1) backwards; }
 @media (prefers-reduced-motion: reduce) { .gb-view-in { animation: none; } }
 
 /* C13 — Graphiques animés : les barres poussent l'une après l'autre. */
 @keyframes gbBarUp { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-.recharts-bar-rectangle path { transform-box: fill-box; transform-origin: 50% 100%; animation: gbBarUp .7s cubic-bezier(.2,.8,.2,1) both; }
+.recharts-bar-rectangle path { transform-box: fill-box; transform-origin: 50% 100%; animation: gbBarUp .7s cubic-bezier(.2,.8,.2,1) backwards; }
 .recharts-bar-rectangle:nth-child(2) path { animation-delay: .06s; }
 .recharts-bar-rectangle:nth-child(3) path { animation-delay: .12s; }
 .recharts-bar-rectangle:nth-child(4) path { animation-delay: .18s; }
